@@ -10,7 +10,6 @@ from schemas.channel import ChannelOut, ChannelIn
 from scripts.add_channel import normalize_channel_identifier
 from client import client
 from services.ingest import upsert_channel
-from db.session import AsyncSessionLocal
 
 router = APIRouter()
 
@@ -22,7 +21,8 @@ async def list_channels(session: AsyncSession = Depends(get_session)):
 @router.post("/add")
 async def add_channel(user: ChannelIn, session: AsyncSession = Depends(get_session) ):
     ident = normalize_channel_identifier(user.username)
-    await client.start()
+    if not client:
+        await client.start()
 
     entity = await client.get_entity(ident)
     if not isinstance(entity, TgChannel):
@@ -36,11 +36,12 @@ async def add_channel(user: ChannelIn, session: AsyncSession = Depends(get_sessi
     if not username:
         username = f"id_{entity.id}"
 
-    ch = await upsert_channel(
-        session,
-        username=username,
-        title=title,
-        category=None,
-        is_active=True,
-    )
+    async with session.begin(): 
+        ch = await upsert_channel(
+            session,
+            username=username,
+            title=title,
+            category=None,
+            is_active=True,
+        )
     return (f"OK: saved channel id={ch.id} username=@{ch.username} title={ch.title!r}")

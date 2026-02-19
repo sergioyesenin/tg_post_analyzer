@@ -35,9 +35,9 @@ async def top_posts(
         PostCardOut(
             id=p.id,
             channel_id=p.channel_id,
-            channel_username=p.channel.username,
-            published_at=p.date,
-            text_preview=(p.text[:200] if p.text else None),
+            channel_username=p.channel.title,
+            date=p.date,
+            text_preview=(p.text.splitlines()[0] if p.text else None),
             comments_count=p.comments_count,
         )
         for p in posts

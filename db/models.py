@@ -52,6 +52,7 @@ class Post(Base):
     views: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     comments_count: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    involvement: Mapped[float | None] = mapped_column(nullable=True)
 
     # для логики "собрать через 10-15 мин + дособор 24 часа"
     last_comments_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

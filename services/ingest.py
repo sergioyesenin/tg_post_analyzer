@@ -54,6 +54,7 @@ async def upsert_post(
     text: Optional[str],
     views: Optional[int],
     comments_count: int = 0,
+    involvement: Optional[float] = None
 ) -> Post:
     stmt = (
         insert(Post)
@@ -65,6 +66,7 @@ async def upsert_post(
             views=views,
             comments_count=comments_count,
             created_at=datetime.utcnow(),
+            involvement = involvement,
         )
         .on_conflict_do_update(
             constraint="uq_posts_channel_msg",
@@ -75,6 +77,7 @@ async def upsert_post(
                 "views": views,
                 # comments_count будем обновлять позже отдельным апдейтом, но и тут можно
                 "comments_count": comments_count,
+                "involvement": involvement,
             },
         )
         .returning(Post.id)
@@ -136,6 +139,14 @@ async def set_post_comments_count(session: AsyncSession, *, post_id: int, commen
         Post.__table__.update()
         .where(Post.id == post_id)
         .values(comments_count=comments_count)
+    )
+
+
+async def set_post_involvement(session: AsyncSession, *, post_id: int, involvement: Optional[float]) -> None:
+    await session.execute(
+        Post.__table__.update()
+        .where(Post.id == post_id)
+        .values(involvement=involvement)
     )
 
 async def upsert_report(

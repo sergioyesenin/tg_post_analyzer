@@ -8,6 +8,8 @@ class PostCardOut(BaseModel):
     date: datetime
     text_preview: str | None
     comments_count: int
+    views: int | None = None
+    involvement: float | None
 
 class PostDetailOut(BaseModel):
     id: int
@@ -16,6 +18,7 @@ class PostDetailOut(BaseModel):
     date: datetime
     comments_count: int
     views: int | None = None
+    involvement: float | None = None
 
     class Config:
         from_attributes = True

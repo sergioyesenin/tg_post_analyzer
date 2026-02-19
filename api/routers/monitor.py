@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
 
@@ -23,4 +23,24 @@ async def monitor_summary(session: AsyncSession = Depends(get_session)):
     return {
         "posts_last_24h": posts_count,
         "comments_last_24h": comments_count,
+    }
+
+
+@router.get("/db-size")
+async def db_size(session: AsyncSession = Depends(get_session)):
+    row = (
+        await session.execute(
+            text(
+                "SELECT "
+                "current_database() AS db_name, "
+                "pg_database_size(current_database()) AS bytes, "
+                "pg_size_pretty(pg_database_size(current_database())) AS pretty"
+            )
+        )
+    ).first()
+
+    return {
+        "database": row.db_name,
+        "bytes": int(row.bytes),
+        "pretty": row.pretty,
     }

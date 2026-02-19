@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 from telethon.tl.types import Channel as TgChannel
+from telethon.tl.functions.channels import LeaveChannelRequest, JoinChannelRequest
 
 from deps import get_session
 from db.models import Channel
@@ -28,7 +29,7 @@ async def add_channel(user: ChannelIn, session: AsyncSession = Depends(get_sessi
     if not isinstance(entity, TgChannel):
         print(f"ERROR: {ident} is not a channel (got {type(entity)})")
         raise SystemExit(1)
-
+    await client(JoinChannelRequest(entity))
     username: Optional[str] = entity.username
     title: Optional[str] = getattr(entity, "title", None)
 

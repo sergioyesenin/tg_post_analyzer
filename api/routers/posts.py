@@ -8,6 +8,7 @@ from deps import get_session
 from db.models import Post, Channel, Comment
 from schemas.post import PostCardOut, PostDetailOut
 from schemas.comment import CommentOut
+from services.TGqueries import update_post_comments
 
 router = APIRouter()
 
@@ -35,10 +36,12 @@ async def top_posts(
         PostCardOut(
             id=p.id,
             channel_id=p.channel_id,
-            channel_username=p.channel.title,
+            channel_username=p.channel.username,
             date=p.date,
             text_preview=(p.text.splitlines()[0] if p.text else None),
             comments_count=p.comments_count,
+            views=p.views,
+            involvement=p.involvement,
         )
         for p in posts
     ]
@@ -61,3 +64,12 @@ async def get_comments(post_id: int, session: AsyncSession = Depends(get_session
     if result is None:
         raise HTTPException(status_code=404, detail="Post not found")
     return result.scalars().all()
+
+@router.post("/{post_id}/comments/update")
+async def update_comments(post_id: int, session: AsyncSession = Depends(get_session)):
+    async with session.begin():
+        result = await update_post_comments(session, post_id)
+
+    if result.get("status") == "not_found":
+        raise HTTPException(status_code=404, detail="Post not found")
+    return result

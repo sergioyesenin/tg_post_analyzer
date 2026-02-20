@@ -50,32 +50,36 @@ async def upsert_post(
     *,
     channel_id: int,
     tg_message_id: int,
+    parent_tg_message_id: Optional[int] = None,
+    parent_post_id: Optional[int] = None,
     date: datetime,
     text: Optional[str],
     views: Optional[int],
     comments_count: int = 0,
-    involvement: Optional[float] = None
+    involvement: Optional[float] = None,
 ) -> Post:
     stmt = (
         insert(Post)
         .values(
             channel_id=channel_id,
             tg_message_id=tg_message_id,
+            parent_tg_message_id=parent_tg_message_id,
+            parent_post_id=parent_post_id,
             date=date,
             text=text,
             views=views,
             comments_count=comments_count,
             created_at=datetime.utcnow(),
-            involvement = involvement,
+            involvement=involvement,
         )
         .on_conflict_do_update(
             constraint="uq_posts_channel_msg",
             set_={
-                # date/text обычно неизменны, но пусть обновляются — это безопасно
                 "date": date,
+                "parent_tg_message_id": parent_tg_message_id,
+                "parent_post_id": parent_post_id,
                 "text": text,
                 "views": views,
-                # comments_count будем обновлять позже отдельным апдейтом, но и тут можно
                 "comments_count": comments_count,
                 "involvement": involvement,
             },
@@ -88,7 +92,6 @@ async def upsert_post(
     post = await session.get(Post, post_id)
     assert post is not None
     return post
-
 
 async def upsert_comment(
     session: AsyncSession,
@@ -199,3 +202,4 @@ async def upsert_report(
     # created_at не трогаем: это "время создания"
     await session.flush()
     return report
+

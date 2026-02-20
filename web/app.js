@@ -1,10 +1,11 @@
-﻿const state = {
+const state = {
   channels: [],
   allPosts: [],
   filteredPosts: [],
   selectedPost: null,
   report: null,
   comments: [],
+  related: null,
 };
 
 const el = {
@@ -26,6 +27,7 @@ const el = {
   detailMetrics: document.getElementById("detailMetrics"),
   tabReport: document.getElementById("tabReport"),
   tabComments: document.getElementById("tabComments"),
+  tabLinks: document.getElementById("tabLinks"),
   tabData: document.getElementById("tabData"),
   detailStatus: document.getElementById("detailStatus"),
   refreshCommentsBtn: document.getElementById("refreshCommentsBtn"),
@@ -49,6 +51,15 @@ function formatDate(iso) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 async function api(path, opts = {}) {
@@ -144,8 +155,15 @@ function renderPosts() {
         <span>👁 ${formatNum(p.views)}</span>
         <span>⚡ ${p.involvement ? (p.involvement * 100).toFixed(1) : "0.0"}%</span>
       </div>
+      <div class="post-actions-row">
+        <button class="btn ghost related-btn">Связанные посты</button>
+      </div>
     `;
     card.onclick = () => selectPost(p);
+    card.querySelector(".related-btn").onclick = async (event) => {
+      event.stopPropagation();
+      await openRelatedForPost(p);
+    };
     el.postsList.append(card);
   }
 }
@@ -165,7 +183,7 @@ async function selectPost(post) {
     <span>⚡ ${post.involvement ? (post.involvement * 100).toFixed(1) : "0.0"}%</span>
   `;
 
-  await Promise.all([loadReport(post.id), loadComments(post.id)]);
+  await Promise.all([loadReport(post.id), loadComments(post.id), loadRelated(post.id)]);
   renderDetail();
 }
 
@@ -181,38 +199,175 @@ async function loadComments(postId) {
   state.comments = await api(`/api/posts/${postId}/comments`);
 }
 
+async function loadRelated(postId) {
+  try {
+    state.related = await api(`/api/links/posts/${postId}/related`);
+  } catch (error) {
+    state.related = {
+      root_post_id: postId,
+      related_posts: [],
+      graph: { nodes: [], edges: [] },
+      error: error.message,
+    };
+  }
+}
+
+function renderGraphSvg(graph, rootId) {
+  const nodes = graph?.nodes || [];
+  const edges = graph?.edges || [];
+  if (!nodes.length) {
+    return "<div class='muted'>Недостаточно данных для построения графа.</div>";
+  }
+
+  const width = 760;
+  const height = 320;
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const radius = Math.max(95, Math.min(width, height) * 0.36);
+  const positions = new Map();
+
+  const rootNode = nodes.find((n) => n.id === rootId) || nodes.find((n) => n.is_root) || nodes[0];
+  positions.set(rootNode.id, { x: centerX, y: centerY });
+
+  const others = nodes.filter((n) => n.id !== rootNode.id);
+  others.forEach((node, index) => {
+    const angle = (2 * Math.PI * index) / Math.max(1, others.length);
+    positions.set(node.id, {
+      x: centerX + radius * Math.cos(angle),
+      y: centerY + radius * Math.sin(angle),
+    });
+  });
+
+  const edgeMarkup = edges
+    .map((edge) => {
+      const from = positions.get(edge.source);
+      const to = positions.get(edge.target);
+      if (!from || !to) return "";
+      const midX = (from.x + to.x) / 2;
+      const midY = (from.y + to.y) / 2;
+      const conf = edge.confidence != null ? ` (${(edge.confidence * 100).toFixed(0)}%)` : "";
+      return `
+        <line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}" class="graph-edge-line"></line>
+        <text x="${midX}" y="${midY - 8}" class="graph-edge-label">${escapeHtml(edge.relation_ru + conf)}</text>
+      `;
+    })
+    .join("");
+
+  const nodeMarkup = nodes
+    .map((node) => {
+      const pos = positions.get(node.id);
+      if (!pos) return "";
+      const nodeClass = node.id === rootNode.id ? "graph-node root" : "graph-node";
+      return `
+        <g class="${nodeClass}" transform="translate(${pos.x}, ${pos.y})">
+          <circle r="30"></circle>
+          <text text-anchor="middle" dy="6">${node.id}</text>
+        </g>
+        <text x="${pos.x}" y="${pos.y + 52}" text-anchor="middle" class="graph-node-label">${escapeHtml(node.label || `Пост ${node.id}`)}</text>
+      `;
+    })
+    .join("");
+
+  return `
+    <svg class="related-graph" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMidYMid meet">
+      ${edgeMarkup}
+      ${nodeMarkup}
+    </svg>
+  `;
+}
+
+function renderRelatedPanel() {
+  if (!state.related || !state.selectedPost) {
+    el.tabLinks.innerHTML = "Связи пока не загружены.";
+    return;
+  }
+
+  const rows = (state.related.related_posts || [])
+    .slice()
+    .sort((a, b) => (b.confidence || 0) - (a.confidence || 0))
+    .map(
+      (item) => `
+      <div class="related-row">
+        <div>
+          <div class="related-title">Пост ${item.post_id} · @${escapeHtml(item.channel_username)}</div>
+          <div class="related-preview">${escapeHtml(item.text_preview || "Без текста")}</div>
+        </div>
+        <div class="related-meta">
+          <div>${escapeHtml(item.link_type_ru)}</div>
+          <div class="muted">${escapeHtml(item.direction_ru)}</div>
+          <div class="related-confidence">${item.confidence != null ? (item.confidence * 100).toFixed(1) + "%" : "—"}</div>
+        </div>
+      </div>
+    `,
+    )
+    .join("");
+
+  const graphMarkup = renderGraphSvg(state.related.graph, state.selectedPost.id);
+  const loadError = state.related.error
+    ? `<div class="related-error">Ошибка загрузки связей: ${escapeHtml(state.related.error)}</div>`
+    : "";
+
+  el.tabLinks.innerHTML = `
+    ${loadError}
+    <div class="related-headline">
+      Найдено связей: <strong>${formatNum((state.related.related_posts || []).length)}</strong>
+    </div>
+    <div class="related-list">
+      ${rows || "<div class='muted'>Связанные посты не найдены.</div>"}
+    </div>
+    <div class="graph-wrap">
+      <div class="graph-title">Граф связей</div>
+      ${graphMarkup}
+    </div>
+  `;
+}
+
 function renderDetail() {
   el.tabReport.textContent = state.report?.content || "Отчет отсутствует";
   el.tabComments.innerHTML = state.comments.length
     ? state.comments
         .slice(0, 200)
-        .map((c) => `<div><strong>${c.author_username || c.author_id || "user"}:</strong> ${c.text || ""}</div>`)
+        .map((c) => `<div><strong>${c.author_username || c.author_id || "user"}:</strong> ${escapeHtml(c.text || "")}</div>`)
         .join("<hr />")
     : "Комментариев пока нет";
+
+  renderRelatedPanel();
 
   el.tabData.textContent = JSON.stringify(
     {
       post: state.selectedPost,
       report_status: state.report?.status,
       comments_count: state.comments.length,
+      related_count: state.related?.related_posts?.length || 0,
     },
     null,
     2,
   );
 }
 
+function activateTab(key) {
+  const tabs = [...document.querySelectorAll(".tab")];
+  tabs.forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === key));
+  ["report", "comments", "links", "data"].forEach((name) => {
+    document.getElementById(`tab${name[0].toUpperCase()}${name.slice(1)}`).classList.toggle("hidden", name !== key);
+  });
+}
+
 function initTabs() {
   const tabs = [...document.querySelectorAll(".tab")];
   tabs.forEach((btn) => {
-    btn.onclick = () => {
-      tabs.forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      const key = btn.dataset.tab;
-      ["report", "comments", "data"].forEach((name) => {
-        document.getElementById(`tab${name[0].toUpperCase()}${name.slice(1)}`).classList.toggle("hidden", name !== key);
-      });
-    };
+    btn.onclick = () => activateTab(btn.dataset.tab);
   });
+}
+
+async function openRelatedForPost(post) {
+  if (!state.selectedPost || state.selectedPost.id !== post.id) {
+    await selectPost(post);
+  } else {
+    await loadRelated(post.id);
+    renderDetail();
+  }
+  activateTab("links");
 }
 
 async function updateCommentsForCurrent() {

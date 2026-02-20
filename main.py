@@ -14,7 +14,7 @@ from sqlalchemy import select
 from agent.reporter import TgReportProject
 from client import client
 from config import settings
-from db.models import Channel
+from db.models import Channel, Post
 from db.session import AsyncSessionLocal
 from services.ingest import (
     set_post_comments_count,
@@ -23,6 +23,7 @@ from services.ingest import (
     upsert_post,
     upsert_report,
 )
+from services.linker import link_post_to_graph, upsert_post_link
 
 report_project = TgReportProject(
     llm_model="ollama/llama3:8b-instruct-q4_K_M",
@@ -30,6 +31,7 @@ report_project = TgReportProject(
 
 POSTS_SLEEP_EVERY = 50
 COMMENTS_SLEEP_EVERY = 50
+LINK_REPLY_TO = "REPLY_TO"
 
 
 def day_bounds_utc(tz_name: str) -> tuple[datetime, datetime]:
@@ -42,6 +44,82 @@ def day_bounds_utc(tz_name: str) -> tuple[datetime, datetime]:
 
 async def polite_sleep(base: float, jitter: float) -> None:
     await asyncio.sleep(base + random.random() * jitter)
+
+
+def extract_parent_tg_message_id(message) -> int | None:
+    reply_to = getattr(message, "reply_to", None)
+    if reply_to is None:
+        return None
+    parent_tg_message_id = getattr(reply_to, "reply_to_msg_id", None)
+    if isinstance(parent_tg_message_id, int) and parent_tg_message_id > 0:
+        return parent_tg_message_id
+    return None
+
+
+async def get_post_by_channel_and_tg_message(
+    *,
+    session,
+    channel_id: int,
+    tg_message_id: int,
+) -> Post | None:
+    stmt = (
+        select(Post)
+        .where(Post.channel_id == channel_id)
+        .where(Post.tg_message_id == tg_message_id)
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def ensure_parent_post(
+    *,
+    session,
+    channel: Channel,
+    entity,
+    parent_tg_message_id: int,
+) -> Post | None:
+    parent_post = await get_post_by_channel_and_tg_message(
+        session=session,
+        channel_id=channel.id,
+        tg_message_id=parent_tg_message_id,
+    )
+    if parent_post is not None:
+        return parent_post
+
+    try:
+        parent_msg = await client.get_messages(entity, ids=parent_tg_message_id)
+    except Exception:
+        return None
+
+    if isinstance(parent_msg, list):
+        parent_msg = parent_msg[0] if parent_msg else None
+    if parent_msg is None or getattr(parent_msg, "id", None) is None or getattr(parent_msg, "date", None) is None:
+        return None
+
+    parent_replies_obj = getattr(parent_msg, "replies", None)
+    parent_replies_count = getattr(parent_replies_obj, "replies", 0) if parent_replies_obj else 0
+    parent_parent_tg_message_id = extract_parent_tg_message_id(parent_msg)
+    parent_parent_post_id: int | None = None
+    if isinstance(parent_parent_tg_message_id, int):
+        parent_parent_post = await get_post_by_channel_and_tg_message(
+            session=session,
+            channel_id=channel.id,
+            tg_message_id=parent_parent_tg_message_id,
+        )
+        if parent_parent_post is not None:
+            parent_parent_post_id = parent_parent_post.id
+
+    return await upsert_post(
+        session,
+        channel_id=channel.id,
+        tg_message_id=parent_msg.id,
+        parent_tg_message_id=parent_parent_tg_message_id,
+        parent_post_id=parent_parent_post_id,
+        date=parent_msg.date,
+        text=parent_msg.message,
+        views=getattr(parent_msg, "views", None),
+        comments_count=int(parent_replies_count or 0),
+        involvement=None,
+    )
 
 
 async def parse_channel_today(channel: Channel) -> None:
@@ -87,16 +165,45 @@ async def get_posts(channel: Channel, entity) -> None:
                         continue
 
                     try:
+                        parent_tg_message_id = extract_parent_tg_message_id(msg)
+                        parent_post_id: int | None = None
+                        if isinstance(parent_tg_message_id, int):
+                            parent_post = await ensure_parent_post(
+                                session=session,
+                                channel=channel,
+                                entity=entity,
+                                parent_tg_message_id=parent_tg_message_id,
+                            )
+                            if parent_post is not None:
+                                parent_post_id = parent_post.id
+
                         post = await upsert_post(
                             session,
                             channel_id=channel.id,
                             tg_message_id=msg.id,
+                            parent_tg_message_id=parent_tg_message_id,
+                            parent_post_id=parent_post_id,
                             date=msg.date,
                             text=msg.message,
                             views=getattr(msg, "views", None),
                             comments_count=int(replies_count or 0),
                             involvement=None,
                         )
+
+                        if isinstance(parent_post_id, int):
+                            await upsert_post_link(
+                                session,
+                                src_post_id=post.id,
+                                dst_post_id=parent_post_id,
+                                link_type=LINK_REPLY_TO,
+                                confidence=1.0,
+                                evidence={
+                                    "source": "telegram",
+                                    "kind": "native_reply",
+                                    "parent_tg_message_id": parent_tg_message_id,
+                                },
+                                model_version="telegram-native-v1",
+                            )
 
                         comments, commenters_count, comments_count = await get_comments(
                             channel=channel,
@@ -121,6 +228,11 @@ async def get_posts(channel: Channel, entity) -> None:
                             post_id=post.id,
                             involvement=involvement,
                         )
+
+                        try:
+                            await link_post_to_graph(session, post=post)
+                        except Exception as link_err:
+                            print(f"[{channel.username}] linker warning for post_id={post.id}: {link_err!r}")
 
                         report_text = await report_project.generate_report(
                             channel=f"@{channel.username}",

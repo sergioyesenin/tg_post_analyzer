@@ -78,6 +78,10 @@ class Comment(Base):
     post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), index=True)
 
     tg_message_id: Mapped[int] = mapped_column(Integer, index=True)
+    parent_tg_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    parent_comment_id: Mapped[int | None] = mapped_column(ForeignKey("comments.id", ondelete="SET NULL"), nullable=True, index=True)
+    thread_root_tg_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    depth: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     date: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
     author_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

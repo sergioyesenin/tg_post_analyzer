@@ -40,11 +40,35 @@ async def update_report(post_id: int, session: AsyncSession = Depends(get_sessio
     post, channel = row
 
     comments_result = await session.execute(
-        select(Comment.text)
+        select(
+            Comment.tg_message_id,
+            Comment.parent_tg_message_id,
+            Comment.thread_root_tg_message_id,
+            Comment.depth,
+            Comment.date,
+            Comment.text,
+        )
         .where(Comment.post_id == post_id)
         .order_by(Comment.date.asc(), Comment.id.asc())
     )
-    comments = [text for text in comments_result.scalars().all() if text and text.strip()]
+    thread_comments: list[dict] = []
+    comments: list[str] = []
+    for tg_message_id, parent_tg_message_id, thread_root_tg_message_id, depth, date, text in comments_result.all():
+        if not text or not text.strip():
+            continue
+        comments.append(text)
+        normalized_parent_id = parent_tg_message_id
+        if thread_root_tg_message_id is not None and parent_tg_message_id == thread_root_tg_message_id:
+            normalized_parent_id = None
+        thread_comments.append(
+            {
+                "id": tg_message_id,
+                "parent_id": normalized_parent_id,
+                "depth": depth,
+                "date": date.isoformat() if date is not None else None,
+                "text": text,
+            }
+        )
 
     channel_label = f"@{channel.username}" if channel.username else f"channel:{channel.id}"
     status = "ready"
@@ -55,6 +79,7 @@ async def update_report(post_id: int, session: AsyncSession = Depends(get_sessio
             published_at_iso=post.date.isoformat(),
             post_text=post.text or "",
             comments=comments,
+            thread_comments=thread_comments,
             views=post.views,
         )
     except Exception as e:

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional
 
 from crewai import Agent, Crew, Process, Task, LLM
 
@@ -25,6 +26,71 @@ def _format_comments_items(comments: list[str], max_chars_each: int = 600) -> st
         if len(text) > max_chars_each:
             text = text[: max_chars_each - 1] + "…"
         lines.append(f"{idx}. {text}")
+    return "\n".join(lines)
+
+
+def _short_text(text: str, max_chars_each: int = 400) -> str:
+    value = (text or "").strip().replace("\n", " ")
+    if len(value) > max_chars_each:
+        value = value[: max_chars_each - 1] + "..."
+    return value
+
+
+def _format_thread_nodes_json(thread_comments: list[dict], max_chars_each: int = 400) -> str:
+    items: list[dict] = []
+    for c in thread_comments:
+        text = _short_text(str(c.get("text", "")), max_chars_each=max_chars_each)
+        if not text:
+            continue
+        items.append(
+            {
+                "id": c.get("id"),
+                "parent_id": c.get("parent_id"),
+                "depth": c.get("depth", 0),
+                "date": c.get("date"),
+                "text": text,
+            }
+        )
+    return json.dumps(items, ensure_ascii=False, indent=2)
+
+
+def _format_thread_view(thread_comments: list[dict], max_chars_each: int = 300) -> str:
+    by_id: dict[int, dict] = {}
+    children: dict[int | None, list[dict]] = {}
+
+    for raw in thread_comments:
+        node_id = raw.get("id")
+        if not isinstance(node_id, int):
+            continue
+        node = {
+            "id": node_id,
+            "parent_id": raw.get("parent_id"),
+            "depth": int(raw.get("depth", 0)),
+            "date": raw.get("date") or "",
+            "text": _short_text(str(raw.get("text", "")), max_chars_each=max_chars_each),
+        }
+        if not node["text"]:
+            continue
+        by_id[node_id] = node
+
+    for node in by_id.values():
+        parent_id = node["parent_id"]
+        if parent_id not in by_id:
+            parent_id = None
+        children.setdefault(parent_id, []).append(node)
+
+    for key in children:
+        children[key].sort(key=lambda item: (item["date"], item["id"]))
+
+    lines: list[str] = []
+
+    def walk(parent_id: int | None, level: int) -> None:
+        for node in children.get(parent_id, []):
+            indent = "  " * max(level, 0)
+            lines.append(f"{indent}- [{node['id']}] {node['text']}")
+            walk(node["id"], level + 1)
+
+    walk(None, 0)
     return "\n".join(lines)
 
 
@@ -173,16 +239,20 @@ class TgReportProject:
         published_at_iso: str,
         post_text: str,
         comments: list[str],
+        thread_comments: Optional[list[dict]] = None,
         views: Optional[int] = None,
         media_links: Optional[list[str]] = None,
         config: Optional[ReportConfig] = None,
     ) -> str:
         cfg = config or ReportConfig()
 
-        if len(comments) < cfg.min_comments:
+        thread_comments = thread_comments or []
+        comments_count = len(thread_comments) if thread_comments else len(comments)
+
+        if comments_count < cfg.min_comments:
             return (
                 "STATUS: SKIPPED_MIN_COMMENTS\n"
-                f"REASON: недостаточно комментариев для анализа ({len(comments)})"
+                f"REASON: недостаточно комментариев для анализа ({comments_count})"
             )
 
         prompt = PROMPT_TEMPLATE.format(
@@ -192,12 +262,27 @@ class TgReportProject:
             views="" if views is None else views,
             post_text=post_text or "",
             media_links=", ".join(media_links or []),
-            comments_total=len(comments),
+            comments_total=comments_count,
             comments_items=_format_comments_items(comments),
             report_word_min=cfg.report_word_min,
             report_word_max=cfg.report_word_max,
             report_word_target=cfg.report_word_target,
         )
+        if thread_comments:
+            prompt += (
+                "\n\nTHREAD STRUCTURE (use it as the primary source for reply relations):\n"
+                "- parent_id=null means direct reply to post.\n"
+                "- if parent_id=<id>, this message is a reply to comment <id>.\n"
+                "- use local branch context for sentiment/topics and conflict analysis.\n\n"
+                "THREAD_NODES_JSON:\n"
+                "---\n"
+                f"{_format_thread_nodes_json(thread_comments)}\n"
+                "---\n\n"
+                "THREAD_VIEW:\n"
+                "---\n"
+                f"{_format_thread_view(thread_comments)}\n"
+                "---\n"
+            )
 
         analyst = self._get_agent()
         task_obj = Task(

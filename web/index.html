@@ -1,0 +1,76 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TG Dashboard</title>
+  <link rel="stylesheet" href="/web/styles.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="topbar">
+      <div class="title-wrap">
+        <div class="logo">♫</div>
+        <h1>Dashboard <span>/ Top Posts</span></h1>
+      </div>
+    </header>
+
+    <section class="filters card">
+      <label>С даты <input type="date" id="dateFrom" /></label>
+      <label>По дату <input type="date" id="dateTo" /></label>
+      <label>Канал <select id="channelFilter"><option value="">Все</option></select></label>
+      <label>Мин. комментариев <input type="number" id="minComments" min="0" value="0" /></label>
+      <label>Top N
+        <select id="topLimit">
+          <option>10</option>
+          <option selected>25</option>
+          <option>50</option>
+        </select>
+      </label>
+      <button id="resetBtn" class="btn ghost">Сбросить</button>
+      <button id="applyBtn" class="btn primary">Применить</button>
+    </section>
+
+    <section class="kpi-row">
+      <div>Всего постов: <strong id="kpiPosts">0</strong></div>
+      <div>Средняя вовлеченность: <strong id="kpiInvolvement">0%</strong></div>
+      <div>Всего комментариев: <strong id="kpiComments">0</strong></div>
+    </section>
+
+    <main class="content">
+      <section class="left-pane">
+        <h2>Top Posts</h2>
+        <div id="postsList" class="posts-list"></div>
+      </section>
+
+      <aside class="right-pane card">
+        <div id="emptyState" class="empty">Выберите пост для подробностей</div>
+        <div id="detail" class="hidden">
+          <h3 id="detailChannel"></h3>
+          <div id="detailDate" class="muted"></div>
+          <div class="post-metrics" id="detailMetrics"></div>
+
+          <div class="tabs">
+            <button class="tab active" data-tab="report">Мини-отчет</button>
+            <button class="tab" data-tab="comments">Комментарии</button>
+            <button class="tab" data-tab="data">Данные</button>
+          </div>
+
+          <div id="tabReport" class="tab-panel"></div>
+          <div id="tabComments" class="tab-panel hidden"></div>
+          <pre id="tabData" class="tab-panel hidden"></pre>
+          <div id="detailStatus" class="detail-status"></div>
+
+          <div class="actions">
+            <button id="refreshCommentsBtn" class="btn ghost">Обновить комментарии</button>
+            <button id="generateReportBtn" class="btn primary">Сгенерировать отчет</button>
+            <button id="copyMdBtn" class="btn">Скопировать Markdown</button>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <script src="/web/app.js"></script>
+</body>
+</html>

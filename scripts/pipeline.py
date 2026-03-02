@@ -24,6 +24,7 @@ from db.models import Channel, Event, Job, Post, Process
 from db.session import AsyncSessionLocal
 from services.events.build_events import rebuild_events
 from services.ingest import upsert_post
+from services.archive import run_archive_retention
 from services.jobs import (
     JobType,
     enqueue_job,
@@ -53,6 +54,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--comment-interval-hours", type=int, default=2)
     parser.add_argument("--comment-window-hours", type=int, default=24)
     parser.add_argument("--post-report-delay-hours", type=int, default=6)
+    parser.add_argument("--retention-days", type=int, default=30)
+    parser.add_argument("--archive-batch-size", type=int, default=1000)
     parser.add_argument(
         "--skip-rebuild-graphs",
         action="store_true",
@@ -482,6 +485,7 @@ async def _run_jobs(*, job_batch_size: int, worker_id: str) -> int:
                 JobType.BUILD_POST_REPORT,
                 JobType.BUILD_EVENT_REPORT,
                 JobType.BUILD_PROCESS_REPORT,
+                JobType.ARCHIVE_RETENTION,
             },
         )
         await session.commit()
@@ -512,6 +516,16 @@ async def _run_jobs(*, job_batch_size: int, worker_id: str) -> int:
                     process_id = int(payload.get("process_id"))
                     result = await build_process_report_draft(session, process_id=process_id)
                     logging.info("Job build_process_report process_id=%s status=%s", process_id, result.get("status"))
+                elif db_job.type == JobType.ARCHIVE_RETENTION:
+                    payload = db_job.payload_json or {}
+                    retention_days = int(payload.get("retention_days", 30))
+                    batch_limit = int(payload.get("batch_limit", 1000))
+                    result = await run_archive_retention(
+                        session,
+                        retention_days=retention_days,
+                        batch_limit=batch_limit,
+                    )
+                    logging.info("Job archive_retention status=ok details=%s", result)
                 else:
                     raise ValueError(f"Unsupported job type: {db_job.type}")
 
@@ -552,6 +566,19 @@ async def _run_single_cycle(client: TelegramClient, args: argparse.Namespace, wo
             date_from=since_utc,
             date_to=datetime.now(timezone.utc),
         )
+
+    async with AsyncSessionLocal() as session:
+        now = datetime.now(timezone.utc)
+        daily_key = now.date().isoformat()
+        await enqueue_job(
+            session,
+            job_type=JobType.ARCHIVE_RETENTION,
+            payload={"retention_days": args.retention_days, "batch_limit": args.archive_batch_size},
+            run_at=now,
+            priority=95,
+            dedupe_key=f"archive_retention:{daily_key}",
+        )
+        await session.commit()
 
     executed_jobs = await _run_jobs(job_batch_size=args.job_batch_size, worker_id=worker_id)
     logging.info("Cycle done. executed_jobs=%s", executed_jobs)

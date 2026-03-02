@@ -468,3 +468,123 @@ class EventReport(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     event: Mapped["Event"] = relationship(back_populates="reports")
+
+
+class ProcessReport(Base):
+    __tablename__ = "process_reports"
+    __table_args__ = (
+        Index("ix_process_reports_process_id", "process_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    process_id: Mapped[int] = mapped_column(ForeignKey("processes.id", ondelete="CASCADE"), nullable=False)
+    report_text: Mapped[str] = mapped_column(Text)
+    report_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ArchivePostText(Base):
+    __tablename__ = "archive_post_texts"
+    __table_args__ = (
+        UniqueConstraint("src_post_id", name="uq_archive_post_texts_src_post_id"),
+        Index("ix_archive_post_texts_post_date", "post_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    src_post_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    channel_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tg_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    post_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ArchiveEvent(Base):
+    __tablename__ = "archive_events"
+    __table_args__ = (
+        UniqueConstraint("src_event_id", name="uq_archive_events_src_event_id"),
+        Index("ix_archive_events_started_at", "started_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    src_event_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    src_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ArchiveProcess(Base):
+    __tablename__ = "archive_processes"
+    __table_args__ = (
+        UniqueConstraint("src_process_id", name="uq_archive_processes_src_process_id"),
+        Index("ix_archive_processes_started_at", "started_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    src_process_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    src_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ArchivePostReport(Base):
+    __tablename__ = "archive_post_reports"
+    __table_args__ = (
+        UniqueConstraint("src_report_id", name="uq_archive_post_reports_src_report_id"),
+        Index("ix_archive_post_reports_post_id", "post_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    src_report_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    post_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ArchiveEventReport(Base):
+    __tablename__ = "archive_event_reports"
+    __table_args__ = (
+        UniqueConstraint("src_event_report_id", name="uq_archive_event_reports_src_id"),
+        Index("ix_archive_event_reports_event_id", "event_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    src_event_report_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    report_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    report_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ArchiveProcessReport(Base):
+    __tablename__ = "archive_process_reports"
+    __table_args__ = (
+        UniqueConstraint("src_process_report_id", name="uq_archive_process_reports_src_id"),
+        Index("ix_archive_process_reports_process_id", "process_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    src_process_report_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    process_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    report_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    report_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

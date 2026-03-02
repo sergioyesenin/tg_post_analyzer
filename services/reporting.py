@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents.reporter import TgReportProject
-from db.models import Channel, Comment, Event, EventPost, EventReport, Post, Process, ProcessEvent
+from db.models import Channel, Comment, Event, EventPost, EventReport, Post, Process, ProcessEvent, ProcessReport
 from services.ingest import upsert_report
 
 
@@ -105,7 +105,16 @@ async def build_event_report_draft(
         "posts_count": len(rows),
         "post_ids": [p.id for p in rows],
     }
-    report = EventReport(event_id=event_id, report_text=str(payload), report_json=payload, version=1)
+    last_version = (
+        await session.execute(
+            select(EventReport.version)
+            .where(EventReport.event_id == event_id)
+            .order_by(EventReport.version.desc(), EventReport.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    next_version = int(last_version or 0) + 1
+    report = EventReport(event_id=event_id, report_text=str(payload), report_json=payload, version=next_version)
     session.add(report)
     await session.flush()
     return {"status": "ready", "event_id": event_id, "report_id": report.id}
@@ -141,6 +150,21 @@ async def build_process_report_draft(
             for event_id, relation_type, score in rows
         ],
     }
-    # NOTE: dedicated process_reports table will be added in a separate migration.
-    # For now we return computed payload for logging/debug and future persistence.
-    return {"status": "ready", "process_id": process_id, "payload": payload}
+    last_version = (
+        await session.execute(
+            select(ProcessReport.version)
+            .where(ProcessReport.process_id == process_id)
+            .order_by(ProcessReport.version.desc(), ProcessReport.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    next_version = int(last_version or 0) + 1
+    report = ProcessReport(
+        process_id=process_id,
+        report_text=str(payload),
+        report_json=payload,
+        version=next_version,
+    )
+    session.add(report)
+    await session.flush()
+    return {"status": "ready", "process_id": process_id, "report_id": report.id}

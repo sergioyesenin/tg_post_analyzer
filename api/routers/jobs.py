@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import Job
 from deps import get_session, require_roles
 from services.auth import AuthUser
+from services.jobs import JobType, enqueue_job
 
 router = APIRouter()
 
@@ -55,3 +56,27 @@ async def jobs_pending(
         }
         for job in jobs
     ]
+
+
+@router.post("/archive/run")
+async def run_archive_job(
+    retention_days: int = 30,
+    batch_limit: int = 1000,
+    _: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    job = await enqueue_job(
+        session,
+        job_type=JobType.ARCHIVE_RETENTION,
+        payload={"retention_days": retention_days, "batch_limit": batch_limit},
+        priority=90,
+        dedupe_key=None,
+    )
+    await session.commit()
+    return {
+        "status": "queued",
+        "job_id": job.id if job else None,
+        "job_type": JobType.ARCHIVE_RETENTION,
+        "retention_days": retention_days,
+        "batch_limit": batch_limit,
+    }

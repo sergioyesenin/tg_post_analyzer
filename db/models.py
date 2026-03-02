@@ -178,6 +178,13 @@ class Post(Base):
 
     comments_count: Mapped[int] = mapped_column(Integer, default=0, index=True)
     involvement: Mapped[float | None] = mapped_column(nullable=True)
+    text_normalized: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    embedding: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    entities: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    lang: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    topic: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    analyzer_version: Mapped[str] = mapped_column(String(64), default="v1")
 
     # для логики "собрать через 10-15 мин + дособор 24 часа"
     last_comments_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -188,7 +195,6 @@ class Post(Base):
     channel: Mapped["Channel"] = relationship(back_populates="posts")
     comments: Mapped[list["Comment"]] = relationship(back_populates="post")
     report: Mapped["Report | None"] = relationship(back_populates="post", uselist=False)
-    feature: Mapped["PostFeature | None"] = relationship(back_populates="post", uselist=False)
     facts: Mapped["PostFact | None"] = relationship(back_populates="post", uselist=False)
     event_memberships: Mapped[list["EventPost"]] = relationship(back_populates="post")
     parent_post: Mapped["Post | None"] = relationship(
@@ -275,26 +281,6 @@ class Job(Base):
     dedupe_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class PostFeature(Base):
-    __tablename__ = "post_features"
-
-    post_id: Mapped[int] = mapped_column(
-        ForeignKey("posts.id", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    text_normalized: Mapped[str | None] = mapped_column(Text, nullable=True)
-    content_hash: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
-    embedding: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    entities: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    lang: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    topic: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    analyzer_version: Mapped[str] = mapped_column(String(64), default="v1")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    post: Mapped["Post"] = relationship(back_populates="feature")
 
 
 class Event(Base):

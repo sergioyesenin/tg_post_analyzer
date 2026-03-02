@@ -87,7 +87,7 @@ async def run_backfill(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Backfill post_features/post_links for all posts using linker + AI classifier.",
+        description="Backfill post metadata/post_links for all posts using linker + AI classifier.",
     )
     parser.add_argument("--batch-size", type=int, default=100, help="How many posts to fetch per DB batch.")
     parser.add_argument("--commit-every", type=int, default=20, help="Commit every N processed posts.")

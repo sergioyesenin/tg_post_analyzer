@@ -10,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
-from db.models import Post, PostFact, PostFeature
+from db.models import Post, PostFact
 from services.linking.entity_dictionaries import ENTITY_NOISE_WORDS, ORG_HINTS, PLACE_HINTS
 from services.linking.embeddings import EmbeddingProvider
 
@@ -214,34 +214,25 @@ async def upsert_post_facts(session: AsyncSession, post: Post) -> PostFact:
         )
     )
     await session.execute(stmt)
-    feature_stmt = (
-        insert(PostFeature)
+    await session.execute(
+        Post.__table__.update()
+        .where(Post.id == post.id)
         .values(
-            post_id=post.id,
             text_normalized=_safe_text(post.text).lower(),
             entities=entities_json,
             analyzer_version="linking-retrieval-v3-ner-ru",
         )
-        .on_conflict_do_update(
-            index_elements=[PostFeature.post_id],
-            set_={
-                "text_normalized": _safe_text(post.text).lower(),
-                "entities": entities_json,
-                "analyzer_version": "linking-retrieval-v3-ner-ru",
-            },
-        )
     )
-    await session.execute(feature_stmt)
     facts = await session.get(PostFact, post.id)
     if facts is None:
         raise RuntimeError("PostFact upsert failed")
     return facts
 
 
-def _extract_embedding_vector(feature: PostFeature | None) -> list[float] | None:
-    if feature is None or not isinstance(feature.embedding, dict):
+def _extract_embedding_vector(post: Post | None) -> list[float] | None:
+    if post is None or not isinstance(post.embedding, dict):
         return None
-    vec = feature.embedding.get("vector")
+    vec = post.embedding.get("vector")
     if not isinstance(vec, list) or not vec:
         return None
     try:
@@ -261,29 +252,19 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return max(-1.0, min(1.0, dot / (norm_a * norm_b)))
 
 
-async def _ensure_post_feature(session: AsyncSession, post: Post) -> PostFeature:
-    feature = await session.get(PostFeature, post.id)
-    if feature is not None:
-        return feature
-    stmt = (
-        insert(PostFeature)
+async def _ensure_post_metadata(session: AsyncSession, post: Post) -> Post:
+    await session.execute(
+        Post.__table__.update()
+        .where(Post.id == post.id)
         .values(
-            post_id=post.id,
             text_normalized=_safe_text(post.text).lower(),
-            content_hash=None,
-            embedding=None,
-            entities=None,
-            lang=None,
-            topic=None,
             analyzer_version="linking-retrieval-v2",
         )
-        .on_conflict_do_nothing()
     )
-    await session.execute(stmt)
-    feature = await session.get(PostFeature, post.id)
-    if feature is None:
-        raise RuntimeError("PostFeature upsert failed")
-    return feature
+    refreshed = await session.get(Post, post.id)
+    if refreshed is None:
+        raise RuntimeError("Post metadata upsert failed")
+    return refreshed
 
 
 async def _ensure_embedding(
@@ -292,8 +273,8 @@ async def _ensure_embedding(
     post: Post,
     provider: EmbeddingProvider,
 ) -> list[float] | None:
-    feature = await _ensure_post_feature(session, post)
-    vector = _extract_embedding_vector(feature)
+    refreshed = await _ensure_post_metadata(session, post)
+    vector = _extract_embedding_vector(refreshed)
     if vector is not None:
         return vector
 
@@ -305,24 +286,15 @@ async def _ensure_embedding(
         "model": settings.LINKING_EMBED_MODEL,
         "vector": vector,
     }
-    stmt = (
-        insert(PostFeature)
+    await session.execute(
+        Post.__table__.update()
+        .where(Post.id == post.id)
         .values(
-            post_id=post.id,
             text_normalized=_safe_text(post.text).lower(),
             embedding=payload,
             analyzer_version="linking-retrieval-v2",
         )
-        .on_conflict_do_update(
-            index_elements=[PostFeature.post_id],
-            set_={
-                "text_normalized": _safe_text(post.text).lower(),
-                "embedding": payload,
-                "analyzer_version": "linking-retrieval-v2",
-            },
-        )
     )
-    await session.execute(stmt)
     return vector
 
 

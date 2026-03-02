@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sqlalchemy import and_, cast, func, or_, select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.dialects.postgresql import JSONB
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -16,13 +15,13 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from config import settings
-from db.models import Post, PostFeature
+from db.models import Post
 from db.session import AsyncSessionLocal
 from services.linking.embeddings import EmbeddingProvider
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Backfill embeddings into post_features.embedding.vector")
+    parser = argparse.ArgumentParser(description="Backfill embeddings into posts.embedding.vector")
     parser.add_argument("--batch-size", type=int, default=25, help="Posts per DB batch")
     parser.add_argument("--max-posts", type=int, default=500, help="Max posts to process in this run")
     parser.add_argument("--channel-id", type=int, default=None, help="Optional channel_id filter")
@@ -45,14 +44,12 @@ async def _load_batch(*, batch_size: int, channel_id: int | None, date_from: dat
 
         stmt = (
             select(Post)
-            .outerjoin(PostFeature, PostFeature.post_id == Post.id)
             .where(
                 and_(
                     *conditions,
                     or_(
-                        PostFeature.post_id.is_(None),
-                        PostFeature.embedding.is_(None),
-                        func.jsonb_typeof(cast(PostFeature.embedding, JSONB)["vector"]).is_(None),
+                        Post.embedding.is_(None),
+                        func.jsonb_typeof(cast(Post.embedding, JSONB)["vector"]).is_(None),
                     ),
                 )
             )
@@ -69,20 +66,12 @@ async def _upsert_embedding(post: Post, vector: list[float]) -> None:
     }
     async with AsyncSessionLocal() as session:
         stmt = (
-            insert(PostFeature)
+            Post.__table__.update()
+            .where(Post.id == post.id)
             .values(
-                post_id=post.id,
                 text_normalized=(post.text or "")[: settings.LINKING_MAX_TEXT_CHARS].lower(),
                 embedding=payload,
                 analyzer_version="embedding-backfill-v1",
-            )
-            .on_conflict_do_update(
-                index_elements=[PostFeature.post_id],
-                set_={
-                    "text_normalized": (post.text or "")[: settings.LINKING_MAX_TEXT_CHARS].lower(),
-                    "embedding": payload,
-                    "analyzer_version": "embedding-backfill-v1",
-                },
             )
         )
         await session.execute(stmt)

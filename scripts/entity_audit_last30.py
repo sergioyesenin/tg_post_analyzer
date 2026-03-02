@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy import desc, select
 
-from db.models import PostFeature
+from db.models import Post
 from db.session import AsyncSessionLocal
 
 # pymorphy2 compatibility for Python 3.12+
@@ -110,7 +110,7 @@ async def run_audit(limit: int = 30) -> dict[str, Any]:
     async with AsyncSessionLocal() as session:
         rows = (
             await session.execute(
-                select(PostFeature).order_by(desc(PostFeature.created_at)).limit(limit)
+                select(Post).order_by(desc(Post.created_at)).limit(limit)
             )
         ).scalars().all()
 
@@ -150,7 +150,7 @@ async def run_audit(limit: int = 30) -> dict[str, Any]:
         count = len(entities)
         audits.append(
             RowAudit(
-                post_id=row.post_id,
+                post_id=row.id,
                 created_at=row.created_at.isoformat() if row.created_at else None,
                 entities_count=count,
                 strict_precision=round(s_hit / count, 3) if count else None,

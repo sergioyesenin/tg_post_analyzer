@@ -8,12 +8,17 @@ from telethon.errors import FloodWaitError, RPCError
 from telethon.errors.rpcerrorlist import MsgIdInvalidError
 from telethon.tl.functions.messages import GetDiscussionMessageRequest
 from telethon.tl.types import PeerChannel, PeerUser, User
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from client import client
+from client import client as default_client
 from db.models import Comment
-from services.ingest import upsert_comment, set_post_comments_count, set_post_involvement
+from services.ingest import (
+    set_post_comments_count,
+    set_post_involvement,
+    set_post_last_comments_scan_at,
+    upsert_comment,
+)
 from services.queries import get_post_with_channel_by_post_id
 
 COMMENTS_SLEEP_EVERY = 50
@@ -23,7 +28,8 @@ async def polite_sleep(base: float, jitter: float) -> None:
     await asyncio.sleep(base + random.random() * jitter)
 
 
-async def update_post_comments(session: AsyncSession, post_id: int) -> dict:
+async def update_post_comments(session: AsyncSession, post_id: int, tg_client=None) -> dict:
+    tg_client = tg_client or default_client
     row = await get_post_with_channel_by_post_id(session, post_id)
     if row is None:
         return {"status": "not_found", "post_id": post_id, "comments_saved": 0, "commenters_count": 0}
@@ -36,14 +42,59 @@ async def update_post_comments(session: AsyncSession, post_id: int) -> dict:
         peer = f"@{channel.username}"
 
     try:
-        if not client.is_connected():
-            await client.start()
-        entity = await client.get_entity(peer)
+        if not tg_client.is_connected():
+            await tg_client.start()
+        entity = await tg_client.get_entity(peer)
+    except Exception as exc:
+        return {
+            "status": "entity_error",
+            "post_id": post_id,
+            "comments_saved": 0,
+            "commenters_count": 0,
+            "error": repr(exc),
+        }
+
+    existing_comments_count = int(
+        await session.scalar(
+            select(func.count()).select_from(Comment).where(Comment.post_id == post.id)
+        )
+        or 0
+    )
+
+    telegram_replies_count = None
+    try:
+        head_msg = await tg_client.get_messages(entity, ids=post.tg_message_id)
+        if isinstance(head_msg, list):
+            head_msg = head_msg[0] if head_msg else None
+        replies_obj = getattr(head_msg, "replies", None) if head_msg is not None else None
+        replies_count = getattr(replies_obj, "replies", None) if replies_obj is not None else None
+        if isinstance(replies_count, int) and replies_count >= 0:
+            telegram_replies_count = replies_count
     except Exception:
-        return {"status": "entity_error", "post_id": post_id, "comments_saved": 0, "commenters_count": 0}
+        telegram_replies_count = None
+
+    if isinstance(telegram_replies_count, int):
+        if telegram_replies_count == 0:
+            await set_post_last_comments_scan_at(session, post_id=post.id)
+            return {
+                "status": "no_discussion",
+                "post_id": post.id,
+                "comments_saved": existing_comments_count,
+                "commenters_count": 0,
+                "telegram_replies_count": telegram_replies_count,
+            }
+        if telegram_replies_count <= existing_comments_count:
+            await set_post_last_comments_scan_at(session, post_id=post.id)
+            return {
+                "status": "unchanged",
+                "post_id": post.id,
+                "comments_saved": existing_comments_count,
+                "commenters_count": 0,
+                "telegram_replies_count": telegram_replies_count,
+            }
 
     try:
-        discussion = await client(GetDiscussionMessageRequest(peer=entity, msg_id=post.tg_message_id))
+        discussion = await tg_client(GetDiscussionMessageRequest(peer=entity, msg_id=post.tg_message_id))
     except MsgIdInvalidError:
         return {"status": "no_discussion", "post_id": post_id, "comments_saved": 0, "commenters_count": 0}
     except FloodWaitError as e:
@@ -79,7 +130,7 @@ async def update_post_comments(session: AsyncSession, post_id: int) -> dict:
         while queue:
             parent_tg_message_id, parent_depth = queue.popleft()
 
-            async for c in client.iter_messages(discussion_chat, reply_to=parent_tg_message_id):
+            async for c in tg_client.iter_messages(discussion_chat, reply_to=parent_tg_message_id):
                 if c.id in seen_comment_ids:
                     continue
                 seen_comment_ids.add(c.id)
@@ -160,6 +211,7 @@ async def update_post_comments(session: AsyncSession, post_id: int) -> dict:
     if isinstance(post.views, int) and post.views > 0:
         involvement = len(commenters) / post.views
     await set_post_involvement(session, post_id=post.id, involvement=involvement)
+    await set_post_last_comments_scan_at(session, post_id=post.id)
 
     return {
         "status": "ok",
@@ -167,4 +219,5 @@ async def update_post_comments(session: AsyncSession, post_id: int) -> dict:
         "comments_saved": comments_saved,
         "commenters_count": len(commenters),
         "involvement": involvement,
+        "telegram_replies_count": telegram_replies_count,
     }

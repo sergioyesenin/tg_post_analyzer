@@ -4,13 +4,14 @@ import argparse
 import asyncio
 import logging
 import os
+import random
 import sqlite3
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, select, text
 from telethon import TelegramClient
 from telethon.tl.types import PeerChannel
 
@@ -26,11 +27,13 @@ from services.events.build_events import rebuild_events
 from services.ingest import upsert_post
 from services.archive import run_archive_retention
 from services.jobs import (
+    defer_locked_job,
     JobType,
     enqueue_job,
     fetch_and_lock_jobs,
     mark_job_done,
     mark_job_failed,
+    requeue_job,
 )
 from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
 from services.processes.build_processes import rebuild_processes
@@ -46,13 +49,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--days", type=int, default=3, help="How many days back to parse.")
     parser.add_argument("--max-posts-per-channel", type=int, default=100, help="Safety limit per channel.")
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
-    parser.add_argument("--session-suffix", type=str, default="no_llm")
+    parser.add_argument("--session-suffix", type=str, default="")
     parser.add_argument("--unique-session-per-run", action="store_true")
     parser.add_argument("--daemon", action="store_true", help="Run forever and poll channels in loop.")
-    parser.add_argument("--poll-seconds", type=int, default=90, help="Delay between daemon cycles.")
-    parser.add_argument("--job-batch-size", type=int, default=50, help="How many jobs to execute per cycle.")
+    parser.add_argument("--poll-seconds", type=int, default=240, help="Delay between daemon cycles.")
+    parser.add_argument("--job-batch-size", type=int, default=20, help="How many jobs to execute per cycle.")
     parser.add_argument("--comment-first-delay-hours", type=int, default=2)
-    parser.add_argument("--comment-interval-hours", type=int, default=2)
+    parser.add_argument("--comment-interval-hours", type=int, default=4)
     parser.add_argument("--comment-window-hours", type=int, default=24)
     parser.add_argument("--post-report-delay-hours", type=int, default=6)
     parser.add_argument("--retention-days", type=int, default=30)
@@ -75,7 +78,7 @@ def _is_session_locked_error(exc: Exception) -> bool:
 
 def _build_client(*, session_suffix: str, unique_session_per_run: bool) -> TelegramClient:
     client_settings = load_client_settings()
-    session_name = client_settings.session
+    session_name = "tg_analytics.session"
     suffix = session_suffix.strip()
     if suffix:
         session_name = f"{session_name}_{suffix}"
@@ -142,17 +145,20 @@ async def _schedule_post_jobs(
     comment_interval_hours: int,
     comment_window_hours: int,
     post_report_delay_hours: int,
+    comment_schedule_jitter_seconds: int,
 ) -> None:
     first_comment_at = post.date + timedelta(hours=comment_first_delay_hours)
     comment_until = post.date + timedelta(hours=comment_window_hours)
     current = first_comment_at
     while current <= comment_until:
-        ts = int(current.timestamp())
+        jitter_seconds = random.randint(0, max(0, int(comment_schedule_jitter_seconds)))
+        scheduled_at = current + timedelta(seconds=jitter_seconds)
+        ts = int(scheduled_at.timestamp())
         await enqueue_job(
             session,
             job_type=JobType.COLLECT_COMMENTS,
             payload={"post_id": post.id},
-            run_at=current,
+            run_at=scheduled_at,
             priority=20,
             max_attempts=8,
             dedupe_key=f"collect_comments:{post.id}:{ts}",
@@ -299,10 +305,11 @@ async def _process_channel(
     comment_interval_hours: int,
     comment_window_hours: int,
     post_report_delay_hours: int,
-) -> None:
+    comment_schedule_jitter_seconds: int,
+) -> int:
     if channel.id in SKIP_CHANNEL_IDS:
         logging.info("Skip channel id=%s (@%s): excluded by config", channel.id, channel.username)
-        return
+        return 0
 
     if channel.username.startswith("id_") and channel.username[3:].isdigit():
         peer = PeerChannel(int(channel.username[3:]))
@@ -316,7 +323,7 @@ async def _process_channel(
         )
     except Exception as exc:
         logging.warning("Skip channel @%s: entity resolve failed: %r", channel.username, exc)
-        return
+        return 0
 
     logging.info("Parsing channel @%s since %s", channel.username, since_utc.isoformat())
     pipeline = NoLlmLinkingPipeline.build_default()
@@ -392,6 +399,7 @@ async def _process_channel(
                 comment_interval_hours=comment_interval_hours,
                 comment_window_hours=comment_window_hours,
                 post_report_delay_hours=post_report_delay_hours,
+                comment_schedule_jitter_seconds=comment_schedule_jitter_seconds,
             )
             await session.commit()
             logging.info(
@@ -406,6 +414,7 @@ async def _process_channel(
         processed += 1
 
     logging.info("Finished @%s processed_posts=%s", channel.username, processed)
+    return processed
 
 
 async def _rebuild_event_process_graphs(*, date_from: datetime, date_to: datetime) -> None:
@@ -473,9 +482,18 @@ async def _enqueue_graph_report_jobs(*, date_from: datetime, date_to: datetime) 
         await session.commit()
 
 
-async def _run_jobs(*, job_batch_size: int, worker_id: str) -> int:
+async def _run_jobs(
+    *,
+    job_batch_size: int,
+    worker_id: str,
+    collect_comments_quota_per_run: int,
+    tg_client: TelegramClient,
+) -> int:
     report_project = TgReportProject(llm_model="ollama/llama3:8b-instruct-q4_K_M")
     executed = 0
+    collect_comments_global_cooldown_until: datetime | None = None
+    collect_comments_processed = 0
+    collect_comments_flood_streak = 0
     async with AsyncSessionLocal() as session:
         jobs = await fetch_and_lock_jobs(
             session,
@@ -498,12 +516,154 @@ async def _run_jobs(*, job_batch_size: int, worker_id: str) -> int:
                 continue
             effective_settings = await get_all_settings(session)
             report_config = report_config_from_settings(effective_settings)
+            ingest_settings = effective_settings.get("ingest", {})
+            cc_sleep_min_ms = int(ingest_settings.get("collect_comments_sleep_min_ms", 700))
+            cc_sleep_max_ms = int(ingest_settings.get("collect_comments_sleep_max_ms", 1400))
+            if cc_sleep_max_ms < cc_sleep_min_ms:
+                cc_sleep_max_ms = cc_sleep_min_ms
             try:
                 if db_job.type == JobType.COLLECT_COMMENTS:
+                    if collect_comments_processed >= collect_comments_quota_per_run:
+                        await defer_locked_job(
+                            session,
+                            job=db_job,
+                            retry_at=datetime.now(timezone.utc) + timedelta(seconds=60),
+                            reason="collect_comments:quota_deferred",
+                            preserve_attempt_budget=True,
+                        )
+                        await session.commit()
+                        continue
+
+                    now = datetime.now(timezone.utc)
+                    if (
+                        collect_comments_global_cooldown_until is not None
+                        and now < collect_comments_global_cooldown_until
+                    ):
+                        await asyncio.sleep(
+                            (collect_comments_global_cooldown_until - now).total_seconds()
+                        )
                     payload = db_job.payload_json or {}
                     post_id = int(payload.get("post_id"))
-                    result = await update_post_comments(session, post_id)
-                    logging.info("Job collect_comments post_id=%s status=%s", post_id, result.get("status"))
+                    collect_comments_processed += 1
+                    result = await update_post_comments(session, post_id, tg_client=tg_client)
+                    status = str(result.get("status") or "unknown")
+                    if status == "entity_error":
+                        logging.info(
+                            "Job collect_comments post_id=%s status=%s err=%s",
+                            post_id,
+                            status,
+                            result.get("error"),
+                        )
+                    else:
+                        logging.info("Job collect_comments post_id=%s status=%s", post_id, status)
+                    if status == "ok":
+                        collect_comments_flood_streak = 0
+                        await mark_job_done(session, job=db_job)
+                        await session.commit()
+                        executed += 1
+                        if cc_sleep_max_ms > 0:
+                            await asyncio.sleep(random.randint(cc_sleep_min_ms, cc_sleep_max_ms) / 1000.0)
+                        continue
+
+                    if status == "no_discussion":
+                        collect_comments_flood_streak = 0
+                        # No discussion thread exists: remove future pending recollect jobs for this post.
+                        await session.execute(
+                            text(
+                                "DELETE FROM jobs "
+                                "WHERE type = :job_type "
+                                "AND status = 'pending' "
+                                "AND id <> :job_id "
+                                "AND payload_json->>'post_id' = :post_id"
+                            ),
+                            {
+                                "job_type": JobType.COLLECT_COMMENTS,
+                                "job_id": db_job.id,
+                                "post_id": str(post_id),
+                            },
+                        )
+                        await mark_job_done(session, job=db_job)
+                        await session.commit()
+                        executed += 1
+                        if cc_sleep_max_ms > 0:
+                            await asyncio.sleep(random.randint(cc_sleep_min_ms, cc_sleep_max_ms) / 1000.0)
+                        continue
+
+                    if status == "unchanged":
+                        collect_comments_flood_streak = 0
+                        await mark_job_done(session, job=db_job)
+                        await session.commit()
+                        executed += 1
+                        if cc_sleep_max_ms > 0:
+                            await asyncio.sleep(random.randint(cc_sleep_min_ms, cc_sleep_max_ms) / 1000.0)
+                        continue
+
+                    if status == "flood_wait":
+                        wait_seconds = int(result.get("wait_seconds") or 30)
+                        collect_comments_flood_streak += 1
+                        retry_at = datetime.now(timezone.utc) + timedelta(seconds=max(10, wait_seconds))
+                        # Adaptive global cool-down: if flood-waits happen consecutively,
+                        # increase pause to reduce repeated throttling.
+                        base_cooldown_sec = max(120, wait_seconds)
+                        if collect_comments_flood_streak >= 2:
+                            adaptive_cooldown_sec = min(1800, base_cooldown_sec * (2 ** (collect_comments_flood_streak - 1)))
+                        else:
+                            adaptive_cooldown_sec = base_cooldown_sec
+                        collect_comments_global_cooldown_until = datetime.now(timezone.utc) + timedelta(
+                            seconds=adaptive_cooldown_sec
+                        )
+                        logging.warning(
+                            "collect_comments flood streak=%s wait=%ss cooldown=%ss",
+                            collect_comments_flood_streak,
+                            wait_seconds,
+                            adaptive_cooldown_sec,
+                        )
+                        await requeue_job(
+                            session,
+                            job=db_job,
+                            retry_at=retry_at,
+                            error=f"collect_comments:flood_wait:{wait_seconds}",
+                        )
+                        await session.commit()
+                        if cc_sleep_max_ms > 0:
+                            await asyncio.sleep(random.randint(cc_sleep_min_ms, cc_sleep_max_ms) / 1000.0)
+                        continue
+
+                    if status in {"entity_error", "rpc_error", "discussion_error"}:
+                        collect_comments_flood_streak = 0
+                        await mark_job_failed(
+                            session,
+                            job=db_job,
+                            error=f"collect_comments:{status}",
+                            retry_base_seconds=120,
+                            retry_max_seconds=7200,
+                        )
+                        await session.commit()
+                        if cc_sleep_max_ms > 0:
+                            await asyncio.sleep(random.randint(cc_sleep_min_ms, cc_sleep_max_ms) / 1000.0)
+                        continue
+
+                    if status == "not_found":
+                        collect_comments_flood_streak = 0
+                        await mark_job_done(session, job=db_job)
+                        await session.commit()
+                        executed += 1
+                        if cc_sleep_max_ms > 0:
+                            await asyncio.sleep(random.randint(cc_sleep_min_ms, cc_sleep_max_ms) / 1000.0)
+                        continue
+
+                    await mark_job_failed(
+                        session,
+                        job=db_job,
+                        error=f"collect_comments:unexpected_status:{status}",
+                        retry_base_seconds=120,
+                        retry_max_seconds=7200,
+                    )
+                    collect_comments_flood_streak = 0
+                    await session.commit()
+                    if cc_sleep_max_ms > 0:
+                        await asyncio.sleep(random.randint(cc_sleep_min_ms, cc_sleep_max_ms) / 1000.0)
+                    continue
                 elif db_job.type == JobType.BUILD_POST_REPORT:
                     payload = db_job.payload_json or {}
                     post_id = int(payload.get("post_id"))
@@ -560,17 +720,22 @@ async def _run_single_cycle(client: TelegramClient, args: argparse.Namespace, wo
     comment_first_delay_hours = int(ingest_settings.get("comment_first_delay_hours", args.comment_first_delay_hours))
     comment_interval_hours = int(ingest_settings.get("comment_interval_hours", args.comment_interval_hours))
     comment_window_hours = int(ingest_settings.get("comment_window_hours", args.comment_window_hours))
+    comment_schedule_jitter_seconds = int(
+        ingest_settings.get("comment_schedule_jitter_seconds", 7200)
+    )
     post_report_delay_hours = int(reports_settings.get("post_report_delay_hours", args.post_report_delay_hours))
     job_batch_size = int(jobs_settings.get("job_batch_size", args.job_batch_size))
+    collect_comments_quota_per_run = int(jobs_settings.get("collect_comments_quota_per_run", 5))
     retention_days = int(retention_settings.get("retention_days", args.retention_days))
     archive_batch_size = int(retention_settings.get("archive_batch_size", args.archive_batch_size))
 
     channels = await _get_active_channels()
+    total_processed_posts = 0
     if not channels:
         logging.warning("No active channels found.")
     else:
         for channel in channels:
-            await _process_channel(
+            processed_in_channel = await _process_channel(
                 client,
                 channel,
                 since_utc=since_utc,
@@ -579,9 +744,11 @@ async def _run_single_cycle(client: TelegramClient, args: argparse.Namespace, wo
                 comment_interval_hours=comment_interval_hours,
                 comment_window_hours=comment_window_hours,
                 post_report_delay_hours=post_report_delay_hours,
+                comment_schedule_jitter_seconds=comment_schedule_jitter_seconds,
             )
+            total_processed_posts += processed_in_channel
 
-    if not args.skip_rebuild_graphs:
+    if not args.skip_rebuild_graphs and total_processed_posts > 0:
         await _rebuild_event_process_graphs(
             date_from=since_utc,
             date_to=datetime.now(timezone.utc),
@@ -590,6 +757,8 @@ async def _run_single_cycle(client: TelegramClient, args: argparse.Namespace, wo
             date_from=since_utc,
             date_to=datetime.now(timezone.utc),
         )
+    elif not args.skip_rebuild_graphs:
+        logging.info("Skip rebuild: no new posts in this cycle.")
 
     async with AsyncSessionLocal() as session:
         now = datetime.now(timezone.utc)
@@ -604,7 +773,12 @@ async def _run_single_cycle(client: TelegramClient, args: argparse.Namespace, wo
         )
         await session.commit()
 
-    executed_jobs = await _run_jobs(job_batch_size=job_batch_size, worker_id=worker_id)
+    executed_jobs = await _run_jobs(
+        job_batch_size=job_batch_size,
+        worker_id=worker_id,
+        collect_comments_quota_per_run=collect_comments_quota_per_run,
+        tg_client=client,
+    )
     logging.info("Cycle done. executed_jobs=%s", executed_jobs)
 
 

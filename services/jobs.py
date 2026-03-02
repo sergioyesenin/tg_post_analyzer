@@ -134,3 +134,40 @@ async def mark_job_failed(
         job.status = JOB_STATUS_PENDING
         job.retry_at = utcnow() + timedelta(seconds=delay)
     await session.flush()
+
+
+async def requeue_job(
+    session: AsyncSession,
+    *,
+    job: Job,
+    retry_at: datetime,
+    error: str | None = None,
+) -> None:
+    job.status = JOB_STATUS_PENDING
+    job.retry_at = retry_at
+    job.locked_by = None
+    job.locked_at = None
+    job.heartbeat_at = None
+    if error:
+        job.last_error = error[:4000]
+    await session.flush()
+
+
+async def defer_locked_job(
+    session: AsyncSession,
+    *,
+    job: Job,
+    retry_at: datetime,
+    reason: str | None = None,
+    preserve_attempt_budget: bool = True,
+) -> None:
+    job.status = JOB_STATUS_PENDING
+    job.retry_at = retry_at
+    job.locked_by = None
+    job.locked_at = None
+    job.heartbeat_at = None
+    if preserve_attempt_budget:
+        job.attempts = max(0, int(job.attempts or 0) - 1)
+    if reason:
+        job.last_error = reason[:4000]
+    await session.flush()

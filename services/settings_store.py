@@ -13,11 +13,14 @@ from services.settings_validation import validate_setting_payload
 
 DEFAULT_SETTINGS: dict[str, dict] = {
     "ingest": {
-        "poll_seconds": 90,
-        "max_posts_per_channel": 100,
+        "poll_seconds": 240,
+        "max_posts_per_channel": 30,
         "comment_first_delay_hours": 2,
-        "comment_interval_hours": 2,
+        "comment_interval_hours": 4,
         "comment_window_hours": 24,
+        "collect_comments_sleep_min_ms": 2000,
+        "collect_comments_sleep_max_ms": 4000,
+        "comment_schedule_jitter_seconds": 7200,
     },
     "reports": {
         "post_report_delay_hours": 6,
@@ -31,7 +34,8 @@ DEFAULT_SETTINGS: dict[str, dict] = {
         "archive_batch_size": 1000,
     },
     "jobs": {
-        "job_batch_size": 50,
+        "job_batch_size": 20,
+        "collect_comments_quota_per_run": 5,
     },
     "api": {
         "top_posts_default_limit": 20,

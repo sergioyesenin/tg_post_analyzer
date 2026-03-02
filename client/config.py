@@ -16,5 +16,5 @@ def load_client_settings() -> TelegramClientSettings:
         session=settings.TG_SESSION_NAME,
         api_id=settings.TG_API_ID,
         api_hash=settings.TG_API_HASH,
-        flood_sleep_threshold=int(getattr(settings, "tg_flood_sleep_threshold", 60)),
+        flood_sleep_threshold=int(getattr(settings, "TG_FLOOD_SLEEP_THRESHOLD", 180)),
     )

@@ -8,11 +8,14 @@ class _StrictConfigModel(BaseModel):
 
 
 class IngestSettings(_StrictConfigModel):
-    poll_seconds: int = Field(default=90, ge=5, le=3600)
-    max_posts_per_channel: int = Field(default=100, ge=1, le=2000)
+    poll_seconds: int = Field(default=240, ge=5, le=3600)
+    max_posts_per_channel: int = Field(default=30, ge=1, le=2000)
     comment_first_delay_hours: int = Field(default=2, ge=1, le=24)
-    comment_interval_hours: int = Field(default=2, ge=1, le=24)
+    comment_interval_hours: int = Field(default=4, ge=1, le=24)
     comment_window_hours: int = Field(default=24, ge=1, le=168)
+    collect_comments_sleep_min_ms: int = Field(default=2000, ge=0, le=10000)
+    collect_comments_sleep_max_ms: int = Field(default=4000, ge=0, le=15000)
+    comment_schedule_jitter_seconds: int = Field(default=7200, ge=0, le=21600)
 
 
 class ReportsSettings(_StrictConfigModel):
@@ -29,7 +32,8 @@ class RetentionSettings(_StrictConfigModel):
 
 
 class JobsSettings(_StrictConfigModel):
-    job_batch_size: int = Field(default=50, ge=1, le=5000)
+    job_batch_size: int = Field(default=20, ge=1, le=5000)
+    collect_comments_quota_per_run: int = Field(default=5, ge=1, le=5000)
 
 
 class ApiSettings(_StrictConfigModel):

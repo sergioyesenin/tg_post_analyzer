@@ -22,6 +22,7 @@ class Settings:
     TG_API_ID: int = _env_int("TG_API_ID", 0)
     TG_API_HASH: str = os.getenv("TG_API_HASH", "")
     TG_SESSION_NAME: str = os.getenv("TG_SESSION_NAME", "tg_session")
+    TG_FLOOD_SLEEP_THRESHOLD: int = _env_int("TG_FLOOD_SLEEP_THRESHOLD", 180)
     DB_URL: str = os.getenv("DB_URL", "")
     tz: str = os.getenv("APP_TZ", "Europe/Minsk")
 

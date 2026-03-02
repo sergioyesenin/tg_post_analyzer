@@ -164,6 +164,20 @@ async def set_post_involvement(session: AsyncSession, *, post_id: int, involveme
         .values(involvement=involvement)
     )
 
+
+async def set_post_last_comments_scan_at(
+    session: AsyncSession,
+    *,
+    post_id: int,
+    scanned_at: datetime | None = None,
+) -> None:
+    ts = scanned_at or datetime.now(timezone.utc)
+    await session.execute(
+        Post.__table__.update()
+        .where(Post.id == post_id)
+        .values(last_comments_scan_at=ts)
+    )
+
 async def upsert_report(
     session: AsyncSession,
     *,

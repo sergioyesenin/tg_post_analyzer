@@ -83,3 +83,50 @@ async def add_channel(
             details={"username": ch.username, "title": ch.title},
         )
     return f"OK: saved channel id={ch.id} username=@{ch.username} title={ch.title!r}"
+
+
+@router.put("/{channel_id}/active", response_model=ChannelOut)
+async def set_channel_active(
+    channel_id: int,
+    is_active: bool,
+    current_user: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    channel = await session.get(Channel, channel_id)
+    if channel is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    channel.is_active = is_active
+    await write_audit_log(
+        session,
+        action="channels.set_active",
+        actor_user_id=current_user.id,
+        target_type="channel",
+        target_id=str(channel.id),
+        details={"username": channel.username, "is_active": is_active},
+    )
+    await session.commit()
+    await session.refresh(channel)
+    return channel
+
+
+@router.delete("/{channel_id}")
+async def delete_channel(
+    channel_id: int,
+    current_user: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    channel = await session.get(Channel, channel_id)
+    if channel is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+    username = channel.username
+    await session.delete(channel)
+    await write_audit_log(
+        session,
+        action="channels.delete",
+        actor_user_id=current_user.id,
+        target_type="channel",
+        target_id=str(channel_id),
+        details={"username": username},
+    )
+    await session.commit()
+    return {"status": "deleted", "channel_id": channel_id, "username": username}

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,6 +54,8 @@ async def update_setting(
     merged_payload.update(data.value_json or {})
     try:
         normalized_payload = validate_setting_payload(key, merged_payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Invalid setting payload: {exc}") from exc
     saved = await upsert_setting(

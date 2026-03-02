@@ -6,6 +6,13 @@ from datetime import datetime, timedelta
 from deps import get_session, require_roles
 from db.models import Post, Comment
 from services.auth import AuthUser, write_audit_log
+from services.monitoring import (
+    activity_snapshot,
+    database_snapshot,
+    health_snapshot,
+    jobs_snapshot,
+    system_snapshot,
+)
 
 router = APIRouter()
 
@@ -66,6 +73,55 @@ async def db_size(
         actor_user_id=current_user.id,
         target_type="monitor",
         details=payload,
+    )
+    await session.commit()
+    return payload
+
+
+@router.get("/health")
+async def monitor_health(
+    _: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    return await health_snapshot(session)
+
+
+@router.get("/system")
+async def monitor_system(
+    _: AuthUser = Depends(require_roles("admin")),
+):
+    return system_snapshot()
+
+
+@router.get("/jobs")
+async def monitor_jobs(
+    _: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    return await jobs_snapshot(session)
+
+
+@router.get("/full")
+async def monitor_full(
+    current_user: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    payload = {
+        "health": await health_snapshot(session),
+        "system": system_snapshot(),
+        "jobs": await jobs_snapshot(session),
+        "activity_24h": await activity_snapshot(session, hours=24),
+        "database": await database_snapshot(session),
+    }
+    await write_audit_log(
+        session,
+        action="monitor.full.read",
+        actor_user_id=current_user.id,
+        target_type="monitor",
+        details={
+            "status": payload["health"].get("status"),
+            "pending_jobs": payload["jobs"].get("by_status", {}).get("pending", 0),
+        },
     )
     await session.commit()
     return payload

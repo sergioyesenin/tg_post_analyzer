@@ -7,6 +7,7 @@ from deps import get_session, require_roles
 from schemas.settings import AppSettingOut, AppSettingUpdateIn
 from services.auth import AuthUser, write_audit_log
 from services.settings_store import DEFAULT_SETTINGS, get_all_settings, upsert_setting
+from services.settings_validation import validate_setting_payload
 
 router = APIRouter()
 
@@ -46,10 +47,18 @@ async def update_setting(
 ):
     if key not in DEFAULT_SETTINGS:
         raise HTTPException(status_code=404, detail=f"Unknown setting key: {key}")
+    current_payload = await get_all_settings(session)
+    base = current_payload.get(key, DEFAULT_SETTINGS[key])
+    merged_payload = dict(base)
+    merged_payload.update(data.value_json or {})
+    try:
+        normalized_payload = validate_setting_payload(key, merged_payload)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid setting payload: {exc}") from exc
     saved = await upsert_setting(
         session,
         key=key,
-        value_json=data.value_json,
+        value_json=normalized_payload,
         description=data.description,
         updated_by_user_id=current_user.id,
     )
@@ -59,7 +68,7 @@ async def update_setting(
         actor_user_id=current_user.id,
         target_type="app_setting",
         target_id=key,
-        details={"value_json": data.value_json},
+        details={"value_json": normalized_payload},
     )
     await session.commit()
     return AppSettingOut(

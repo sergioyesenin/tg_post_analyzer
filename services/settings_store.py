@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents.reporter import ReportConfig
 from db.models import AppSetting
+from services.settings_validation import validate_setting_payload
 
 
 DEFAULT_SETTINGS: dict[str, dict] = {
@@ -51,15 +52,17 @@ async def get_setting(session: AsyncSession, key: str) -> dict:
     row = (await session.execute(select(AppSetting).where(AppSetting.key == key))).scalar_one_or_none()
     default = deepcopy(DEFAULT_SETTINGS.get(key, {}))
     if row is None:
-        return default
-    return _merge_dict(default, row.value_json if isinstance(row.value_json, dict) else {})
+        return validate_setting_payload(key, default) if key in DEFAULT_SETTINGS else default
+    merged = _merge_dict(default, row.value_json if isinstance(row.value_json, dict) else {})
+    return validate_setting_payload(key, merged) if key in DEFAULT_SETTINGS else merged
 
 
 async def get_all_settings(session: AsyncSession) -> dict[str, dict]:
     result: dict[str, dict] = {k: deepcopy(v) for k, v in DEFAULT_SETTINGS.items()}
     rows = (await session.execute(select(AppSetting))).scalars().all()
     for row in rows:
-        result[row.key] = _merge_dict(result.get(row.key, {}), row.value_json if isinstance(row.value_json, dict) else {})
+        merged = _merge_dict(result.get(row.key, {}), row.value_json if isinstance(row.value_json, dict) else {})
+        result[row.key] = validate_setting_payload(row.key, merged) if row.key in DEFAULT_SETTINGS else merged
     return result
 
 

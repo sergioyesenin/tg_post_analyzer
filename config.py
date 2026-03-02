@@ -46,5 +46,9 @@ class Settings:
     TITLES_AI_MAX_INPUT_POSTS: int = _env_int("TITLES_AI_MAX_INPUT_POSTS", 6)
     DISCUSSION_FALLBACK_ID_WINDOW: int = _env_int("DISCUSSION_FALLBACK_ID_WINDOW", 2)
     DISCUSSION_FALLBACK_MAX_SECONDS: int = _env_int("DISCUSSION_FALLBACK_MAX_SECONDS", 10)
+    AUTH_JWT_SECRET: str = os.getenv("AUTH_JWT_SECRET", "change-me-in-prod")
+    AUTH_JWT_ALG: str = os.getenv("AUTH_JWT_ALG", "HS256")
+    AUTH_ACCESS_TTL_MINUTES: int = _env_int("AUTH_ACCESS_TTL_MINUTES", 60)
+    AUTH_PROVIDER_MODE: str = os.getenv("AUTH_PROVIDER_MODE", "local")
 
 settings = Settings()

@@ -9,10 +9,11 @@ from telethon.tl.types import Channel as TgChannel
 
 from client import client
 from db.models import Channel
-from deps import get_session
+from deps import get_session, require_roles
 from schemas.channel import ChannelIn, ChannelOut
 from scripts.add_channel import normalize_channel_identifier
 from services.ingest import upsert_channel
+from services.auth import AuthUser
 
 router = APIRouter()
 
@@ -24,7 +25,11 @@ async def list_channels(session: AsyncSession = Depends(get_session)):
 
 
 @router.post("/add")
-async def add_channel(user: ChannelIn, session: AsyncSession = Depends(get_session)):
+async def add_channel(
+    user: ChannelIn,
+    _: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
     ident = normalize_channel_identifier(user.username)
     normalized_username = ident.lstrip("@").strip()
     if not client.is_connected():

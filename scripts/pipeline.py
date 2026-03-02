@@ -6,10 +6,11 @@ import logging
 import os
 import sqlite3
 import sys
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, select
 from telethon import TelegramClient
 from telethon.tl.types import PeerChannel
 
@@ -17,13 +18,23 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from agents.reporter import TgReportProject
 from client.config import load_client_settings
-from db.models import Channel, Post
+from db.models import Channel, Event, Job, Post, Process
 from db.session import AsyncSessionLocal
 from services.events.build_events import rebuild_events
 from services.ingest import upsert_post
+from services.jobs import (
+    JobType,
+    enqueue_job,
+    fetch_and_lock_jobs,
+    mark_job_done,
+    mark_job_failed,
+)
 from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
 from services.processes.build_processes import rebuild_processes
+from services.reporting import build_event_report_draft, build_post_report, build_process_report_draft
+from services.TGqueries import update_post_comments
 
 SKIP_CHANNEL_IDS = {}
 
@@ -35,6 +46,13 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     parser.add_argument("--session-suffix", type=str, default="no_llm")
     parser.add_argument("--unique-session-per-run", action="store_true")
+    parser.add_argument("--daemon", action="store_true", help="Run forever and poll channels in loop.")
+    parser.add_argument("--poll-seconds", type=int, default=90, help="Delay between daemon cycles.")
+    parser.add_argument("--job-batch-size", type=int, default=50, help="How many jobs to execute per cycle.")
+    parser.add_argument("--comment-first-delay-hours", type=int, default=2)
+    parser.add_argument("--comment-interval-hours", type=int, default=2)
+    parser.add_argument("--comment-window-hours", type=int, default=24)
+    parser.add_argument("--post-report-delay-hours", type=int, default=6)
     parser.add_argument(
         "--skip-rebuild-graphs",
         action="store_true",
@@ -53,11 +71,14 @@ def _is_session_locked_error(exc: Exception) -> bool:
 
 def _build_client(*, session_suffix: str, unique_session_per_run: bool) -> TelegramClient:
     client_settings = load_client_settings()
-    suffix = session_suffix
+    session_name = client_settings.session
+    suffix = session_suffix.strip()
+    if suffix:
+        session_name = f"{session_name}_{suffix}"
     if unique_session_per_run:
-        suffix = f"{suffix}_{os.getpid()}"
+        session_name = f"{session_name}_{os.getpid()}"
     return TelegramClient(
-        session=client_settings.session,
+        session=session_name,
         api_id=client_settings.api_id,
         api_hash=client_settings.api_hash,
         flood_sleep_threshold=client_settings.flood_sleep_threshold,
@@ -99,6 +120,50 @@ async def _get_post_by_channel_msg(*, session, channel_id: int, tg_message_id: i
         .where(Post.tg_message_id == tg_message_id)
     )
     return (await session.execute(stmt)).scalar_one_or_none()
+
+
+async def _get_last_tg_message_id_for_channel(*, session, channel_id: int) -> int:
+    stmt = select(func.max(Post.tg_message_id)).where(Post.channel_id == channel_id)
+    last_value = (await session.execute(stmt)).scalar_one_or_none()
+    if isinstance(last_value, int) and last_value > 0:
+        return last_value
+    return 0
+
+
+async def _schedule_post_jobs(
+    session,
+    *,
+    post: Post,
+    comment_first_delay_hours: int,
+    comment_interval_hours: int,
+    comment_window_hours: int,
+    post_report_delay_hours: int,
+) -> None:
+    first_comment_at = post.date + timedelta(hours=comment_first_delay_hours)
+    comment_until = post.date + timedelta(hours=comment_window_hours)
+    current = first_comment_at
+    while current <= comment_until:
+        ts = int(current.timestamp())
+        await enqueue_job(
+            session,
+            job_type=JobType.COLLECT_COMMENTS,
+            payload={"post_id": post.id},
+            run_at=current,
+            priority=20,
+            max_attempts=8,
+            dedupe_key=f"collect_comments:{post.id}:{ts}",
+        )
+        current = current + timedelta(hours=comment_interval_hours)
+
+    await enqueue_job(
+        session,
+        job_type=JobType.BUILD_POST_REPORT,
+        payload={"post_id": post.id},
+        run_at=post.date + timedelta(hours=post_report_delay_hours),
+        priority=40,
+        max_attempts=5,
+        dedupe_key=f"build_post_report:{post.id}",
+    )
 
 
 def _extract_parent_tg_message_id(message) -> int | None:
@@ -220,7 +285,17 @@ async def _ensure_parent_post(
     return saved
 
 
-async def _process_channel(client: TelegramClient, channel: Channel, *, since_utc: datetime, max_posts: int) -> None:
+async def _process_channel(
+    client: TelegramClient,
+    channel: Channel,
+    *,
+    since_utc: datetime,
+    max_posts: int,
+    comment_first_delay_hours: int,
+    comment_interval_hours: int,
+    comment_window_hours: int,
+    post_report_delay_hours: int,
+) -> None:
     if channel.id in SKIP_CHANNEL_IDS:
         logging.info("Skip channel id=%s (@%s): excluded by config", channel.id, channel.username)
         return
@@ -243,6 +318,8 @@ async def _process_channel(client: TelegramClient, channel: Channel, *, since_ut
     pipeline = NoLlmLinkingPipeline.build_default()
     processed = 0
     processed_grouped_ids: set[int] = set()
+    async with AsyncSessionLocal() as session:
+        channel_last_tg_msg_id = await _get_last_tg_message_id_for_channel(session=session, channel_id=channel.id)
 
     async for msg in client.iter_messages(entity):
         if processed >= max_posts:
@@ -258,9 +335,20 @@ async def _process_channel(client: TelegramClient, channel: Channel, *, since_ut
             msg = await _pick_album_representative_message(client, entity, msg)
             processed_grouped_ids.add(grouped_id)
 
+        if channel_last_tg_msg_id and int(msg.id or 0) <= channel_last_tg_msg_id:
+            break
+
         parent_tg_message_id = _extract_parent_tg_message_id(msg)
         comments_count = _extract_comments_count(msg)
         async with AsyncSessionLocal() as session:
+            existing = await _get_post_by_channel_msg(
+                session=session,
+                channel_id=channel.id,
+                tg_message_id=msg.id,
+            )
+            if existing is not None:
+                break
+
             parent_post_id: int | None = None
             if isinstance(parent_tg_message_id, int):
                 parent_post = await _ensure_parent_post(
@@ -292,6 +380,15 @@ async def _process_channel(client: TelegramClient, channel: Channel, *, since_ut
             if db_post is None:
                 continue
             result = await pipeline.run_for_post(session, db_post)
+
+            await _schedule_post_jobs(
+                session,
+                post=db_post,
+                comment_first_delay_hours=comment_first_delay_hours,
+                comment_interval_hours=comment_interval_hours,
+                comment_window_hours=comment_window_hours,
+                post_report_delay_hours=post_report_delay_hours,
+            )
             await session.commit()
             logging.info(
                 "Linked post id=%s verified=%s proposed=%s review=%s rejected=%s candidates=%s",
@@ -334,26 +431,154 @@ async def _rebuild_event_process_graphs(*, date_from: datetime, date_to: datetim
     )
 
 
+async def _enqueue_graph_report_jobs(*, date_from: datetime, date_to: datetime) -> None:
+    async with AsyncSessionLocal() as session:
+        event_ids = [
+            row[0]
+            for row in (
+                await session.execute(
+                    select(Event.id).where(and_(Event.started_at >= date_from, Event.started_at <= date_to))
+                )
+            ).all()
+        ]
+        process_ids = [
+            row[0]
+            for row in (
+                await session.execute(
+                    select(Process.id).where(and_(Process.started_at >= date_from, Process.started_at <= date_to))
+                )
+            ).all()
+        ]
+
+        for event_id in event_ids:
+            await enqueue_job(
+                session,
+                job_type=JobType.BUILD_EVENT_REPORT,
+                payload={"event_id": event_id},
+                priority=70,
+                dedupe_key=f"build_event_report:{event_id}",
+            )
+        for process_id in process_ids:
+            await enqueue_job(
+                session,
+                job_type=JobType.BUILD_PROCESS_REPORT,
+                payload={"process_id": process_id},
+                priority=80,
+                dedupe_key=f"build_process_report:{process_id}",
+            )
+        await session.commit()
+
+
+async def _run_jobs(*, job_batch_size: int, worker_id: str) -> int:
+    report_project = TgReportProject(llm_model="ollama/llama3:8b-instruct-q4_K_M")
+    executed = 0
+    async with AsyncSessionLocal() as session:
+        jobs = await fetch_and_lock_jobs(
+            session,
+            worker_id=worker_id,
+            limit=job_batch_size,
+            allowed_types={
+                JobType.COLLECT_COMMENTS,
+                JobType.BUILD_POST_REPORT,
+                JobType.BUILD_EVENT_REPORT,
+                JobType.BUILD_PROCESS_REPORT,
+            },
+        )
+        await session.commit()
+
+    for job in jobs:
+        async with AsyncSessionLocal() as session:
+            db_job = await session.get(Job, job.id)
+            if db_job is None:
+                continue
+            try:
+                if db_job.type == JobType.COLLECT_COMMENTS:
+                    payload = db_job.payload_json or {}
+                    post_id = int(payload.get("post_id"))
+                    result = await update_post_comments(session, post_id)
+                    logging.info("Job collect_comments post_id=%s status=%s", post_id, result.get("status"))
+                elif db_job.type == JobType.BUILD_POST_REPORT:
+                    payload = db_job.payload_json or {}
+                    post_id = int(payload.get("post_id"))
+                    result = await build_post_report(session, post_id=post_id, report_project=report_project)
+                    logging.info("Job build_post_report post_id=%s status=%s", post_id, result.get("status"))
+                elif db_job.type == JobType.BUILD_EVENT_REPORT:
+                    payload = db_job.payload_json or {}
+                    event_id = int(payload.get("event_id"))
+                    result = await build_event_report_draft(session, event_id=event_id)
+                    logging.info("Job build_event_report event_id=%s status=%s", event_id, result.get("status"))
+                elif db_job.type == JobType.BUILD_PROCESS_REPORT:
+                    payload = db_job.payload_json or {}
+                    process_id = int(payload.get("process_id"))
+                    result = await build_process_report_draft(session, process_id=process_id)
+                    logging.info("Job build_process_report process_id=%s status=%s", process_id, result.get("status"))
+                else:
+                    raise ValueError(f"Unsupported job type: {db_job.type}")
+
+                await mark_job_done(session, job=db_job)
+                await session.commit()
+                executed += 1
+            except Exception as exc:
+                await mark_job_failed(session, job=db_job, error=repr(exc))
+                await session.commit()
+                logging.warning("Job failed id=%s type=%s err=%r", db_job.id, db_job.type, exc)
+    return executed
+
+
+async def _run_single_cycle(client: TelegramClient, args: argparse.Namespace, worker_id: str) -> None:
+    since_utc = datetime.now(timezone.utc) - timedelta(days=args.days)
+    channels = await _get_active_channels()
+    if not channels:
+        logging.warning("No active channels found.")
+    else:
+        for channel in channels:
+            await _process_channel(
+                client,
+                channel,
+                since_utc=since_utc,
+                max_posts=args.max_posts_per_channel,
+                comment_first_delay_hours=args.comment_first_delay_hours,
+                comment_interval_hours=args.comment_interval_hours,
+                comment_window_hours=args.comment_window_hours,
+                post_report_delay_hours=args.post_report_delay_hours,
+            )
+
+    if not args.skip_rebuild_graphs:
+        await _rebuild_event_process_graphs(
+            date_from=since_utc,
+            date_to=datetime.now(timezone.utc),
+        )
+        await _enqueue_graph_report_jobs(
+            date_from=since_utc,
+            date_to=datetime.now(timezone.utc),
+        )
+
+    executed_jobs = await _run_jobs(job_batch_size=args.job_batch_size, worker_id=worker_id)
+    logging.info("Cycle done. executed_jobs=%s", executed_jobs)
+
+
 async def main_async(args: argparse.Namespace) -> None:
     client = _build_client(
         session_suffix=args.session_suffix,
         unique_session_per_run=args.unique_session_per_run,
     )
-    since_utc = datetime.now(timezone.utc) - timedelta(days=args.days)
-    channels = await _get_active_channels()
-    if not channels:
-        logging.warning("No active channels found.")
-        return
+    worker_id = f"pipeline-{os.getpid()}-{uuid.uuid4().hex[:8]}"
 
     await _with_session_lock_retry(lambda: client.start(), op_name="client.start")
     try:
-        for channel in channels:
-            await _process_channel(client, channel, since_utc=since_utc, max_posts=args.max_posts_per_channel)
-        if not args.skip_rebuild_graphs:
-            await _rebuild_event_process_graphs(
-                date_from=since_utc,
-                date_to=datetime.now(timezone.utc),
-            )
+        if args.daemon:
+            logging.info("Daemon mode started. worker_id=%s poll_seconds=%s", worker_id, args.poll_seconds)
+            while True:
+                cycle_started_at = datetime.now(timezone.utc)
+                try:
+                    await _run_single_cycle(client, args, worker_id)
+                except Exception as exc:
+                    logging.exception("Cycle failed: %r", exc)
+                elapsed = (datetime.now(timezone.utc) - cycle_started_at).total_seconds()
+                sleep_for = max(1, int(args.poll_seconds - elapsed))
+                await asyncio.sleep(sleep_for)
+        else:
+            await _run_single_cycle(client, args, worker_id)
     finally:
         try:
             await _with_session_lock_retry(lambda: client.disconnect(), op_name="client.disconnect")

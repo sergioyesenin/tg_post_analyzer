@@ -65,6 +65,78 @@ class ProcessRelationType(str, PyEnum):
     RELATED = "related"
 
 
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("username", name="uq_users_username"),
+        UniqueConstraint("email", name="uq_users_email"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    username: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    is_local: Mapped[bool] = mapped_column(default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class Role(Base):
+    __tablename__ = "roles"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_roles_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class UserRole(Base):
+    __tablename__ = "user_roles"
+    __table_args__ = (
+        Index("ix_user_roles_role_id", "role_id"),
+    )
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AuthIdentity(Base):
+    __tablename__ = "auth_identities"
+    __table_args__ = (
+        UniqueConstraint("provider", "external_subject", name="uq_auth_identities_provider_subject"),
+        Index("ix_auth_identities_user_id", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    external_subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    attrs_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    __table_args__ = (
+        Index("ix_audit_logs_actor_created", "actor_user_id", "created_at"),
+        Index("ix_audit_logs_action_created", "action", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    actor_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    action: Mapped[str] = mapped_column(String(128), nullable=False)
+    target_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    details_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 class Channel(Base):
     __tablename__ = "channels"
 
@@ -177,6 +249,32 @@ class Report(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
     post: Mapped["Post"] = relationship(back_populates="report")
+
+
+class Job(Base):
+    __tablename__ = "jobs"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_jobs_dedupe_key"),
+        Index("ix_jobs_status_retry_priority", "status", "retry_at", "priority"),
+        Index("ix_jobs_type_status", "type", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100, index=True)
+    payload_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, index=True)
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    locked_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dedupe_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class PostFeature(Base):

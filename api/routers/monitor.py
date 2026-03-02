@@ -3,13 +3,17 @@ from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
 
-from deps import get_session
+from deps import get_session, require_roles
 from db.models import Post, Comment
+from services.auth import AuthUser
 
 router = APIRouter()
 
 @router.get("/summary")
-async def monitor_summary(session: AsyncSession = Depends(get_session)):
+async def monitor_summary(
+    _: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
     since = datetime.utcnow() - timedelta(hours=24)
 
     posts_count = await session.scalar(
@@ -27,7 +31,10 @@ async def monitor_summary(session: AsyncSession = Depends(get_session)):
 
 
 @router.get("/db-size")
-async def db_size(session: AsyncSession = Depends(get_session)):
+async def db_size(
+    _: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
     row = (
         await session.execute(
             text(

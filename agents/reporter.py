@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from crewai import Agent, Crew, Process, Task, LLM
+from agents.config import load_agent_settings
 
 
 @dataclass(frozen=True)
@@ -175,8 +176,8 @@ class TgReportProject:
     def __init__(
         self,
         *,
-        llm_model: str = "ollama/llama3:8b-instruct-q4_K_M",
-        llm_base_url: Optional[str] = "http://localhost:11434",
+        llm_model: Optional[str] = None,
+        llm_base_url: Optional[str] = None,
         llm_api_key: Optional[str] = None,
         process: Process = Process.sequential,
         verbose: bool = False,
@@ -187,6 +188,7 @@ class TgReportProject:
         agent_max_iter: int = 2,
         agent_max_rpm: int = 30,
     ) -> None:
+        agent_settings = load_agent_settings()
         self._process = process
         self._verbose = verbose
         self._memory = memory
@@ -198,9 +200,9 @@ class TgReportProject:
         self._agent_max_rpm = agent_max_rpm
 
         self._llm = LLM(
-            model=llm_model,
-            base_url=llm_base_url,
-            api_key=llm_api_key,
+            model=llm_model or agent_settings.llm_model,
+            base_url=llm_base_url or agent_settings.llm_base_url,
+            api_key=llm_api_key or agent_settings.llm_api_key,
         )
 
         # ленивые поля

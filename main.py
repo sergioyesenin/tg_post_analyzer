@@ -11,7 +11,7 @@ from telethon.tl.functions.messages import GetDiscussionMessageRequest
 from telethon.tl.types import PeerChannel, PeerUser, User
 from sqlalchemy import select
 
-from agent.reporter import TgReportProject
+from agents.reporter import TgReportProject
 from client import client
 from config import settings
 from db.models import Channel, Post

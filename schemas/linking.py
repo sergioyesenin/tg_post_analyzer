@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
+from typing import Literal
 
 
 class LinkOut(BaseModel):
@@ -8,10 +9,14 @@ class LinkOut(BaseModel):
     src_post_id: int
     dst_post_id: int
     link_type: str
-    confidence: float | None = None
-    evidence: dict | None = None
+    direction: str
+    score: float | None = None
+    status: str
+    evidence_json: dict | None = None
     model_version: str | None = None
+    pipeline_version: str | None = None
     created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -24,22 +29,23 @@ class PostLinksResponse(BaseModel):
 
 class LinkRunResponse(BaseModel):
     post_id: int
-    links_created: int
-    event_id: int | None = None
+    links_verified: int
+    links_proposed: int
+    links_rejected: int
     candidates_checked: int
-    ai_checked: int = 0
-    ai_links_created: int = 0
-    ai_errors: int = 0
+    verify_checked: int
+    critic_checked: int
+    queued_for_review: int = 0
 
 
 class EventSummaryOut(BaseModel):
     id: int
     title: str | None = None
     status: str
-    first_seen_at: datetime | None = None
-    last_seen_at: datetime | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
     confidence: float | None = None
-    summary_current: str | None = None
+    created_by: str | None = None
 
     class Config:
         from_attributes = True
@@ -50,39 +56,92 @@ class EventDetailOut(BaseModel):
     post_ids: list[int]
 
 
-class RelatedPostOut(BaseModel):
-    post_id: int
-    channel_id: int
-    channel_username: str
-    date: datetime
-    text_preview: str | None = None
-    link_type: str
-    link_type_ru: str
-    confidence: float | None = None
-    direction_ru: str
-
-
-class GraphNodeOut(BaseModel):
+class ProcessSummaryOut(BaseModel):
     id: int
-    label: str
-    subtitle: str | None = None
-    is_root: bool = False
-
-
-class GraphEdgeOut(BaseModel):
-    source: int
-    target: int
-    relation: str
-    relation_ru: str
+    title: str | None = None
+    status: str
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
     confidence: float | None = None
+    created_by: str | None = None
+
+    class Config:
+        from_attributes = True
 
 
-class RelatedGraphOut(BaseModel):
-    nodes: list[GraphNodeOut]
-    edges: list[GraphEdgeOut]
+class ProcessEventOut(BaseModel):
+    event_id: int
+    relation_type: str
+    direction: str
+    score: float | None = None
+    status: str
 
 
-class RelatedPostsResponse(BaseModel):
-    root_post_id: int
-    related_posts: list[RelatedPostOut]
-    graph: RelatedGraphOut
+class ProcessDetailOut(BaseModel):
+    process: ProcessSummaryOut
+    events: list[ProcessEventOut]
+
+
+class AnchorPayload(BaseModel):
+    shared_entities: list[str] = Field(default_factory=list)
+    shared_places: list[str] = Field(default_factory=list)
+    shared_dates: list[str] = Field(default_factory=list)
+    shared_numbers: list[str] = Field(default_factory=list)
+    shared_tickers: list[str] = Field(default_factory=list)
+
+
+class EvidenceSpan(BaseModel):
+    post: Literal["src", "dst"]
+    quote: str = Field(min_length=1, max_length=500)
+
+
+class VerifyFlags(BaseModel):
+    time_consistent: bool
+    entity_consistent: bool
+    explicit_causality_marker: bool
+
+
+class PairwiseVerifyResult(BaseModel):
+    linked: Literal["true", "false", "unsure"]
+    link_type: Literal[
+        "same_event",
+        "update",
+        "contradiction",
+        "cause",
+        "consequence",
+        "background",
+        "related",
+        "unrelated",
+    ]
+    direction: Literal["src_to_dst", "dst_to_src", "none"]
+    anchors: AnchorPayload
+    spans: list[EvidenceSpan] = Field(default_factory=list)
+    rationale: str = Field(min_length=1, max_length=500)
+    counterarguments: list[str] = Field(default_factory=list, min_length=2, max_length=3)
+    flags: VerifyFlags
+
+    @model_validator(mode="after")
+    def ensure_spans_for_positive_links(self) -> "PairwiseVerifyResult":
+        if self.linked == "false":
+            return self
+        posts = {span.post for span in self.spans}
+        if "src" not in posts or "dst" not in posts:
+            raise ValueError("spans must contain quotes for both src and dst posts when linked != false")
+        return self
+
+
+class CriticResult(BaseModel):
+    verdict: Literal["approve", "reject", "needs_review"]
+    issues: list[str] = Field(default_factory=list)
+    missing: list[str] = Field(default_factory=list)
+    suggested_link_type: Literal[
+        "same_event",
+        "update",
+        "contradiction",
+        "cause",
+        "consequence",
+        "background",
+        "related",
+        "unrelated",
+    ]
+    notes: str = Field(default="", max_length=500)

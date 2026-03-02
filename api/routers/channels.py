@@ -1,43 +1,64 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
-from telethon.tl.types import Channel as TgChannel
-from telethon.tl.functions.channels import LeaveChannelRequest, JoinChannelRequest
 
-from deps import get_session
-from db.models import Channel
-from schemas.channel import ChannelOut, ChannelIn
-from scripts.add_channel import normalize_channel_identifier
+from telethon.errors import RPCError
+from telethon.tl.functions.channels import JoinChannelRequest
+from telethon.tl.types import Channel as TgChannel
+
 from client import client
+from db.models import Channel
+from deps import get_session
+from schemas.channel import ChannelIn, ChannelOut
+from scripts.add_channel import normalize_channel_identifier
 from services.ingest import upsert_channel
 
 router = APIRouter()
+
 
 @router.get("/", response_model=list[ChannelOut])
 async def list_channels(session: AsyncSession = Depends(get_session)):
     result = await session.execute(select(Channel))
     return result.scalars().all()
 
+
 @router.post("/add")
-async def add_channel(user: ChannelIn, session: AsyncSession = Depends(get_session) ):
+async def add_channel(user: ChannelIn, session: AsyncSession = Depends(get_session)):
     ident = normalize_channel_identifier(user.username)
-    if not client:
+    normalized_username = ident.lstrip("@").strip()
+    if not client.is_connected():
         await client.start()
 
-    entity = await client.get_entity(ident)
+    try:
+        entity = await client.get_entity(ident)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Cannot resolve channel: {ident}") from exc
+
     if not isinstance(entity, TgChannel):
-        print(f"ERROR: {ident} is not a channel (got {type(entity)})")
-        raise SystemExit(1)
-    await client(JoinChannelRequest(entity))
+        raise HTTPException(status_code=400, detail=f"{ident} is not a Telegram channel")
+
+    try:
+        await client(JoinChannelRequest(entity))
+    except RPCError:
+        # Already joined or join is not required for public reads.
+        pass
+
     username: Optional[str] = entity.username
     title: Optional[str] = getattr(entity, "title", None)
-
-    # username обязательный в БД
+    if not username and normalized_username:
+        # Telethon may return a minimal entity without username populated.
+        username = normalized_username
     if not username:
-        username = f"id_{entity.id}"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Channel has no public username. "
+                "Only channels with username are supported by this endpoint."
+            ),
+        )
 
-    async with session.begin(): 
+    async with session.begin():
         ch = await upsert_channel(
             session,
             username=username,
@@ -45,4 +66,4 @@ async def add_channel(user: ChannelIn, session: AsyncSession = Depends(get_sessi
             category=None,
             is_active=True,
         )
-    return (f"OK: saved channel id={ch.id} username=@{ch.username} title={ch.title!r}")
+    return f"OK: saved channel id={ch.id} username=@{ch.username} title={ch.title!r}"

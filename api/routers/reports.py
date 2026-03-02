@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.reporter import TgReportProject
+from agents.reporter import TgReportProject
 from deps import get_session
 from db.models import Report, Post, Comment, Channel
 from schemas.report import ReportOut

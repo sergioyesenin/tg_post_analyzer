@@ -101,10 +101,9 @@ async def _main() -> None:
 
     print(
         "[CONFIG] "
-        f"AI_ENABLED={settings.LINKER_AI_ENABLED} "
-        f"AI_MODEL={settings.LINKER_LLM_MODEL} "
-        f"LOOKBACK_DAYS={settings.LINKER_LOOKBACK_DAYS} "
-        f"CANDIDATE_LIMIT={settings.LINKER_CANDIDATE_LIMIT}"
+        f"PIPELINE={settings.LINKING_PIPELINE_VERSION} "
+        f"TOP_K={settings.LINKING_TOP_K} "
+        f"EMBED_MODEL={settings.LINKING_EMBED_MODEL}"
     )
 
     stats = await run_backfill(

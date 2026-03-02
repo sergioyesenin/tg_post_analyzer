@@ -7,25 +7,21 @@ from typing import Optional
 
 from telethon.tl.types import Channel as TgChannel
 
-from db.session import get_session
-from services.ingest import upsert_channel
 from client import client
 from db.session import AsyncSessionLocal
+from services.ingest import upsert_channel
 
 
 def normalize_channel_identifier(raw: str) -> str:
     raw = raw.strip()
 
-    # @name
     if raw.startswith("@"):
         return raw
 
-    # https://t.me/name or t.me/name
     m = re.search(r"(?:https?://)?t\.me/([A-Za-z0-9_]{4,})", raw)
     if m:
         return "@" + m.group(1)
 
-    # fallback: assume it's username without @
     return "@" + raw
 
 
@@ -35,6 +31,7 @@ async def main() -> None:
         raise SystemExit(2)
 
     ident = normalize_channel_identifier(sys.argv[1])
+    normalized_username = ident.lstrip("@").strip()
 
     await client.start()
 
@@ -45,10 +42,11 @@ async def main() -> None:
 
     username: Optional[str] = entity.username
     title: Optional[str] = getattr(entity, "title", None)
-
-    # username обязательный в БД
+    if not username and normalized_username:
+        username = normalized_username
     if not username:
-        username = f"id_{entity.id}"
+        print("ERROR: channel has no public username. Only channels with username are supported.")
+        raise SystemExit(1)
 
     async with AsyncSessionLocal() as session:
         async with session.begin():

@@ -1,78 +1,154 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TG Dashboard</title>
-  <link rel="stylesheet" href="/web/styles.css" />
+  <title>Top Events Dashboard</title>
+  <link rel="stylesheet" href="/web/styles.css?v=20260302-2" />
 </head>
 <body>
   <div class="page">
     <header class="topbar">
-      <div class="title-wrap">
-        <div class="logo">♫</div>
-        <h1>Dashboard <span>/ Top Posts</span></h1>
+      <div class="brand-wrap">
+        <div class="logo">♪</div>
+        <h1>Dashboard <span>/ Top Events</span></h1>
+      </div>
+      <div class="top-actions">
+        <button id="themeToggle" class="icon-btn" type="button" aria-label="Переключить тему">☾</button>
+        <button id="detailsToggle" class="icon-btn details-toggle" type="button" aria-label="Открыть детали">≡</button>
       </div>
     </header>
 
     <section class="filters card">
-      <label>С даты <input type="date" id="dateFrom" /></label>
-      <label>По дату <input type="date" id="dateTo" /></label>
-      <label>Канал <select id="channelFilter"><option value="">Все</option></select></label>
-      <label>Мин. комментариев <input type="number" id="minComments" min="0" value="0" /></label>
-      <label>Top N
+      <label class="filter-field">
+        <span>📅 Date From</span>
+        <input type="date" id="dateFrom" />
+      </label>
+      <label class="filter-field">
+        <span>📅 Date To</span>
+        <input type="date" id="dateTo" />
+      </label>
+      <label class="filter-field">
+        <span>📣 Каналы</span>
+        <div id="channelDropdown" class="channel-dropdown">
+          <button id="channelDropdownBtn" type="button" class="channel-dropdown-btn">
+            <span id="channelDropdownValue">Все каналы</span>
+            <span class="channel-dropdown-caret">▾</span>
+          </button>
+          <div id="channelDropdownMenu" class="channel-dropdown-menu hidden"></div>
+        </div>
+        <select id="channelFilter" multiple size="4" class="native-multiselect-hidden"></select>
+      </label>
+      <label class="filter-field">
+        <span>🗂 Категория</span>
+        <select id="categoryFilter">
+          <option value="">Все</option>
+          <option value="news">Новости</option>
+          <option value="finance">Финансы</option>
+          <option value="politics">Политика</option>
+          <option value="other">Другое</option>
+        </select>
+      </label>
+      <label class="filter-field">
+        <span>💬 Мин. комментариев</span>
+        <input type="number" id="minComments" min="0" value="0" />
+      </label>
+      <label class="filter-field">
+        <span>Top N</span>
         <select id="topLimit">
           <option>10</option>
           <option selected>25</option>
           <option>50</option>
+          <option>100</option>
         </select>
       </label>
-      <button id="resetBtn" class="btn ghost">Сбросить</button>
-      <button id="applyBtn" class="btn primary">Применить</button>
+      <div class="filter-actions">
+        <button id="applyBtn" class="btn primary">Применить</button>
+        <button id="resetBtn" class="btn">Сбросить</button>
+      </div>
     </section>
 
     <section class="kpi-row">
-      <div>Всего постов: <strong id="kpiPosts">0</strong></div>
-      <div>Средняя вовлеченность: <strong id="kpiInvolvement">0%</strong></div>
-      <div>Всего комментариев: <strong id="kpiComments">0</strong></div>
+      <div class="kpi-item">Всего событий: <strong id="kpiEvents">0</strong></div>
+      <div class="kpi-item">Средняя вовлеченность: <strong id="kpiInvolvement">—</strong></div>
+      <div class="kpi-item">Всего комментариев: <strong id="kpiComments">0</strong></div>
+      <div class="kpi-item kpi-delta">Δ к прошлому периоду: <strong id="kpiDelta">0%</strong></div>
     </section>
 
-    <main class="content">
-      <section class="left-pane">
-        <h2>Top Posts</h2>
-        <div id="postsList" class="posts-list"></div>
+    <main class="layout">
+      <section class="events-pane card">
+        <div class="pane-head">
+          <h2>Top Events</h2>
+          <input id="eventsSearch" class="search-input" placeholder="Поиск событий..." />
+        </div>
+        <div id="eventsList" class="events-list"></div>
       </section>
 
-      <aside class="right-pane card">
-        <div id="emptyState" class="empty">Выберите пост для подробностей</div>
-        <div id="detail" class="hidden">
-          <h3 id="detailChannel"></h3>
-          <div id="detailDate" class="muted"></div>
-          <div class="post-metrics" id="detailMetrics"></div>
+      <section class="graph-pane card">
+        <div class="pane-head graph-head">
+          <div>
+            <h2 id="graphTitle">Event Graph</h2>
+            <p id="graphSubtitle" class="muted">Выберите событие слева</p>
+          </div>
+          <div class="graph-actions">
+            <select id="relationFilter">
+              <option value="">Все связи</option>
+              <option value="same_event">same_event</option>
+              <option value="update">update</option>
+              <option value="contradiction">contradiction</option>
+              <option value="cause">Cause</option>
+              <option value="consequence">consequence</option>
+              <option value="background">background</option>
+              <option value="related">Related</option>
+            </select>
+            <button id="fitViewBtn" class="btn">Fit view</button>
+          </div>
+        </div>
+        <div id="graphCanvas" class="graph-canvas">
+          <svg id="graphSvg" viewBox="0 0 1200 620" preserveAspectRatio="xMidYMid meet"></svg>
+        </div>
+        <div id="timelineAxis" class="timeline-axis"></div>
+      </section>
+
+      <aside id="detailsPane" class="details-pane card">
+        <div id="emptyState" class="empty">Выберите событие или узел графа для деталей</div>
+        <div id="detailsContent" class="details-content hidden">
+          <div class="details-head">
+            <div>
+              <h3 id="detailTitle"></h3>
+              <div id="detailDate" class="muted"></div>
+            </div>
+            <button id="closeDetailsBtn" class="icon-btn close-details" type="button" aria-label="Закрыть">×</button>
+          </div>
+          <div id="detailMetrics" class="metric-row"></div>
+          <button id="refreshCommentsBtn" class="btn small">Обновить комментарии</button>
 
           <div class="tabs">
-            <button class="tab active" data-tab="report">Мини-отчет</button>
+            <button class="tab active" data-tab="posts">Посты</button>
             <button class="tab" data-tab="comments">Комментарии</button>
-            <button class="tab" data-tab="links">Связи</button>
-            <button class="tab" data-tab="data">Данные</button>
+            <button class="tab" data-tab="report">Мини-отчет</button>
+            <button class="tab" data-tab="sources">Источники</button>
           </div>
 
-          <div id="tabReport" class="tab-panel"></div>
+          <div id="tabPosts" class="tab-panel"></div>
           <div id="tabComments" class="tab-panel hidden"></div>
-          <div id="tabLinks" class="tab-panel hidden"></div>
-          <pre id="tabData" class="tab-panel hidden"></pre>
+          <div id="tabReport" class="tab-panel hidden"></div>
+          <div id="tabSources" class="tab-panel hidden"></div>
           <div id="detailStatus" class="detail-status"></div>
 
           <div class="actions">
-            <button id="refreshCommentsBtn" class="btn ghost">Обновить комментарии</button>
-            <button id="generateReportBtn" class="btn primary">Сгенерировать отчет</button>
-            <button id="copyMdBtn" class="btn">Скопировать Markdown</button>
+            <button id="generateReportBtn" class="btn primary">Сгенерировать/обновить отчет</button>
+            <div class="export-row">
+              <button id="exportPdfBtn" class="btn">PDF</button>
+              <button id="exportDocxBtn" class="btn">DOCX</button>
+              <button id="copyMdBtn" class="btn">Markdown</button>
+            </div>
           </div>
         </div>
       </aside>
     </main>
   </div>
 
-  <script src="/web/app.js"></script>
+  <script src="/web/app.js?v=20260302-3"></script>
 </body>
 </html>

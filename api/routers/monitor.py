@@ -5,13 +5,13 @@ from datetime import datetime, timedelta
 
 from deps import get_session, require_roles
 from db.models import Post, Comment
-from services.auth import AuthUser
+from services.auth import AuthUser, write_audit_log
 
 router = APIRouter()
 
 @router.get("/summary")
 async def monitor_summary(
-    _: AuthUser = Depends(require_roles("admin")),
+    current_user: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
     since = datetime.utcnow() - timedelta(hours=24)
@@ -24,15 +24,24 @@ async def monitor_summary(
         select(func.count()).select_from(Comment).where(Comment.date >= since)
     )
 
-    return {
+    payload = {
         "posts_last_24h": posts_count,
         "comments_last_24h": comments_count,
     }
+    await write_audit_log(
+        session,
+        action="monitor.summary.read",
+        actor_user_id=current_user.id,
+        target_type="monitor",
+        details=payload,
+    )
+    await session.commit()
+    return payload
 
 
 @router.get("/db-size")
 async def db_size(
-    _: AuthUser = Depends(require_roles("admin")),
+    current_user: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
     row = (
@@ -46,8 +55,17 @@ async def db_size(
         )
     ).first()
 
-    return {
+    payload = {
         "database": row.db_name,
         "bytes": int(row.bytes),
         "pretty": row.pretty,
     }
+    await write_audit_log(
+        session,
+        action="monitor.db_size.read",
+        actor_user_id=current_user.id,
+        target_type="monitor",
+        details=payload,
+    )
+    await session.commit()
+    return payload

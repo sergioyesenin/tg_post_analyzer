@@ -4,11 +4,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from datetime import datetime
 
-from deps import get_session
+from deps import get_session, require_roles
 from db.models import Post, Channel, Comment
 from schemas.post import PostCardOut, PostDetailOut
 from schemas.comment import CommentOut
 from services.TGqueries import update_post_comments
+from services.auth import AuthUser
 
 router = APIRouter()
 
@@ -17,6 +18,7 @@ async def top_posts(
     date_from: datetime,
     date_to: datetime,
     limit: int = 20,
+    _: AuthUser = Depends(require_roles("admin", "analyst")),
     session: AsyncSession = Depends(get_session),
 ):
     stmt = (
@@ -48,7 +50,11 @@ async def top_posts(
 
 
 @router.get("/{post_id}", response_model=PostDetailOut)
-async def get_post(post_id: int, session: AsyncSession = Depends(get_session)):
+async def get_post(
+    post_id: int,
+    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    session: AsyncSession = Depends(get_session),
+):
     result = await session.execute(select(Post).where(Post.id == post_id))
     post = result.scalar_one_or_none()
     if post is None:
@@ -57,7 +63,11 @@ async def get_post(post_id: int, session: AsyncSession = Depends(get_session)):
 
 
 @router.get("/{post_id}/comments", response_model=list[CommentOut])
-async def get_comments(post_id: int, session: AsyncSession = Depends(get_session)):
+async def get_comments(
+    post_id: int,
+    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    session: AsyncSession = Depends(get_session),
+):
     result = await session.execute(
         select(Comment).where(Comment.post_id == post_id)
     )
@@ -66,7 +76,11 @@ async def get_comments(post_id: int, session: AsyncSession = Depends(get_session
     return result.scalars().all()
 
 @router.post("/{post_id}/comments/update")
-async def update_comments(post_id: int, session: AsyncSession = Depends(get_session)):
+async def update_comments(
+    post_id: int,
+    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    session: AsyncSession = Depends(get_session),
+):
     async with session.begin():
         result = await update_post_comments(session, post_id)
 

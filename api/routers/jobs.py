@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Job
 from deps import get_session, require_roles
-from services.auth import AuthUser
+from services.auth import AuthUser, write_audit_log
 from services.jobs import JobType, enqueue_job
 
 router = APIRouter()
@@ -62,7 +62,7 @@ async def jobs_pending(
 async def run_archive_job(
     retention_days: int = 30,
     batch_limit: int = 1000,
-    _: AuthUser = Depends(require_roles("admin")),
+    current_user: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
     job = await enqueue_job(
@@ -71,6 +71,13 @@ async def run_archive_job(
         payload={"retention_days": retention_days, "batch_limit": batch_limit},
         priority=90,
         dedupe_key=None,
+    )
+    await write_audit_log(
+        session,
+        action="archive.run",
+        actor_user_id=current_user.id,
+        target_type="archive",
+        details={"retention_days": retention_days, "batch_limit": batch_limit, "job_id": job.id if job else None},
     )
     await session.commit()
     return {

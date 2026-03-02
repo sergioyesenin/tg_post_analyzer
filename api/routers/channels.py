@@ -12,14 +12,17 @@ from db.models import Channel
 from deps import get_session, require_roles
 from schemas.channel import ChannelIn, ChannelOut
 from scripts.add_channel import normalize_channel_identifier
+from services.auth import AuthUser, write_audit_log
 from services.ingest import upsert_channel
-from services.auth import AuthUser
 
 router = APIRouter()
 
 
 @router.get("/", response_model=list[ChannelOut])
-async def list_channels(session: AsyncSession = Depends(get_session)):
+async def list_channels(
+    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    session: AsyncSession = Depends(get_session),
+):
     result = await session.execute(select(Channel))
     return result.scalars().all()
 
@@ -27,7 +30,7 @@ async def list_channels(session: AsyncSession = Depends(get_session)):
 @router.post("/add")
 async def add_channel(
     user: ChannelIn,
-    _: AuthUser = Depends(require_roles("admin")),
+    current_user: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
     ident = normalize_channel_identifier(user.username)
@@ -70,5 +73,13 @@ async def add_channel(
             title=title,
             category=None,
             is_active=True,
+        )
+        await write_audit_log(
+            session,
+            action="channels.add",
+            actor_user_id=current_user.id,
+            target_type="channel",
+            target_id=str(ch.id),
+            details={"username": ch.username, "title": ch.title},
         )
     return f"OK: saved channel id={ch.id} username=@{ch.username} title={ch.title!r}"

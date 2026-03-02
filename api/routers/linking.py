@@ -7,7 +7,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Event, EventPost, Post, PostLink, Process, ProcessEvent
-from deps import get_session
+from deps import get_session, require_roles
 from schemas.linking import (
     EventDetailOut,
     EventSummaryOut,
@@ -17,6 +17,7 @@ from schemas.linking import (
     ProcessEventOut,
     ProcessSummaryOut,
 )
+from services.auth import AuthUser, write_audit_log
 from services.events.build_events import rebuild_events
 from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
 from services.processes.build_processes import rebuild_processes
@@ -27,6 +28,7 @@ router = APIRouter()
 @router.post("/linking/run", response_model=LinkRunResponse)
 async def run_linking(
     post_id: int = Query(...),
+    current_user: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
     post = await session.get(Post, post_id)
@@ -34,6 +36,13 @@ async def run_linking(
         raise HTTPException(status_code=404, detail="Post not found")
     pipeline = NoLlmLinkingPipeline.build_default()
     result = await pipeline.run_for_post(session, post)
+    await write_audit_log(
+        session,
+        action="linking.run",
+        actor_user_id=current_user.id,
+        target_type="post",
+        target_id=str(post.id),
+    )
     await session.commit()
     return result
 
@@ -42,9 +51,17 @@ async def run_linking(
 async def rebuild_events_api(
     date_from: datetime,
     date_to: datetime,
+    current_user: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
     rebuilt = await rebuild_events(session, date_from=date_from, date_to=date_to)
+    await write_audit_log(
+        session,
+        action="events.rebuild",
+        actor_user_id=current_user.id,
+        target_type="events",
+        details={"date_from": date_from.isoformat(), "date_to": date_to.isoformat(), "rebuilt": rebuilt},
+    )
     await session.commit()
     return {"rebuilt_events": rebuilt, "date_from": date_from, "date_to": date_to}
 
@@ -53,15 +70,27 @@ async def rebuild_events_api(
 async def rebuild_processes_api(
     date_from: datetime,
     date_to: datetime,
+    current_user: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
     rebuilt_edges = await rebuild_processes(session, date_from=date_from, date_to=date_to)
+    await write_audit_log(
+        session,
+        action="processes.rebuild",
+        actor_user_id=current_user.id,
+        target_type="processes",
+        details={"date_from": date_from.isoformat(), "date_to": date_to.isoformat(), "rebuilt_edges": rebuilt_edges},
+    )
     await session.commit()
     return {"rebuilt_process_edges": rebuilt_edges, "date_from": date_from, "date_to": date_to}
 
 
 @router.get("/posts/{post_id}/links", response_model=PostLinksResponse)
-async def get_post_links(post_id: int, session: AsyncSession = Depends(get_session)):
+async def get_post_links(
+    post_id: int,
+    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    session: AsyncSession = Depends(get_session),
+):
     post = await session.get(Post, post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -75,7 +104,11 @@ async def get_post_links(post_id: int, session: AsyncSession = Depends(get_sessi
 
 
 @router.get("/events/{event_id}", response_model=EventDetailOut)
-async def get_event(event_id: int, session: AsyncSession = Depends(get_session)):
+async def get_event(
+    event_id: int,
+    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    session: AsyncSession = Depends(get_session),
+):
     event = await session.get(Event, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -85,7 +118,11 @@ async def get_event(event_id: int, session: AsyncSession = Depends(get_session))
 
 
 @router.get("/processes/{process_id}", response_model=ProcessDetailOut)
-async def get_process(process_id: int, session: AsyncSession = Depends(get_session)):
+async def get_process(
+    process_id: int,
+    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    session: AsyncSession = Depends(get_session),
+):
     process = await session.get(Process, process_id)
     if process is None:
         raise HTTPException(status_code=404, detail="Process not found")

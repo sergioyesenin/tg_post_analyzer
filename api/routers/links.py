@@ -5,15 +5,20 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Event, EventPost, Post, PostLink
-from deps import get_session
+from deps import get_session, require_roles
 from schemas.linking import EventDetailOut, EventSummaryOut, LinkRunResponse, PostLinksResponse
+from services.auth import AuthUser
 from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
 
 router = APIRouter()
 
 
 @router.post("/posts/{post_id}/run", response_model=LinkRunResponse)
-async def run_linker(post_id: int, session: AsyncSession = Depends(get_session)):
+async def run_linker(
+    post_id: int,
+    _: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
     post = await session.get(Post, post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -23,7 +28,11 @@ async def run_linker(post_id: int, session: AsyncSession = Depends(get_session))
 
 
 @router.get("/posts/{post_id}", response_model=PostLinksResponse)
-async def get_post_links(post_id: int, session: AsyncSession = Depends(get_session)):
+async def get_post_links(
+    post_id: int,
+    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    session: AsyncSession = Depends(get_session),
+):
     post = await session.get(Post, post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -37,7 +46,11 @@ async def get_post_links(post_id: int, session: AsyncSession = Depends(get_sessi
 
 
 @router.get("/events", response_model=list[EventSummaryOut])
-async def list_events(limit: int = 50, session: AsyncSession = Depends(get_session)):
+async def list_events(
+    limit: int = 50,
+    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    session: AsyncSession = Depends(get_session),
+):
     stmt = (
         select(Event)
         .order_by(Event.started_at.desc().nullslast(), Event.id.desc())
@@ -48,7 +61,11 @@ async def list_events(limit: int = 50, session: AsyncSession = Depends(get_sessi
 
 
 @router.get("/events/{event_id}", response_model=EventDetailOut)
-async def get_event(event_id: int, session: AsyncSession = Depends(get_session)):
+async def get_event(
+    event_id: int,
+    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    session: AsyncSession = Depends(get_session),
+):
     event = await session.get(Event, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")

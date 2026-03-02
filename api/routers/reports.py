@@ -3,10 +3,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents.reporter import TgReportProject
-from deps import get_session
+from deps import get_session, require_roles
 from db.models import Report, Post, Comment, Channel
 from schemas.report import ReportOut
 from services.ingest import upsert_report
+from services.auth import AuthUser
 
 router = APIRouter()
 report_project = TgReportProject(
@@ -14,7 +15,11 @@ report_project = TgReportProject(
 )
 
 @router.get("/{post_id}", response_model=ReportOut)
-async def get_report(post_id: int, session: AsyncSession = Depends(get_session)):
+async def get_report(
+    post_id: int,
+    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    session: AsyncSession = Depends(get_session),
+):
     result = await session.execute(
         select(Report).where(Report.post_id == post_id)
     )
@@ -27,7 +32,11 @@ async def get_report(post_id: int, session: AsyncSession = Depends(get_session))
 
 
 @router.post("/{post_id}/update", response_model=ReportOut)
-async def update_report(post_id: int, session: AsyncSession = Depends(get_session)):
+async def update_report(
+    post_id: int,
+    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    session: AsyncSession = Depends(get_session),
+):
     post_result = await session.execute(
         select(Post, Channel)
         .join(Channel, Channel.id == Post.channel_id)

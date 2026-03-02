@@ -35,6 +35,7 @@ from services.jobs import (
 from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
 from services.processes.build_processes import rebuild_processes
 from services.reporting import build_event_report_draft, build_post_report, build_process_report_draft
+from services.settings_store import get_all_settings, report_config_from_settings
 from services.TGqueries import update_post_comments
 
 SKIP_CHANNEL_IDS = {}
@@ -495,6 +496,8 @@ async def _run_jobs(*, job_batch_size: int, worker_id: str) -> int:
             db_job = await session.get(Job, job.id)
             if db_job is None:
                 continue
+            effective_settings = await get_all_settings(session)
+            report_config = report_config_from_settings(effective_settings)
             try:
                 if db_job.type == JobType.COLLECT_COMMENTS:
                     payload = db_job.payload_json or {}
@@ -504,7 +507,12 @@ async def _run_jobs(*, job_batch_size: int, worker_id: str) -> int:
                 elif db_job.type == JobType.BUILD_POST_REPORT:
                     payload = db_job.payload_json or {}
                     post_id = int(payload.get("post_id"))
-                    result = await build_post_report(session, post_id=post_id, report_project=report_project)
+                    result = await build_post_report(
+                        session,
+                        post_id=post_id,
+                        report_project=report_project,
+                        report_config=report_config,
+                    )
                     logging.info("Job build_post_report post_id=%s status=%s", post_id, result.get("status"))
                 elif db_job.type == JobType.BUILD_EVENT_REPORT:
                     payload = db_job.payload_json or {}
@@ -541,6 +549,22 @@ async def _run_jobs(*, job_batch_size: int, worker_id: str) -> int:
 
 async def _run_single_cycle(client: TelegramClient, args: argparse.Namespace, worker_id: str) -> None:
     since_utc = datetime.now(timezone.utc) - timedelta(days=args.days)
+    async with AsyncSessionLocal() as session:
+        effective_settings = await get_all_settings(session)
+    ingest_settings = effective_settings.get("ingest", {})
+    reports_settings = effective_settings.get("reports", {})
+    jobs_settings = effective_settings.get("jobs", {})
+    retention_settings = effective_settings.get("retention", {})
+
+    max_posts_per_channel = int(ingest_settings.get("max_posts_per_channel", args.max_posts_per_channel))
+    comment_first_delay_hours = int(ingest_settings.get("comment_first_delay_hours", args.comment_first_delay_hours))
+    comment_interval_hours = int(ingest_settings.get("comment_interval_hours", args.comment_interval_hours))
+    comment_window_hours = int(ingest_settings.get("comment_window_hours", args.comment_window_hours))
+    post_report_delay_hours = int(reports_settings.get("post_report_delay_hours", args.post_report_delay_hours))
+    job_batch_size = int(jobs_settings.get("job_batch_size", args.job_batch_size))
+    retention_days = int(retention_settings.get("retention_days", args.retention_days))
+    archive_batch_size = int(retention_settings.get("archive_batch_size", args.archive_batch_size))
+
     channels = await _get_active_channels()
     if not channels:
         logging.warning("No active channels found.")
@@ -550,11 +574,11 @@ async def _run_single_cycle(client: TelegramClient, args: argparse.Namespace, wo
                 client,
                 channel,
                 since_utc=since_utc,
-                max_posts=args.max_posts_per_channel,
-                comment_first_delay_hours=args.comment_first_delay_hours,
-                comment_interval_hours=args.comment_interval_hours,
-                comment_window_hours=args.comment_window_hours,
-                post_report_delay_hours=args.post_report_delay_hours,
+                max_posts=max_posts_per_channel,
+                comment_first_delay_hours=comment_first_delay_hours,
+                comment_interval_hours=comment_interval_hours,
+                comment_window_hours=comment_window_hours,
+                post_report_delay_hours=post_report_delay_hours,
             )
 
     if not args.skip_rebuild_graphs:
@@ -573,14 +597,14 @@ async def _run_single_cycle(client: TelegramClient, args: argparse.Namespace, wo
         await enqueue_job(
             session,
             job_type=JobType.ARCHIVE_RETENTION,
-            payload={"retention_days": args.retention_days, "batch_limit": args.archive_batch_size},
+            payload={"retention_days": retention_days, "batch_limit": archive_batch_size},
             run_at=now,
             priority=95,
             dedupe_key=f"archive_retention:{daily_key}",
         )
         await session.commit()
 
-    executed_jobs = await _run_jobs(job_batch_size=args.job_batch_size, worker_id=worker_id)
+    executed_jobs = await _run_jobs(job_batch_size=job_batch_size, worker_id=worker_id)
     logging.info("Cycle done. executed_jobs=%s", executed_jobs)
 
 
@@ -601,8 +625,12 @@ async def main_async(args: argparse.Namespace) -> None:
                     await _run_single_cycle(client, args, worker_id)
                 except Exception as exc:
                     logging.exception("Cycle failed: %r", exc)
+                async with AsyncSessionLocal() as session:
+                    effective_settings = await get_all_settings(session)
+                ingest_settings = effective_settings.get("ingest", {})
+                poll_seconds = int(ingest_settings.get("poll_seconds", args.poll_seconds))
                 elapsed = (datetime.now(timezone.utc) - cycle_started_at).total_seconds()
-                sleep_for = max(1, int(args.poll_seconds - elapsed))
+                sleep_for = max(1, int(poll_seconds - elapsed))
                 await asyncio.sleep(sleep_for)
         else:
             await _run_single_cycle(client, args, worker_id)

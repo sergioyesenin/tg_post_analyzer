@@ -5,11 +5,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from api.routers import auth, channels, jobs, linking, links, monitor, posts, reports
+from api.routers import auth, channels, jobs, linking, links, monitor, posts, reports, settings
 
 app = FastAPI(title="TG Post Analyzer Dashboard")
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Auth"])
+app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
 app.include_router(channels.router, prefix="/api/channels", tags=["Channels"])
 app.include_router(posts.router, prefix="/api/posts", tags=["Posts"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])

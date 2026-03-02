@@ -8,6 +8,7 @@ from db.models import Report, Post, Comment, Channel
 from schemas.report import ReportOut
 from services.ingest import upsert_report
 from services.auth import AuthUser
+from services.settings_store import get_all_settings, report_config_from_settings
 
 router = APIRouter()
 report_project = TgReportProject(
@@ -81,6 +82,8 @@ async def update_report(
 
     channel_label = f"@{channel.username}" if channel.username else f"channel:{channel.id}"
     status = "ready"
+    effective_settings = await get_all_settings(session)
+    report_config = report_config_from_settings(effective_settings)
     try:
         content = await report_project.generate_report(
             channel=channel_label,
@@ -90,6 +93,7 @@ async def update_report(
             comments=comments,
             thread_comments=thread_comments,
             views=post.views,
+            config=report_config,
         )
     except Exception as e:
         status = "failed"

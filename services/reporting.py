@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agents.reporter import TgReportProject
+from agents.reporter import ReportConfig, TgReportProject
 from db.models import Channel, Comment, Event, EventPost, EventReport, Post, Process, ProcessEvent, ProcessReport
 from services.ingest import upsert_report
 
@@ -13,6 +13,7 @@ async def build_post_report(
     *,
     post_id: int,
     report_project: TgReportProject,
+    report_config: ReportConfig | None = None,
 ) -> dict:
     post_result = await session.execute(
         select(Post, Channel)
@@ -67,6 +68,7 @@ async def build_post_report(
             comments=comments,
             thread_comments=thread_comments,
             views=post.views,
+            config=report_config,
         )
     except Exception as exc:
         status = "failed"

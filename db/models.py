@@ -137,6 +137,21 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+    __table_args__ = (
+        UniqueConstraint("key", name="uq_app_settings_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    value_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Channel(Base):
     __tablename__ = "channels"
 

@@ -10,6 +10,7 @@ from schemas.post import PostCardOut, PostDetailOut
 from schemas.comment import CommentOut
 from services.TGqueries import update_post_comments
 from services.auth import AuthUser
+from services.settings_store import get_setting
 
 router = APIRouter()
 
@@ -17,10 +18,13 @@ router = APIRouter()
 async def top_posts(
     date_from: datetime,
     date_to: datetime,
-    limit: int = 20,
+    limit: int | None = None,
     _: AuthUser = Depends(require_roles("admin", "analyst")),
     session: AsyncSession = Depends(get_session),
 ):
+    if limit is None:
+        api_settings = await get_setting(session, "api")
+        limit = int(api_settings.get("top_posts_default_limit", 20))
     stmt = (
         select(Post)
         .join(Channel)

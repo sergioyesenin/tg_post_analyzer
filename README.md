@@ -37,3 +37,5 @@
 ## Совместимость
 - `man:app` оставлен как legacy-алиас и может использоваться во временных локальных скриптах.
 - Канонический путь для API и документации: `api.main:app`.
+- Канонический ingestion flow: `services/ingestion_core.py`.
+- `main.py`, `parse_today.py`, `scripts/pipeline.py` используют общий ingestion core как тонкие оболочки.

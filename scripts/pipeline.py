@@ -13,7 +13,6 @@ from pathlib import Path
 
 from sqlalchemy import and_, func, select, text
 from telethon import TelegramClient
-from telethon.tl.types import PeerChannel
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -24,7 +23,7 @@ from client.config import load_client_settings
 from db.models import Channel, Event, Job, Post, Process
 from db.session import AsyncSessionLocal
 from services.events.build_events import rebuild_events
-from services.ingest import upsert_post
+from services.ingestion_core import IngestionCore, IngestionContext, IngestionOptions
 from services.archive import run_archive_retention
 from services.jobs import (
     defer_locked_job,
@@ -125,15 +124,6 @@ async def _get_active_channels() -> list[Channel]:
         return list((await session.execute(stmt)).scalars().all())
 
 
-async def _get_post_by_channel_msg(*, session, channel_id: int, tg_message_id: int) -> Post | None:
-    stmt = (
-        select(Post)
-        .where(Post.channel_id == channel_id)
-        .where(Post.tg_message_id == tg_message_id)
-    )
-    return (await session.execute(stmt)).scalar_one_or_none()
-
-
 async def _get_last_tg_message_id_for_channel(*, session, channel_id: int) -> int:
     stmt = select(func.max(Post.tg_message_id)).where(Post.channel_id == channel_id)
     last_value = (await session.execute(stmt)).scalar_one_or_none()
@@ -184,24 +174,6 @@ async def _schedule_post_jobs(
     )
 
 
-def _extract_parent_tg_message_id(message) -> int | None:
-    reply_to = getattr(message, "reply_to", None)
-    if reply_to is None:
-        return None
-    parent_tg_message_id = getattr(reply_to, "reply_to_msg_id", None)
-    if isinstance(parent_tg_message_id, int) and parent_tg_message_id > 0:
-        return parent_tg_message_id
-    return None
-
-
-def _extract_comments_count(message) -> int:
-    replies = getattr(message, "replies", None)
-    count = getattr(replies, "replies", 0) if replies is not None else 0
-    if isinstance(count, int) and count >= 0:
-        return count
-    return 0
-
-
 def _collect_comments_job_priority(*, post: Post, scan_index: int) -> int:
     """
     Lower value means higher priority in queue.
@@ -241,107 +213,6 @@ def _collect_comments_job_priority(*, post: Post, scan_index: int) -> int:
     return max(5, min(90, priority))
 
 
-async def _pick_album_representative_message(client: TelegramClient, entity, message):
-    grouped_id = getattr(message, "grouped_id", None)
-    if not isinstance(grouped_id, int):
-        return message
-
-    radius = 10
-    candidate_ids = [msg_id for msg_id in range(message.id - radius, message.id + radius + 1) if msg_id > 0]
-    if not candidate_ids:
-        return message
-
-    try:
-        nearby = await _with_session_lock_retry(
-            lambda: client.get_messages(entity, ids=candidate_ids),
-            op_name="get_messages(album_nearby)",
-        )
-    except Exception:
-        return message
-
-    if not isinstance(nearby, list):
-        nearby = [nearby] if nearby is not None else []
-
-    grouped_messages: list = []
-    for item in nearby:
-        if item is None:
-            continue
-        if getattr(item, "grouped_id", None) != grouped_id:
-            continue
-        if getattr(item, "date", None) is None:
-            continue
-        grouped_messages.append(item)
-
-    if not grouped_messages:
-        return message
-
-    # Prefer the message carrying discussion counters/caption, then keep deterministic tie-breakers.
-    return max(
-        grouped_messages,
-        key=lambda m: (
-            _extract_comments_count(m),
-            1 if str(getattr(m, "message", "") or "").strip() else 0,
-            -int(getattr(m, "id", 0) or 0),
-        ),
-    )
-
-
-async def _ensure_parent_post(
-    *,
-    client: TelegramClient,
-    session,
-    channel: Channel,
-    entity,
-    parent_tg_message_id: int,
-) -> Post | None:
-    parent_post = await _get_post_by_channel_msg(
-        session=session,
-        channel_id=channel.id,
-        tg_message_id=parent_tg_message_id,
-    )
-    if parent_post is not None:
-        return parent_post
-
-    try:
-        parent_msg = await _with_session_lock_retry(
-            lambda: client.get_messages(entity, ids=parent_tg_message_id),
-            op_name=f"get_messages(parent:{parent_tg_message_id})",
-        )
-    except Exception:
-        return None
-
-    if isinstance(parent_msg, list):
-        parent_msg = parent_msg[0] if parent_msg else None
-    if parent_msg is None or getattr(parent_msg, "id", None) is None or getattr(parent_msg, "date", None) is None:
-        return None
-
-    parent_parent_tg_message_id = _extract_parent_tg_message_id(parent_msg)
-    parent_parent_post_id: int | None = None
-    if isinstance(parent_parent_tg_message_id, int):
-        parent_parent_post = await _get_post_by_channel_msg(
-            session=session,
-            channel_id=channel.id,
-            tg_message_id=parent_parent_tg_message_id,
-        )
-        if parent_parent_post is not None:
-            parent_parent_post_id = parent_parent_post.id
-
-    saved = await upsert_post(
-        session,
-        channel_id=channel.id,
-        tg_message_id=parent_msg.id,
-        parent_tg_message_id=parent_parent_tg_message_id,
-        parent_post_id=parent_parent_post_id,
-        date=parent_msg.date,
-        text=parent_msg.message,
-        views=getattr(parent_msg, "views", None),
-        comments_count=_extract_comments_count(parent_msg),
-        involvement=None,
-    )
-    await session.commit()
-    return saved
-
-
 async def _process_channel(
     client: TelegramClient,
     channel: Channel,
@@ -358,110 +229,57 @@ async def _process_channel(
         logging.info("Skip channel id=%s (@%s): excluded by config", channel.id, channel.username)
         return 0
 
-    if channel.username.startswith("id_") and channel.username[3:].isdigit():
-        peer = PeerChannel(int(channel.username[3:]))
-    else:
-        peer = f"@{channel.username}"
-
-    try:
-        entity = await _with_session_lock_retry(
-            lambda: client.get_entity(peer),
-            op_name=f"get_entity(@{channel.username})",
-        )
-    except Exception as exc:
-        logging.warning("Skip channel @%s: entity resolve failed: %r", channel.username, exc)
-        return 0
-
     logging.info("Parsing channel @%s since %s", channel.username, since_utc.isoformat())
     pipeline = NoLlmLinkingPipeline.build_default()
-    processed = 0
-    processed_grouped_ids: set[int] = set()
+
     async with AsyncSessionLocal() as session:
         channel_last_tg_msg_id = await _get_last_tg_message_id_for_channel(session=session, channel_id=channel.id)
 
-    async for msg in client.iter_messages(entity):
-        if processed >= max_posts:
-            break
-        if msg.date is None:
-            continue
-        if msg.date < since_utc:
-            break
-        grouped_id = getattr(msg, "grouped_id", None)
-        if isinstance(grouped_id, int):
-            if grouped_id in processed_grouped_ids:
-                continue
-            msg = await _pick_album_representative_message(client, entity, msg)
-            processed_grouped_ids.add(grouped_id)
+    core = IngestionCore(
+        tg_client=client,
+        session_factory=AsyncSessionLocal,
+    )
+    options = IngestionOptions(
+        since_utc=since_utc,
+        max_posts=max_posts,
+        min_tg_message_id_exclusive=channel_last_tg_msg_id,
+        resolve_album_representative=True,
+    )
 
-        if channel_last_tg_msg_id and int(msg.id or 0) <= channel_last_tg_msg_id:
-            break
+    async def _on_post_saved(session, post, ctx: IngestionContext) -> None:
+        result = await pipeline.run_for_post(session, post)
+        await _schedule_post_jobs(
+            session,
+            post=post,
+            comment_first_delay_hours=comment_first_delay_hours,
+            comment_interval_hours=comment_interval_hours,
+            comment_window_hours=comment_window_hours,
+            post_report_delay_hours=post_report_delay_hours,
+            comment_schedule_jitter_seconds=comment_schedule_jitter_seconds,
+        )
+        logging.info("Saved post id=%s tg_msg_id=%s channel=@%s", post.id, ctx.message.id, channel.username)
+        logging.info(
+            "Linked post id=%s verified=%s proposed=%s review=%s rejected=%s candidates=%s",
+            post.id,
+            result.links_verified,
+            result.links_proposed,
+            result.queued_for_review,
+            result.links_rejected,
+            result.candidates_checked,
+        )
 
-        parent_tg_message_id = _extract_parent_tg_message_id(msg)
-        comments_count = _extract_comments_count(msg)
-        async with AsyncSessionLocal() as session:
-            existing = await _get_post_by_channel_msg(
-                session=session,
-                channel_id=channel.id,
-                tg_message_id=msg.id,
-            )
-            if existing is not None:
-                break
-
-            parent_post_id: int | None = None
-            if isinstance(parent_tg_message_id, int):
-                parent_post = await _ensure_parent_post(
-                    client=client,
-                    session=session,
-                    channel=channel,
-                    entity=entity,
-                    parent_tg_message_id=parent_tg_message_id,
-                )
-                if parent_post is not None:
-                    parent_post_id = parent_post.id
-
-            post = await upsert_post(
-                session,
-                channel_id=channel.id,
-                tg_message_id=msg.id,
-                parent_tg_message_id=parent_tg_message_id,
-                parent_post_id=parent_post_id,
-                date=msg.date,
-                text=msg.message,
-                views=getattr(msg, "views", None),
-                comments_count=comments_count,
-                involvement=None,
-            )
-            await session.commit()
-            logging.info("Saved post id=%s tg_msg_id=%s channel=@%s", post.id, msg.id, channel.username)
-
-            db_post = await session.get(Post, post.id)
-            if db_post is None:
-                continue
-            result = await pipeline.run_for_post(session, db_post)
-
-            await _schedule_post_jobs(
-                session,
-                post=db_post,
-                comment_first_delay_hours=comment_first_delay_hours,
-                comment_interval_hours=comment_interval_hours,
-                comment_window_hours=comment_window_hours,
-                post_report_delay_hours=post_report_delay_hours,
-                comment_schedule_jitter_seconds=comment_schedule_jitter_seconds,
-            )
-            await session.commit()
-            logging.info(
-                "Linked post id=%s verified=%s proposed=%s review=%s rejected=%s candidates=%s",
-                post.id,
-                result.links_verified,
-                result.links_proposed,
-                result.queued_for_review,
-                result.links_rejected,
-                result.candidates_checked,
-            )
-        processed += 1
-
-    logging.info("Finished @%s processed_posts=%s", channel.username, processed)
-    return processed
+    result = await core.ingest_channel(
+        channel=channel,
+        options=options,
+        on_post_saved=_on_post_saved,
+    )
+    logging.info(
+        "Finished @%s processed_posts=%s stopped_reason=%s",
+        channel.username,
+        result.processed_posts,
+        result.stopped_reason,
+    )
+    return result.processed_posts
 
 
 async def _rebuild_event_process_graphs(*, date_from: datetime, date_to: datetime) -> None:

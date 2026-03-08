@@ -22,16 +22,14 @@ from services.ingest import (
 )
 from services.queries import get_post_with_channel_by_post_id
 
-COMMENTS_SLEEP_EVERY = max(1, int(getattr(settings, "COMMENTS_SLEEP_EVERY", 8)))
-COMMENTS_SLEEP_BASE_SEC = max(0.0, float(getattr(settings, "COMMENTS_SLEEP_BASE_SEC", 0.9)))
-COMMENTS_SLEEP_JITTER_SEC = max(0.0, float(getattr(settings, "COMMENTS_SLEEP_JITTER_SEC", 0.8)))
+COMMENTS_SLEEP_EVERY = 50
 
 
 async def polite_sleep(base: float, jitter: float) -> None:
     await asyncio.sleep(base + random.random() * jitter)
 
 
-async def _resolve_discussion_with_fallback(
+async def   _resolve_discussion_with_fallback(
     *,
     tg_client,
     entity,
@@ -154,7 +152,6 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 "status": "flood_wait",
                 "post_id": post_id,
                 "wait_seconds": int(wait_seconds or 0),
-                "flood_source": "resolve_discussion",
                 "comments_saved": 0,
                 "commenters_count": 0,
             }
@@ -189,7 +186,6 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         tg_to_depth[tg_message_id] = depth
 
     commenters: set[str] = set()
-    sender_meta_cache: dict[int, tuple[bool, str | None]] = {}
     comments_saved = 0
     k = 0
 
@@ -219,22 +215,15 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 author_username = None
                 author_key_username = None
                 is_bot = False
-
-                sender = getattr(c, "sender", None)
-                if isinstance(from_id, PeerUser) and isinstance(author_id, int):
-                    cached = sender_meta_cache.get(author_id)
-                    if cached is not None:
-                        is_bot, author_username = cached
-                    elif isinstance(sender, User):
-                        is_bot = bool(sender.bot)
-                        author_username = getattr(sender, "username", None)
-                        sender_meta_cache[author_id] = (is_bot, author_username)
-                elif isinstance(sender, User):
-                    is_bot = bool(sender.bot)
+                try:
+                    sender = await c.get_sender()
+                    if isinstance(sender, User) and bool(sender.bot):
+                        is_bot = True
                     author_username = getattr(sender, "username", None)
-
-                if author_username:
-                    author_key_username = f"u:{author_username.lower()}"
+                    if author_username:
+                        author_key_username = f"u:{author_username.lower()}"
+                except Exception:
+                    pass
 
                 if is_bot:
                     continue
@@ -272,26 +261,13 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 tg_to_depth[c.id] = depth
                 comments_saved += 1
 
-                # Query nested replies only when Telegram reports that this
-                # comment actually has children; otherwise we do extra empty
-                # GetRepliesRequest calls that increase flood pressure.
-                comment_replies_obj = getattr(c, "replies", None)
-                nested_replies_count = getattr(comment_replies_obj, "replies", 0) if comment_replies_obj is not None else 0
-                if isinstance(nested_replies_count, int) and nested_replies_count > 0:
-                    queue.append((c.id, depth))
+                queue.append((c.id, depth))
 
                 if k >= COMMENTS_SLEEP_EVERY:
                     k = 0
-                    await polite_sleep(COMMENTS_SLEEP_BASE_SEC, COMMENTS_SLEEP_JITTER_SEC)
+                    await polite_sleep(0.4, 0.6)
     except FloodWaitError as e:
-        return {
-            "status": "flood_wait",
-            "post_id": post_id,
-            "wait_seconds": e.seconds,
-            "flood_source": "iter_comments",
-            "comments_saved": comments_saved,
-            "commenters_count": len(commenters),
-        }
+        return {"status": "flood_wait", "post_id": post_id, "wait_seconds": e.seconds, "comments_saved": comments_saved, "commenters_count": len(commenters)}
     except MsgIdInvalidError:
         return {"status": "no_discussion", "post_id": post_id, "comments_saved": comments_saved, "commenters_count": len(commenters)}
 

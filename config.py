@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import string
 import warnings
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -10,6 +11,9 @@ load_dotenv()
 
 
 class Settings:
+    _JWT_MIN_SECRET_LENGTH = 32
+    _JWT_FORBIDDEN_SECRETS = frozenset({"change-me-in-prod"})
+
     def __init__(self) -> None:
         errors: list[str] = []
 
@@ -46,6 +50,7 @@ class Settings:
         self.COMMENTS_SLEEP_BASE_SEC = self._env_float("COMMENTS_SLEEP_BASE_SEC", default=0.6, errors=errors)
         self.COMMENTS_SLEEP_JITTER_SEC = self._env_float("COMMENTS_SLEEP_JITTER_SEC", default=0.4, errors=errors)
         self.AUTH_JWT_SECRET = self._env_str("AUTH_JWT_SECRET", required=True, errors=errors)
+        self._validate_jwt_secret(self.AUTH_JWT_SECRET, errors)
         self.AUTH_JWT_ALG = self._env_str("AUTH_JWT_ALG", default="HS256", errors=errors)
         self.AUTH_ACCESS_TTL_MINUTES = self._env_int("AUTH_ACCESS_TTL_MINUTES", default=60, errors=errors)
         self.AUTH_REFRESH_TTL_DAYS = self._env_int("AUTH_REFRESH_TTL_DAYS", default=30, errors=errors)
@@ -154,5 +159,38 @@ class Settings:
             ZoneInfo(tz_name)
         except ZoneInfoNotFoundError:
             errors.append(f"Invalid timezone env var: APP_TZ='{tz_name}'")
+
+    @classmethod
+    def _validate_jwt_secret(cls, secret: str | None, errors: list[str]) -> None:
+        if secret is None:
+            return
+
+        normalized = secret.strip()
+        if not normalized:
+            errors.append("Invalid AUTH_JWT_SECRET: value must not be empty")
+            return
+        if normalized in cls._JWT_FORBIDDEN_SECRETS:
+            errors.append("Invalid AUTH_JWT_SECRET: insecure placeholder value is not allowed")
+            return
+        if len(normalized) < cls._JWT_MIN_SECRET_LENGTH:
+            errors.append(
+                f"Invalid AUTH_JWT_SECRET: value must be at least {cls._JWT_MIN_SECRET_LENGTH} characters"
+            )
+            return
+
+        classes = 0
+        if any(ch.islower() for ch in normalized):
+            classes += 1
+        if any(ch.isupper() for ch in normalized):
+            classes += 1
+        if any(ch.isdigit() for ch in normalized):
+            classes += 1
+        if any(ch in string.punctuation for ch in normalized):
+            classes += 1
+        if classes < 3:
+            errors.append(
+                "Invalid AUTH_JWT_SECRET: value must include at least 3 character classes "
+                "(lowercase, uppercase, digits, symbols)"
+            )
 
 settings = Settings()

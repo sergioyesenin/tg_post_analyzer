@@ -15,6 +15,8 @@ RELEVANT_ENV_KEYS = [
     "AUTH_JWT_SECRET",
 ]
 
+STRONG_TEST_JWT_SECRET = "A_strong_test_secret_value_2026!XYZ"
+
 
 def _reload_config_with_env(monkeypatch: pytest.MonkeyPatch, env: dict[str, str]):
     for key in RELEVANT_ENV_KEYS:
@@ -52,9 +54,38 @@ def test_config_accepts_deprecated_aliases_with_warning(monkeypatch: pytest.Monk
                 "TG_API_HASH": "hash",
                 "DATABASE_URL": "postgresql+asyncpg://postgres:postgres@localhost:5432/tg_analytics",
                 "TZ": "UTC",
-                "AUTH_JWT_SECRET": "test-secret",
+                "AUTH_JWT_SECRET": STRONG_TEST_JWT_SECRET,
             },
         )
 
     assert module.settings.DB_URL.startswith("postgresql+asyncpg://")
     assert module.settings.tz == "UTC"
+
+
+@pytest.mark.parametrize(
+    ("secret_value", "expected_fragment"),
+    [
+        ("change-me-in-prod", "insecure placeholder value"),
+        ("", "Missing required env var: AUTH_JWT_SECRET"),
+        ("short-secret", "at least 32 characters"),
+        ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "at least 3 character classes"),
+    ],
+)
+def test_config_fails_fast_for_weak_jwt_secret(
+    monkeypatch: pytest.MonkeyPatch,
+    secret_value: str,
+    expected_fragment: str,
+):
+    with pytest.raises(RuntimeError) as exc:
+        _reload_config_with_env(
+            monkeypatch,
+            {
+                "TG_API_ID": "12345",
+                "TG_API_HASH": "hash",
+                "DB_URL": "postgresql+asyncpg://postgres:postgres@localhost:5432/tg_analytics",
+                "APP_TZ": "UTC",
+                "AUTH_JWT_SECRET": secret_value,
+            },
+        )
+
+    assert expected_fragment in str(exc.value)

@@ -3,6 +3,8 @@ import sys
 
 import pytest
 
+STRONG_TEST_JWT_SECRET = "A_strong_test_secret_value_2026!XYZ"
+
 
 def _import_api_app(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("PYTHON_DOTENV_DISABLED", "1")
@@ -10,7 +12,7 @@ def _import_api_app(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("TG_API_HASH", "hash")
     monkeypatch.setenv("DB_URL", "sqlite+aiosqlite:///./test.db")
     monkeypatch.setenv("APP_TZ", "UTC")
-    monkeypatch.setenv("AUTH_JWT_SECRET", "test-secret")
+    monkeypatch.setenv("AUTH_JWT_SECRET", STRONG_TEST_JWT_SECRET)
 
     for module_name in ("config", "db.session", "api.main", "man"):
         sys.modules.pop(module_name, None)
@@ -33,4 +35,3 @@ def test_legacy_man_entrypoint_reuses_canonical_app(monkeypatch: pytest.MonkeyPa
     api_main = _import_api_app(monkeypatch)
     legacy_module = importlib.import_module("man")
     assert legacy_module.app is api_main.app
-

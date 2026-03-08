@@ -5,7 +5,7 @@ os.environ.setdefault("TG_API_ID", "12345")
 os.environ.setdefault("TG_API_HASH", "hash")
 os.environ.setdefault("DB_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/tg_analytics")
 os.environ.setdefault("APP_TZ", "UTC")
-os.environ.setdefault("AUTH_JWT_SECRET", "test-secret")
+os.environ.setdefault("AUTH_JWT_SECRET", "A_strong_test_secret_value_2026!XYZ")
 
 from services.keyword_graph import build_search_lemmas
 from schemas.keyword_graph import GraphBuildRequest

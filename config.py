@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import string
+from urllib.parse import urlsplit
 import warnings
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -13,6 +14,8 @@ load_dotenv()
 class Settings:
     _JWT_MIN_SECRET_LENGTH = 32
     _JWT_FORBIDDEN_SECRETS = frozenset({"change-me-in-prod"})
+    _NON_PROD_ENVS = frozenset({"dev", "local", "test"})
+    _INSECURE_PASSWORDS = frozenset({"postgres", "password", "changeme", "change-me-in-prod"})
 
     def __init__(self) -> None:
         errors: list[str] = []
@@ -22,6 +25,8 @@ class Settings:
         self.TG_SESSION_NAME = self._env_str("TG_SESSION_NAME", default="tg_session", errors=errors)
         self.TG_FLOOD_SLEEP_THRESHOLD = self._env_int("TG_FLOOD_SLEEP_THRESHOLD", default=180, errors=errors)
         self.DB_URL = self._env_str("DB_URL", alias="DATABASE_URL", required=True, errors=errors)
+        self.APP_ENV = self._env_str("APP_ENV", default="dev", errors=errors) or "dev"
+        self._validate_non_dev_db_credentials(self.DB_URL, self.APP_ENV, errors)
         self.tz = self._env_str("APP_TZ", alias="TZ", default="Europe/Minsk", errors=errors)
         self._validate_timezone(self.tz, errors)
 
@@ -191,6 +196,27 @@ class Settings:
             errors.append(
                 "Invalid AUTH_JWT_SECRET: value must include at least 3 character classes "
                 "(lowercase, uppercase, digits, symbols)"
+            )
+
+    @classmethod
+    def _validate_non_dev_db_credentials(cls, db_url: str | None, app_env: str, errors: list[str]) -> None:
+        env_normalized = app_env.strip().lower()
+        if env_normalized in cls._NON_PROD_ENVS:
+            return
+        if db_url is None:
+            return
+
+        try:
+            parsed = urlsplit(db_url)
+        except Exception:
+            return
+
+        username = (parsed.username or "").strip().lower()
+        password = (parsed.password or "").strip().lower()
+        if username == "postgres" and password in cls._INSECURE_PASSWORDS:
+            errors.append(
+                "Insecure DB credentials are not allowed outside dev/local/test; "
+                "set non-default DB_URL credentials"
             )
 
 settings = Settings()

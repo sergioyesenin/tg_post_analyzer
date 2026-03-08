@@ -2,6 +2,8 @@
 
 ## Запуск
 1. Скопируй `.env.example` в `.env` и заполни обязательные переменные.
+   - Для `docker-compose` обязательно задай `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`.
+   - Не используй `postgres/postgres` вне локальной разработки: в `APP_ENV` отличном от `dev/local/test` это блокируется на startup.
    - Для `AUTH_JWT_SECRET` укажи криптостойкое значение (минимум 32 символа, минимум 3 класса символов).
    - Пример генерации: `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
 2. Подними Postgres:
@@ -9,6 +11,10 @@
    ```bash
    docker compose up -d
    ```
+
+   Пример безопасной локальной пары:
+   - `POSTGRES_USER=tg_analytics_app`
+   - `POSTGRES_PASSWORD=<сгенерированный_пароль>`
 
 3. Прогони миграции:
 

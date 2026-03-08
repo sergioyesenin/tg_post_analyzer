@@ -1,0 +1,29 @@
+# Keyword Graph Build API Test Results
+
+- Generated at (UTC): 2026-03-04T17:58:57.601565+00:00
+- Base URL: http://localhost:8000
+
+## 3.1 Summary
+- Cases tested: 13
+- Avg nodes: 8.08
+- Avg edges: 6.85
+- Cases marked `ok` (edges>0): 10
+- Cases marked `missing_links` (edges=0): 3
+- Errors (4xx/5xx): 0
+
+## 3.2 Per-case Results
+| # | name | seed_post_ids | exclude_post_ids | graph_mode | include_neighbors/depth | nodes | edges | edge_sources | top_edge_types | manual_mark | notes |
+|---|------|---------------|------------------|------------|--------------------------|-------|-------|--------------|----------------|------------|-------|
+| 1 | weather_ice_top10 | [669, 645, 531, 495, 377, 289, 246, 382, 297, 387] | [] | transient | True/1 | 10 | 21 | {'transient': 21} | {'related': 21} | ok |  |
+| 2 | fires_top10 | [756, 703, 664, 637, 509, 476, 427, 288, 149, 54] | [] | transient | True/1 | 10 | 1 | {'transient': 1} | {'related': 1} | ok |  |
+| 3 | temperature_top10 | [715, 720, 669, 645, 508, 516, 569, 338, 289, 246] | [] | transient | True/1 | 10 | 20 | {'transient': 20} | {'related': 20} | ok |  |
+| 4 | housing_apartments_top10 | [681, 606, 447, 241, 481, 60, 54, 701, 703, 462] | [] | transient | True/1 | 10 | 3 | {'transient': 3} | {'related': 3} | ok |  |
+| 5 | prices_and_money_top10 | [263, 320, 359, 397, 624, 457, 462, 504, 588, 543] | [] | transient | True/1 | 10 | 12 | {'transient': 12} | {'related': 12} | ok |  |
+| 6 | fines_top10 | [454, 462, 504, 588, 543, 596, 555, 513, 728, 697] | [] | transient | True/1 | 10 | 12 | {'transient': 12} | {'related': 12} | ok |  |
+| 7 | criminal_cases_top10 | [654, 672, 658, 578, 340, 342, 295, 384, 353, 316] | [] | transient | True/1 | 10 | 2 | {'transient': 2} | {'related': 2} | ok |  |
+| 8 | minsk_mir_cluster | [90, 481, 135, 204, 91] | [] | transient | True/1 | 5 | 0 | {} | {} | missing_links |  |
+| 9 | aviation_charters | [462, 504, 588, 543] | [] | transient | True/1 | 4 | 6 | {'transient': 6} | {'related': 6} | ok |  |
+| 10 | mobile_internet_tariffs | [407, 368, 143, 369, 328, 408, 144] | [] | transient | True/1 | 7 | 9 | {'transient': 9} | {'related': 9} | ok |  |
+| 11 | regional_mix_cross_channel | [708, 603, 330, 729, 669, 645, 381, 526] | [] | transient | True/1 | 8 | 3 | {'transient': 3} | {'related': 3} | ok |  |
+| 12 | noise_control_mixed_topics_fake | [90, 462, 654, 610, 314, 715] | [] | transient | True/1 | 6 | 0 | {} | {} | missing_links |  |
+| 13 | strict_threshold_control_fake | [90, 481, 135, 204, 91] | [] | transient | True/1 | 5 | 0 | {} | {} | missing_links |  |

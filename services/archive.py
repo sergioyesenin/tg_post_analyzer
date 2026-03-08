@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, func, or_, select
@@ -9,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.models import (
     ArchiveEvent,
     ArchiveEventReport,
+    ArchiveWatermark,
     ArchivePostReport,
     ArchivePostText,
     ArchiveProcess,
@@ -29,6 +32,11 @@ from db.models import (
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _checksum(*parts) -> str:
+    normalized = json.dumps(parts, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 async def _archive_posts(session: AsyncSession, *, cutoff: datetime, batch_limit: int) -> dict:
@@ -53,6 +61,7 @@ async def _archive_posts(session: AsyncSession, *, cutoff: datetime, batch_limit
                 tg_message_id=post.tg_message_id,
                 post_date=post.date,
                 text=post.text,
+                checksum=_checksum("post_text", post.id, post.channel_id, post.tg_message_id, post.date, post.text),
             )
             .on_conflict_do_nothing(index_elements=[ArchivePostText.src_post_id])
         )
@@ -71,6 +80,7 @@ async def _archive_posts(session: AsyncSession, *, cutoff: datetime, batch_limit
                 status=report.status,
                 content=report.content,
                 src_created_at=report.created_at,
+                checksum=_checksum("post_report", report.id, report.post_id, report.status, report.created_at, report.content),
             )
             .on_conflict_do_nothing(index_elements=[ArchivePostReport.src_report_id])
         )
@@ -126,6 +136,15 @@ async def _archive_processes(
                 created_by=process.created_by,
                 src_created_at=process.created_at,
                 src_updated_at=process.updated_at,
+                checksum=_checksum(
+                    "process",
+                    process.id,
+                    process.title,
+                    process.started_at,
+                    process.ended_at,
+                    process.status.value if hasattr(process.status, "value") else str(process.status),
+                    process.updated_at,
+                ),
             )
             .on_conflict_do_nothing(index_elements=[ArchiveProcess.src_process_id])
         )
@@ -143,6 +162,7 @@ async def _archive_processes(
                 report_json=report.report_json,
                 version=report.version,
                 src_created_at=report.created_at,
+                checksum=_checksum("process_report", report.id, report.process_id, report.version, report.created_at, report.report_text),
             )
             .on_conflict_do_nothing(index_elements=[ArchiveProcessReport.src_process_report_id])
         )
@@ -184,6 +204,15 @@ async def _archive_events(session: AsyncSession, *, cutoff: datetime, batch_limi
                 created_by=event.created_by,
                 src_created_at=event.created_at,
                 src_updated_at=event.updated_at,
+                checksum=_checksum(
+                    "event",
+                    event.id,
+                    event.title,
+                    event.started_at,
+                    event.ended_at,
+                    event.status.value if hasattr(event.status, "value") else str(event.status),
+                    event.updated_at,
+                ),
             )
             .on_conflict_do_nothing(index_elements=[ArchiveEvent.src_event_id])
         )
@@ -201,6 +230,7 @@ async def _archive_events(session: AsyncSession, *, cutoff: datetime, batch_limi
                 report_json=report.report_json,
                 version=report.version,
                 src_created_at=report.created_at,
+                checksum=_checksum("event_report", report.id, report.event_id, report.version, report.created_at, report.report_text),
             )
             .on_conflict_do_nothing(index_elements=[ArchiveEventReport.src_event_report_id])
         )
@@ -244,9 +274,41 @@ async def run_archive_retention(
         batch_limit=batch_limit,
     )
 
+    total_rows_archived = int(
+        post_stats.get("archived_posts", 0)
+        + post_stats.get("archived_post_reports", 0)
+        + event_stats.get("archived_events", 0)
+        + event_stats.get("archived_event_reports", 0)
+        + process_stats.get("archived_processes", 0)
+        + process_stats.get("archived_process_reports", 0)
+        + int(deleted_comments_count)
+    )
+    await session.execute(
+        insert(ArchiveWatermark)
+        .values(
+            job_name="archive_retention",
+            archived_before=cutoff,
+            last_run_at=utcnow(),
+            last_success_at=utcnow(),
+            rows_archived_last_run=total_rows_archived,
+            last_error=None,
+        )
+        .on_conflict_do_update(
+            index_elements=[ArchiveWatermark.job_name],
+            set_={
+                "archived_before": cutoff,
+                "last_run_at": utcnow(),
+                "last_success_at": utcnow(),
+                "rows_archived_last_run": total_rows_archived,
+                "last_error": None,
+            },
+        )
+    )
+
     return {
         "cutoff": cutoff.isoformat(),
         "deleted_comments": deleted_comments_count,
+        "rows_archived_last_run": total_rows_archived,
         **post_stats,
         **{k: v for k, v in event_stats.items() if k != "forced_process_ids"},
         **{k: v for k, v in process_stats.items() if k != "process_ids"},

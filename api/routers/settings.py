@@ -46,6 +46,9 @@ async def update_setting(
     current_user: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
+    """
+    Supported keys: ingest, reports, retention, jobs, api, monitor, features.
+    """
     if key not in DEFAULT_SETTINGS:
         raise HTTPException(status_code=404, detail=f"Unknown setting key: {key}")
     current_payload = await get_all_settings(session)

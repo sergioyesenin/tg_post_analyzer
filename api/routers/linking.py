@@ -88,7 +88,7 @@ async def rebuild_processes_api(
 @router.get("/posts/{post_id}/links", response_model=PostLinksResponse)
 async def get_post_links(
     post_id: int,
-    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
     post = await session.get(Post, post_id)
@@ -106,7 +106,7 @@ async def get_post_links(
 @router.get("/events/{event_id}", response_model=EventDetailOut)
 async def get_event(
     event_id: int,
-    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
     event = await session.get(Event, event_id)
@@ -120,7 +120,7 @@ async def get_event(
 @router.get("/processes/{process_id}", response_model=ProcessDetailOut)
 async def get_process(
     process_id: int,
-    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
     process = await session.get(Process, process_id)

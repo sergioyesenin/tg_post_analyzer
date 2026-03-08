@@ -121,6 +121,27 @@ class AuthIdentity(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
+class AuthRefreshToken(Base):
+    __tablename__ = "auth_refresh_tokens"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_auth_refresh_tokens_token_hash"),
+        Index("ix_auth_refresh_tokens_user_id", "user_id"),
+        Index("ix_auth_refresh_tokens_expires_at", "expires_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    replaced_by_token_id: Mapped[int | None] = mapped_column(
+        ForeignKey("auth_refresh_tokens.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     __table_args__ = (
@@ -296,6 +317,26 @@ class Job(Base):
     dedupe_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class JobDeadLetter(Base):
+    __tablename__ = "job_dead_letters"
+    __table_args__ = (
+        UniqueConstraint("source_job_id", name="uq_job_dead_letters_source_job_id"),
+        Index("ix_job_dead_letters_type", "type"),
+        Index("ix_job_dead_letters_failed_at", "failed_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_job_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    payload_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
 class Event(Base):
@@ -512,6 +553,7 @@ class ArchivePostText(Base):
     tg_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     post_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
     archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
@@ -532,6 +574,7 @@ class ArchiveEvent(Base):
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     src_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
     archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
@@ -552,6 +595,7 @@ class ArchiveProcess(Base):
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     src_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
     archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
@@ -568,6 +612,7 @@ class ArchivePostReport(Base):
     status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
     archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
@@ -585,6 +630,7 @@ class ArchiveEventReport(Base):
     report_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
     archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
 
@@ -602,4 +648,21 @@ class ArchiveProcessReport(Base):
     report_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
     archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+
+
+class ArchiveWatermark(Base):
+    __tablename__ = "archive_watermarks"
+    __table_args__ = (
+        UniqueConstraint("job_name", name="uq_archive_watermarks_job_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    job_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    archived_before: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rows_archived_last_run: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)

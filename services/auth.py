@@ -2,15 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import hashlib
+import secrets
 
 import bcrypt
 import jwt
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
 from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
-from db.models import AuditLog, Role, User, UserRole
+from db.models import AuditLog, AuthRefreshToken, Role, User, UserRole
 
 
 @dataclass(frozen=True)
@@ -21,20 +25,34 @@ class AuthUser:
     roles: tuple[str, ...]
 
 
+_password_hasher = PasswordHasher()
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _hash_refresh_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
 def hash_password(password: str) -> str:
-    hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
-    return hashed.decode("utf-8")
+    return _password_hasher.hash(password)
 
 
 def verify_password(password: str, password_hash: str) -> bool:
     try:
-        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+        if isinstance(password_hash, str) and password_hash.startswith("$2"):
+            return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+        return bool(_password_hasher.verify(password_hash, password))
+    except VerifyMismatchError:
+        return False
     except Exception:
         return False
 
 
 def create_access_token(*, user_id: int, username: str, roles: list[str]) -> str:
-    now = datetime.now(timezone.utc)
+    now = _utcnow()
     payload = {
         "sub": str(user_id),
         "username": username,
@@ -77,6 +95,10 @@ async def authenticate_local_user(session: AsyncSession, *, username: str, passw
         return None
     if not verify_password(password, user.password_hash):
         return None
+    # Backward-compat: transparently migrate legacy bcrypt hashes to Argon2id.
+    if isinstance(user.password_hash, str) and user.password_hash.startswith("$2"):
+        user.password_hash = hash_password(password)
+        await session.flush()
     roles = await get_user_roles(session, user.id)
     return AuthUser(
         id=user.id,
@@ -115,3 +137,82 @@ async def write_audit_log(
         )
     )
     await session.flush()
+
+
+async def issue_refresh_token(
+    session: AsyncSession,
+    *,
+    user_id: int,
+) -> str:
+    raw_token = secrets.token_urlsafe(48)
+    token_row = AuthRefreshToken(
+        user_id=user_id,
+        token_hash=_hash_refresh_token(raw_token),
+        expires_at=_utcnow() + timedelta(days=settings.AUTH_REFRESH_TTL_DAYS),
+        revoked_at=None,
+        replaced_by_token_id=None,
+    )
+    session.add(token_row)
+    await session.flush()
+    return raw_token
+
+
+async def rotate_refresh_token(
+    session: AsyncSession,
+    *,
+    refresh_token: str,
+) -> tuple[AuthUser, str]:
+    token_hash = _hash_refresh_token(refresh_token)
+    now = _utcnow()
+    token_row = (
+        await session.execute(
+            select(AuthRefreshToken)
+            .where(AuthRefreshToken.token_hash == token_hash)
+            .where(AuthRefreshToken.revoked_at.is_(None))
+            .where(AuthRefreshToken.expires_at > now)
+        )
+    ).scalar_one_or_none()
+    if token_row is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+
+    user = await session.get(User, token_row.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+    roles = tuple(sorted(await get_user_roles(session, user.id)))
+    auth_user = AuthUser(
+        id=user.id,
+        username=user.username,
+        is_active=user.is_active,
+        roles=roles,
+    )
+
+    new_refresh_token = await issue_refresh_token(session, user_id=user.id)
+    replacement_row = (
+        await session.execute(
+            select(AuthRefreshToken)
+            .where(AuthRefreshToken.token_hash == _hash_refresh_token(new_refresh_token))
+        )
+    ).scalar_one()
+    token_row.revoked_at = now
+    token_row.replaced_by_token_id = replacement_row.id
+    await session.flush()
+    return auth_user, new_refresh_token
+
+
+async def revoke_refresh_token(
+    session: AsyncSession,
+    *,
+    refresh_token: str,
+) -> bool:
+    token_hash = _hash_refresh_token(refresh_token)
+    token_row = (
+        await session.execute(
+            select(AuthRefreshToken).where(AuthRefreshToken.token_hash == token_hash)
+        )
+    ).scalar_one_or_none()
+    if token_row is None:
+        return False
+    if token_row.revoked_at is None:
+        token_row.revoked_at = _utcnow()
+    await session.flush()
+    return True

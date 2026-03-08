@@ -1,55 +1,158 @@
-from dotenv import load_dotenv
+from __future__ import annotations
+
 import os
+import warnings
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from dotenv import load_dotenv
 
 load_dotenv()
 
 
-def _env_int(name: str, default: int) -> int:
-    value = os.getenv(name)
-    if value is None or value == "":
-        return default
-    return int(value)
-
-
-def _env_float(name: str, default: float) -> float:
-    value = os.getenv(name)
-    if value is None or value == "":
-        return default
-    return float(value)
-
-
 class Settings:
-    TG_API_ID: int = _env_int("TG_API_ID", 0)
-    TG_API_HASH: str = os.getenv("TG_API_HASH", "")
-    TG_SESSION_NAME: str = os.getenv("TG_SESSION_NAME", "tg_session")
-    TG_FLOOD_SLEEP_THRESHOLD: int = _env_int("TG_FLOOD_SLEEP_THRESHOLD", 180)
-    DB_URL: str = os.getenv("DB_URL", "")
-    tz: str = os.getenv("APP_TZ", "Europe/Minsk")
+    def __init__(self) -> None:
+        errors: list[str] = []
 
-    LINKER_LLM_MODEL: str = os.getenv("LINKER_LLM_MODEL", "ollama/llama3:8b-instruct-q4_K_M")
-    LINKER_LLM_BASE_URL: str = os.getenv("LINKER_LLM_BASE_URL", "http://localhost:11434")
-    LINKER_LLM_API_KEY: str | None = os.getenv("LINKER_LLM_API_KEY")
+        self.TG_API_ID = self._env_int("TG_API_ID", default=None, required=True, errors=errors)
+        self.TG_API_HASH = self._env_str("TG_API_HASH", required=True, errors=errors)
+        self.TG_SESSION_NAME = self._env_str("TG_SESSION_NAME", default="tg_session", errors=errors)
+        self.TG_FLOOD_SLEEP_THRESHOLD = self._env_int("TG_FLOOD_SLEEP_THRESHOLD", default=180, errors=errors)
+        self.DB_URL = self._env_str("DB_URL", alias="DATABASE_URL", required=True, errors=errors)
+        self.tz = self._env_str("APP_TZ", alias="TZ", default="Europe/Minsk", errors=errors)
+        self._validate_timezone(self.tz, errors)
 
-    LINKING_PIPELINE_VERSION: str = os.getenv("LINKING_PIPELINE_VERSION", "v2-evidence-first")
-    LINKING_TOP_K: int = _env_int("LINKING_TOP_K", 50)
-    LINKING_EMBED_ENABLED: bool = os.getenv("LINKING_EMBED_ENABLED", "true").lower() == "true"
-    LINKING_EMBED_MODEL: str = os.getenv("LINKING_EMBED_MODEL", "nomic-embed-text")
-    LINKING_EMBED_TIMEOUT_SEC: int = _env_int("LINKING_EMBED_TIMEOUT_SEC", 20)
-    LINKING_EMBED_MIN_SIM: float = _env_float("LINKING_EMBED_MIN_SIM", 0.45)
-    LINKING_CANDIDATE_MIN_EMBED_SIM: float = _env_float("LINKING_CANDIDATE_MIN_EMBED_SIM", 0.9)
-    LINKING_PREFILTER_MULTIPLIER: int = _env_int("LINKING_PREFILTER_MULTIPLIER", 6)
-    LINKING_SAME_EVENT_ENTITY_OVERLAP_MIN: float = _env_float("LINKING_SAME_EVENT_ENTITY_OVERLAP_MIN", 0.2)
-    LINKING_RELATED_TIME_WINDOW_HOURS: int = _env_int("LINKING_RELATED_TIME_WINDOW_HOURS", 168)
-    LINKING_MAX_TEXT_CHARS: int = _env_int("LINKING_MAX_TEXT_CHARS", 5000)
-    NO_LLM_SAME_EVENT_MIN_SIM: float = _env_float("NO_LLM_SAME_EVENT_MIN_SIM", 0.915)
-    NO_LLM_SAME_EVENT_MAX_HOURS: int = _env_int("NO_LLM_SAME_EVENT_MAX_HOURS", 10)
-    TITLES_AI_ENABLED: bool = os.getenv("TITLES_AI_ENABLED", "true").lower() == "true"
-    TITLES_AI_MAX_INPUT_POSTS: int = _env_int("TITLES_AI_MAX_INPUT_POSTS", 6)
-    DISCUSSION_FALLBACK_ID_WINDOW: int = _env_int("DISCUSSION_FALLBACK_ID_WINDOW", 2)
-    DISCUSSION_FALLBACK_MAX_SECONDS: int = _env_int("DISCUSSION_FALLBACK_MAX_SECONDS", 10)
-    AUTH_JWT_SECRET: str = os.getenv("AUTH_JWT_SECRET", "change-me-in-prod")
-    AUTH_JWT_ALG: str = os.getenv("AUTH_JWT_ALG", "HS256")
-    AUTH_ACCESS_TTL_MINUTES: int = _env_int("AUTH_ACCESS_TTL_MINUTES", 60)
-    AUTH_PROVIDER_MODE: str = os.getenv("AUTH_PROVIDER_MODE", "local")
+        self.LINKER_LLM_MODEL = self._env_str("LINKER_LLM_MODEL", default="ollama/llama3:8b-instruct-q4_K_M", errors=errors)
+        self.LINKER_LLM_BASE_URL = self._env_str("LINKER_LLM_BASE_URL", default="http://localhost:11434", errors=errors)
+        self.LINKER_LLM_API_KEY = self._env_str("LINKER_LLM_API_KEY", default=None, errors=errors)
+
+        self.LINKING_PIPELINE_VERSION = self._env_str("LINKING_PIPELINE_VERSION", default="v2-evidence-first", errors=errors)
+        self.LINKING_TOP_K = self._env_int("LINKING_TOP_K", default=50, errors=errors)
+        self.LINKING_EMBED_ENABLED = self._env_bool("LINKING_EMBED_ENABLED", default=True, errors=errors)
+        self.LINKING_EMBED_MODEL = self._env_str("LINKING_EMBED_MODEL", default="nomic-embed-text", errors=errors)
+        self.LINKING_EMBED_TIMEOUT_SEC = self._env_int("LINKING_EMBED_TIMEOUT_SEC", default=20, errors=errors)
+        self.LINKING_EMBED_MIN_SIM = self._env_float("LINKING_EMBED_MIN_SIM", default=0.45, errors=errors)
+        self.LINKING_CANDIDATE_MIN_EMBED_SIM = self._env_float("LINKING_CANDIDATE_MIN_EMBED_SIM", default=0.9, errors=errors)
+        self.LINKING_PREFILTER_MULTIPLIER = self._env_int("LINKING_PREFILTER_MULTIPLIER", default=6, errors=errors)
+        self.LINKING_SAME_EVENT_ENTITY_OVERLAP_MIN = self._env_float("LINKING_SAME_EVENT_ENTITY_OVERLAP_MIN", default=0.2, errors=errors)
+        self.LINKING_RELATED_TIME_WINDOW_HOURS = self._env_int("LINKING_RELATED_TIME_WINDOW_HOURS", default=168, errors=errors)
+        self.LINKING_MAX_TEXT_CHARS = self._env_int("LINKING_MAX_TEXT_CHARS", default=5000, errors=errors)
+        self.NO_LLM_SAME_EVENT_MIN_SIM = self._env_float("NO_LLM_SAME_EVENT_MIN_SIM", default=0.915, errors=errors)
+        self.NO_LLM_SAME_EVENT_MAX_HOURS = self._env_int("NO_LLM_SAME_EVENT_MAX_HOURS", default=10, errors=errors)
+        self.TITLES_AI_ENABLED = self._env_bool("TITLES_AI_ENABLED", default=True, errors=errors)
+        self.TITLES_AI_MAX_INPUT_POSTS = self._env_int("TITLES_AI_MAX_INPUT_POSTS", default=6, errors=errors)
+        self.DISCUSSION_FALLBACK_ID_WINDOW = self._env_int("DISCUSSION_FALLBACK_ID_WINDOW", default=1, errors=errors)
+        self.DISCUSSION_FALLBACK_MAX_SECONDS = self._env_int("DISCUSSION_FALLBACK_MAX_SECONDS", default=10, errors=errors)
+        self.COMMENTS_SLEEP_EVERY = self._env_int("COMMENTS_SLEEP_EVERY", default=10, errors=errors)
+        self.COMMENTS_SLEEP_BASE_SEC = self._env_float("COMMENTS_SLEEP_BASE_SEC", default=0.6, errors=errors)
+        self.COMMENTS_SLEEP_JITTER_SEC = self._env_float("COMMENTS_SLEEP_JITTER_SEC", default=0.4, errors=errors)
+        self.AUTH_JWT_SECRET = self._env_str("AUTH_JWT_SECRET", required=True, errors=errors)
+        self.AUTH_JWT_ALG = self._env_str("AUTH_JWT_ALG", default="HS256", errors=errors)
+        self.AUTH_ACCESS_TTL_MINUTES = self._env_int("AUTH_ACCESS_TTL_MINUTES", default=60, errors=errors)
+        self.AUTH_REFRESH_TTL_DAYS = self._env_int("AUTH_REFRESH_TTL_DAYS", default=30, errors=errors)
+        self.AUTH_PROVIDER_MODE = self._env_str("AUTH_PROVIDER_MODE", default="local", errors=errors)
+
+        if errors:
+            ordered = "\n".join(f"- {item}" for item in sorted(errors))
+            raise RuntimeError(f"Invalid environment configuration:\n{ordered}")
+
+    @staticmethod
+    def _read_env(name: str, *, alias: str | None = None) -> tuple[str | None, str | None]:
+        value = os.getenv(name)
+        if value is not None and value != "":
+            return value, name
+        if alias:
+            alias_value = os.getenv(alias)
+            if alias_value is not None and alias_value != "":
+                warnings.warn(
+                    f"Environment variable '{alias}' is deprecated; use '{name}' instead.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+                return alias_value, alias
+        return None, None
+
+    @classmethod
+    def _env_str(
+        cls,
+        name: str,
+        *,
+        alias: str | None = None,
+        default: str | None = None,
+        required: bool = False,
+        errors: list[str],
+    ) -> str | None:
+        value, _ = cls._read_env(name, alias=alias)
+        if value is None:
+            if required:
+                errors.append(f"Missing required env var: {name}")
+            return default
+        return value
+
+    @classmethod
+    def _env_int(
+        cls,
+        name: str,
+        *,
+        alias: str | None = None,
+        default: int | None,
+        required: bool = False,
+        errors: list[str],
+    ) -> int | None:
+        value = cls._env_str(name, alias=alias, default=None, required=required, errors=errors)
+        if value is None:
+            return default
+        try:
+            return int(value)
+        except ValueError:
+            errors.append(f"Invalid integer env var: {name}='{value}'")
+            return default
+
+    @classmethod
+    def _env_float(
+        cls,
+        name: str,
+        *,
+        alias: str | None = None,
+        default: float,
+        errors: list[str],
+    ) -> float:
+        value = cls._env_str(name, alias=alias, default=None, errors=errors)
+        if value is None:
+            return default
+        try:
+            return float(value)
+        except ValueError:
+            errors.append(f"Invalid float env var: {name}='{value}'")
+            return default
+
+    @classmethod
+    def _env_bool(
+        cls,
+        name: str,
+        *,
+        alias: str | None = None,
+        default: bool,
+        errors: list[str],
+    ) -> bool:
+        value = cls._env_str(name, alias=alias, default=None, errors=errors)
+        if value is None:
+            return default
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+        errors.append(f"Invalid boolean env var: {name}='{value}'")
+        return default
+
+    @staticmethod
+    def _validate_timezone(tz_name: str | None, errors: list[str]) -> None:
+        if tz_name is None:
+            errors.append("Missing timezone value for APP_TZ")
+            return
+        try:
+            ZoneInfo(tz_name)
+        except ZoneInfoNotFoundError:
+            errors.append(f"Invalid timezone env var: APP_TZ='{tz_name}'")
 
 settings = Settings()

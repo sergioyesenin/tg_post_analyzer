@@ -10,6 +10,7 @@ class LoginIn(BaseModel):
 
 class TokenOut(BaseModel):
     access_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
     expires_in_seconds: int
     roles: list[str]
@@ -27,6 +28,14 @@ class UserRolesIn(BaseModel):
     roles: list[str]
 
 
+class RefreshIn(BaseModel):
+    refresh_token: str
+
+
+class LogoutIn(BaseModel):
+    refresh_token: str
+
+
 class UserOut(BaseModel):
     id: int
     username: str
@@ -36,4 +45,3 @@ class UserOut(BaseModel):
     is_local: bool
     roles: list[str]
     created_at: datetime
-

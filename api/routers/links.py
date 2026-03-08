@@ -30,7 +30,7 @@ async def run_linker(
 @router.get("/posts/{post_id}", response_model=PostLinksResponse)
 async def get_post_links(
     post_id: int,
-    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
     post = await session.get(Post, post_id)
@@ -48,7 +48,7 @@ async def get_post_links(
 @router.get("/events", response_model=list[EventSummaryOut])
 async def list_events(
     limit: int = 50,
-    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
     stmt = (
@@ -63,7 +63,7 @@ async def list_events(
 @router.get("/events/{event_id}", response_model=EventDetailOut)
 async def get_event(
     event_id: int,
-    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
     event = await session.get(Event, event_id)

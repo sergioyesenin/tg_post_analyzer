@@ -19,7 +19,7 @@ async def top_posts(
     date_from: datetime,
     date_to: datetime,
     limit: int | None = None,
-    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
     if limit is None:
@@ -56,7 +56,7 @@ async def top_posts(
 @router.get("/{post_id}", response_model=PostDetailOut)
 async def get_post(
     post_id: int,
-    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
     result = await session.execute(select(Post).where(Post.id == post_id))
@@ -69,7 +69,7 @@ async def get_post(
 @router.get("/{post_id}/comments", response_model=list[CommentOut])
 async def get_comments(
     post_id: int,
-    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
     result = await session.execute(

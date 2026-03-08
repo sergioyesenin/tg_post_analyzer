@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from typing import Literal
 
 
@@ -18,8 +18,7 @@ class LinkOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PostLinksResponse(BaseModel):
@@ -47,8 +46,7 @@ class EventSummaryOut(BaseModel):
     confidence: float | None = None
     created_by: str | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EventDetailOut(BaseModel):
@@ -65,8 +63,7 @@ class ProcessSummaryOut(BaseModel):
     confidence: float | None = None
     created_by: str | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ProcessEventOut(BaseModel):

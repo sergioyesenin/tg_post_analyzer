@@ -4,13 +4,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
 
 from deps import get_session, require_roles
+from services.settings_store import get_all_settings
 from db.models import Post, Comment
 from services.auth import AuthUser, write_audit_log
 from services.monitoring import (
     activity_snapshot,
     database_snapshot,
+    evaluate_alerts,
     health_snapshot,
     jobs_snapshot,
+    pipeline_snapshot,
     system_snapshot,
 )
 
@@ -106,10 +109,27 @@ async def monitor_full(
     current_user: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
+    effective_settings = await get_all_settings(session)
+    monitor_settings = effective_settings.get("monitor", {})
+    retention_settings = effective_settings.get("retention", {})
+    retention_days = int(retention_settings.get("retention_days", 30))
+    health = await health_snapshot(session)
+    system = system_snapshot()
+    jobs = await jobs_snapshot(session)
+    pipeline = await pipeline_snapshot(session, retention_days=retention_days)
+    alerts = evaluate_alerts(
+        health=health,
+        system=system,
+        jobs=jobs,
+        pipeline=pipeline,
+        thresholds=monitor_settings,
+    )
     payload = {
-        "health": await health_snapshot(session),
-        "system": system_snapshot(),
-        "jobs": await jobs_snapshot(session),
+        "health": health,
+        "system": system,
+        "jobs": jobs,
+        "pipeline": pipeline,
+        "alerts": alerts,
         "activity_24h": await activity_snapshot(session, hours=24),
         "database": await database_snapshot(session),
     }
@@ -125,3 +145,48 @@ async def monitor_full(
     )
     await session.commit()
     return payload
+
+
+@router.get("/alerts")
+async def monitor_alerts(
+    current_user: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    effective_settings = await get_all_settings(session)
+    monitor_settings = effective_settings.get("monitor", {})
+    retention_settings = effective_settings.get("retention", {})
+    retention_days = int(retention_settings.get("retention_days", 30))
+    health = await health_snapshot(session)
+    system = system_snapshot()
+    jobs = await jobs_snapshot(session)
+    pipeline = await pipeline_snapshot(session, retention_days=retention_days)
+    payload = evaluate_alerts(
+        health=health,
+        system=system,
+        jobs=jobs,
+        pipeline=pipeline,
+        thresholds=monitor_settings,
+    )
+    await write_audit_log(
+        session,
+        action="monitor.alerts.read",
+        actor_user_id=current_user.id,
+        target_type="monitor",
+        details={
+            "status": payload.get("status"),
+            "alerts_count": payload.get("alerts_count"),
+        },
+    )
+    await session.commit()
+    return payload
+
+
+@router.get("/pipeline")
+async def monitor_pipeline(
+    _: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    effective_settings = await get_all_settings(session)
+    retention_settings = effective_settings.get("retention", {})
+    retention_days = int(retention_settings.get("retention_days", 30))
+    return await pipeline_snapshot(session, retention_days=retention_days)

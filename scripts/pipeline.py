@@ -52,7 +52,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--session-suffix", type=str, default="")
     parser.add_argument("--unique-session-per-run", action="store_true")
     parser.add_argument("--daemon", action="store_true", help="Run forever and poll channels in loop.")
-    parser.add_argument("--poll-seconds", type=int, default=240, help="Delay between daemon cycles.")
+    parser.add_argument(
+        "--poll-seconds",
+        type=int,
+        default=None,
+        help="Delay between daemon cycles. Overrides ingest.poll_seconds when provided.",
+    )
     parser.add_argument("--job-batch-size", type=int, default=20, help="How many jobs to execute per cycle.")
     parser.add_argument("--comment-first-delay-hours", type=int, default=2)
     parser.add_argument("--comment-interval-hours", type=int, default=4)
@@ -150,20 +155,23 @@ async def _schedule_post_jobs(
     first_comment_at = post.date + timedelta(hours=comment_first_delay_hours)
     comment_until = post.date + timedelta(hours=comment_window_hours)
     current = first_comment_at
+    scan_index = 0
     while current <= comment_until:
         jitter_seconds = random.randint(0, max(0, int(comment_schedule_jitter_seconds)))
         scheduled_at = current + timedelta(seconds=jitter_seconds)
         ts = int(scheduled_at.timestamp())
+        priority = _collect_comments_job_priority(post=post, scan_index=scan_index)
         await enqueue_job(
             session,
             job_type=JobType.COLLECT_COMMENTS,
-            payload={"post_id": post.id},
+            payload={"post_id": post.id, "scan_index": scan_index},
             run_at=scheduled_at,
-            priority=20,
+            priority=priority,
             max_attempts=8,
             dedupe_key=f"collect_comments:{post.id}:{ts}",
         )
         current = current + timedelta(hours=comment_interval_hours)
+        scan_index += 1
 
     await enqueue_job(
         session,
@@ -192,6 +200,45 @@ def _extract_comments_count(message) -> int:
     if isinstance(count, int) and count >= 0:
         return count
     return 0
+
+
+def _collect_comments_job_priority(*, post: Post, scan_index: int) -> int:
+    """
+    Lower value means higher priority in queue.
+    Heuristic:
+    - early scans are prioritized,
+    - posts with stronger discussion/visibility are prioritized.
+    """
+    priority = 20
+
+    if scan_index == 0:
+        priority -= 2
+    elif scan_index == 1:
+        priority -= 1
+
+    comments = int(post.comments_count or 0)
+    if comments >= 100:
+        priority -= 4
+    elif comments >= 50:
+        priority -= 3
+    elif comments >= 20:
+        priority -= 2
+    elif comments >= 5:
+        priority -= 1
+
+    views = int(post.views or 0)
+    if views >= 5000:
+        priority -= 2
+    elif views >= 1000:
+        priority -= 1
+
+    if isinstance(post.involvement, (int, float)):
+        if post.involvement >= 0.20:
+            priority -= 2
+        elif post.involvement >= 0.10:
+            priority -= 1
+
+    return max(5, min(90, priority))
 
 
 async def _pick_album_representative_message(client: TelegramClient, entity, message):
@@ -445,6 +492,10 @@ async def _rebuild_event_process_graphs(*, date_from: datetime, date_to: datetim
 
 
 async def _enqueue_graph_report_jobs(*, date_from: datetime, date_to: datetime) -> None:
+    # Deduplicate report rebuild jobs inside a short time bucket.
+    # This keeps auto-refresh active while preventing excessive churn.
+    bucket = date_to.replace(minute=(date_to.minute // 30) * 30, second=0, microsecond=0)
+    bucket_key = bucket.strftime("%Y%m%d%H%M")
     async with AsyncSessionLocal() as session:
         event_ids = [
             row[0]
@@ -469,7 +520,7 @@ async def _enqueue_graph_report_jobs(*, date_from: datetime, date_to: datetime) 
                 job_type=JobType.BUILD_EVENT_REPORT,
                 payload={"event_id": event_id},
                 priority=70,
-                dedupe_key=f"build_event_report:{event_id}",
+                dedupe_key=f"build_event_report:{event_id}:{bucket_key}",
             )
         for process_id in process_ids:
             await enqueue_job(
@@ -477,7 +528,7 @@ async def _enqueue_graph_report_jobs(*, date_from: datetime, date_to: datetime) 
                 job_type=JobType.BUILD_PROCESS_REPORT,
                 payload={"process_id": process_id},
                 priority=80,
-                dedupe_key=f"build_process_report:{process_id}",
+                dedupe_key=f"build_process_report:{process_id}:{bucket_key}",
             )
         await session.commit()
 
@@ -517,8 +568,8 @@ async def _run_jobs(
             effective_settings = await get_all_settings(session)
             report_config = report_config_from_settings(effective_settings)
             ingest_settings = effective_settings.get("ingest", {})
-            cc_sleep_min_ms = int(ingest_settings.get("collect_comments_sleep_min_ms", 700))
-            cc_sleep_max_ms = int(ingest_settings.get("collect_comments_sleep_max_ms", 1400))
+            cc_sleep_min_ms = int(ingest_settings.get("collect_comments_sleep_min_ms", 2500))
+            cc_sleep_max_ms = int(ingest_settings.get("collect_comments_sleep_max_ms", 4500))
             if cc_sleep_max_ms < cc_sleep_min_ms:
                 cc_sleep_max_ms = cc_sleep_min_ms
             try:
@@ -600,34 +651,55 @@ async def _run_jobs(
 
                     if status == "flood_wait":
                         wait_seconds = int(result.get("wait_seconds") or 30)
+                        flood_source = str(result.get("flood_source") or "unknown")
                         collect_comments_flood_streak += 1
-                        retry_at = datetime.now(timezone.utc) + timedelta(seconds=max(10, wait_seconds))
+                        now_utc = datetime.now(timezone.utc)
+                        retry_at = now_utc + timedelta(seconds=max(60, wait_seconds * 4))
                         # Adaptive global cool-down: if flood-waits happen consecutively,
                         # increase pause to reduce repeated throttling.
-                        base_cooldown_sec = max(120, wait_seconds)
+                        base_cooldown_sec = max(300, wait_seconds * 6)
                         if collect_comments_flood_streak >= 2:
                             adaptive_cooldown_sec = min(1800, base_cooldown_sec * (2 ** (collect_comments_flood_streak - 1)))
                         else:
                             adaptive_cooldown_sec = base_cooldown_sec
-                        collect_comments_global_cooldown_until = datetime.now(timezone.utc) + timedelta(
+                        collect_comments_global_cooldown_until = now_utc + timedelta(
                             seconds=adaptive_cooldown_sec
                         )
                         logging.warning(
-                            "collect_comments flood streak=%s wait=%ss cooldown=%ss",
+                            "collect_comments flood source=%s streak=%s wait=%ss cooldown=%ss",
+                            flood_source,
                             collect_comments_flood_streak,
                             wait_seconds,
                             adaptive_cooldown_sec,
                         )
+                        effective_retry_at = max(retry_at, collect_comments_global_cooldown_until)
                         await requeue_job(
                             session,
                             job=db_job,
-                            retry_at=retry_at,
+                            retry_at=effective_retry_at,
                             error=f"collect_comments:flood_wait:{wait_seconds}",
                         )
+                        # Defer all other pending comment-collection jobs until cooldown expires.
+                        # This lowers repeated FloodWait bursts without dropping any data.
+                        await session.execute(
+                            text(
+                                "UPDATE jobs "
+                                "SET retry_at = :retry_at "
+                                "WHERE type = :job_type "
+                                "AND status = 'pending' "
+                                "AND id <> :job_id "
+                                "AND (retry_at IS NULL OR retry_at < :retry_at)"
+                            ),
+                            {
+                                "retry_at": collect_comments_global_cooldown_until,
+                                "job_type": JobType.COLLECT_COMMENTS,
+                                "job_id": db_job.id,
+                            },
+                        )
                         await session.commit()
-                        if cc_sleep_max_ms > 0:
-                            await asyncio.sleep(random.randint(cc_sleep_min_ms, cc_sleep_max_ms) / 1000.0)
-                        continue
+                        # Stop this batch immediately after FloodWait so we don't keep
+                        # hammering Telegram inside the same cycle.
+                        return executed
 
                     if status in {"entity_error", "rpc_error", "discussion_error"}:
                         collect_comments_flood_streak = 0
@@ -725,7 +797,7 @@ async def _run_single_cycle(client: TelegramClient, args: argparse.Namespace, wo
     )
     post_report_delay_hours = int(reports_settings.get("post_report_delay_hours", args.post_report_delay_hours))
     job_batch_size = int(jobs_settings.get("job_batch_size", args.job_batch_size))
-    collect_comments_quota_per_run = int(jobs_settings.get("collect_comments_quota_per_run", 5))
+    collect_comments_quota_per_run = int(jobs_settings.get("collect_comments_quota_per_run", 2))
     retention_days = int(retention_settings.get("retention_days", args.retention_days))
     archive_batch_size = int(retention_settings.get("archive_batch_size", args.archive_batch_size))
 
@@ -792,7 +864,7 @@ async def main_async(args: argparse.Namespace) -> None:
     await _with_session_lock_retry(lambda: client.start(), op_name="client.start")
     try:
         if args.daemon:
-            logging.info("Daemon mode started. worker_id=%s poll_seconds=%s", worker_id, args.poll_seconds)
+            logging.info("Daemon mode started. worker_id=%s poll_seconds_arg=%s", worker_id, args.poll_seconds)
             while True:
                 cycle_started_at = datetime.now(timezone.utc)
                 try:
@@ -802,7 +874,9 @@ async def main_async(args: argparse.Namespace) -> None:
                 async with AsyncSessionLocal() as session:
                     effective_settings = await get_all_settings(session)
                 ingest_settings = effective_settings.get("ingest", {})
-                poll_seconds = int(ingest_settings.get("poll_seconds", args.poll_seconds))
+                poll_seconds_from_settings = int(ingest_settings.get("poll_seconds", 240))
+                poll_seconds = int(args.poll_seconds) if args.poll_seconds is not None else poll_seconds_from_settings
+                poll_seconds = max(5, poll_seconds)
                 elapsed = (datetime.now(timezone.utc) - cycle_started_at).total_seconds()
                 sleep_for = max(1, int(poll_seconds - elapsed))
                 await asyncio.sleep(sleep_for)

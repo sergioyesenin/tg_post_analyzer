@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Job
+from db.models import Job, JobDeadLetter
 from deps import get_session, require_roles
 from services.auth import AuthUser, write_audit_log
 from services.jobs import JobType, enqueue_job
@@ -56,6 +56,106 @@ async def jobs_pending(
         }
         for job in jobs
     ]
+
+
+@router.get("/dead-letter")
+async def jobs_dead_letter(
+    limit: int = 100,
+    _: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    stmt = (
+        select(JobDeadLetter)
+        .order_by(JobDeadLetter.failed_at.desc(), JobDeadLetter.id.desc())
+        .limit(limit)
+    )
+    rows = (await session.execute(stmt)).scalars().all()
+    return [
+        {
+            "id": row.id,
+            "source_job_id": row.source_job_id,
+            "type": row.type,
+            "priority": row.priority,
+            "attempts": row.attempts,
+            "max_attempts": row.max_attempts,
+            "last_error": row.last_error,
+            "failed_at": row.failed_at,
+        }
+        for row in rows
+    ]
+
+
+@router.post("/dead-letter/{dead_letter_id}/retry")
+async def retry_dead_letter_job(
+    dead_letter_id: int,
+    current_user: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    dead_row = await session.get(JobDeadLetter, dead_letter_id)
+    if dead_row is None:
+        return {"status": "not_found", "dead_letter_id": dead_letter_id}
+
+    requeued = await enqueue_job(
+        session,
+        job_type=dead_row.type,
+        payload=dead_row.payload_json or {},
+        priority=int(dead_row.priority or 100),
+        max_attempts=int(dead_row.max_attempts or 5),
+        dedupe_key=None,
+    )
+    await session.execute(delete(JobDeadLetter).where(JobDeadLetter.id == dead_letter_id))
+    await write_audit_log(
+        session,
+        action="jobs.dead_letter.retry",
+        actor_user_id=current_user.id,
+        target_type="job_dead_letter",
+        target_id=str(dead_letter_id),
+        details={
+            "source_job_id": dead_row.source_job_id,
+            "new_job_id": requeued.id if requeued else None,
+            "type": dead_row.type,
+        },
+    )
+    await session.commit()
+    return {
+        "status": "queued",
+        "dead_letter_id": dead_letter_id,
+        "source_job_id": dead_row.source_job_id,
+        "new_job_id": requeued.id if requeued else None,
+        "type": dead_row.type,
+    }
+
+
+@router.post("/failed/{job_id}/retry")
+async def retry_failed_job(
+    job_id: int,
+    current_user: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    job = await session.get(Job, job_id)
+    if job is None:
+        return {"status": "not_found", "job_id": job_id}
+    if job.status != "failed":
+        return {"status": "ignored", "job_id": job_id, "reason": f"job status is {job.status}, expected failed"}
+
+    job.status = "pending"
+    job.retry_at = None
+    job.locked_by = None
+    job.locked_at = None
+    job.heartbeat_at = None
+    job.last_error = None
+    job.attempts = 0
+
+    await write_audit_log(
+        session,
+        action="jobs.failed.retry",
+        actor_user_id=current_user.id,
+        target_type="job",
+        target_id=str(job_id),
+        details={"type": job.type},
+    )
+    await session.commit()
+    return {"status": "queued", "job_id": job_id, "type": job.type}
 
 
 @router.post("/archive/run")

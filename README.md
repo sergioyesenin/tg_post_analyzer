@@ -1,17 +1,32 @@
 # tg_post_analyzer
 
 ## Запуск
-1) Скопируй `.env.example` → `.env` и заполни переменные
-2) Подними Postgres:
+1. Скопируй `.env.example` в `.env` и заполни обязательные переменные.
+2. Подними Postgres:
 
-    docker compose up -d
+   ```bash
+   docker compose up -d
+   ```
 
-3) Прогони миграции:
+3. Прогони миграции:
 
-    alembic upgrade head
+   ```bash
+   alembic upgrade head
+   ```
 
-4) Запусти парсер/апи (пример):
+4. Запусти API (официальный entrypoint):
 
-    python main.py
-    или
-    uvicorn api.main:app --reload
+   ```bash
+   uvicorn api.main:app --reload
+   ```
+
+5. Запуск парсера (отдельно от API):
+
+   ```bash
+   python main.py
+   ```
+
+## Совместимость
+- `man:app` оставлен как legacy-алиас и может использоваться во временных локальных скриптах.
+- Канонический путь для API и документации: `api.main:app`.
+

@@ -10,7 +10,7 @@ from telethon.tl.types import Channel as TgChannel
 from client import client
 from db.models import Channel
 from deps import get_session, require_roles
-from schemas.channel import ChannelIn, ChannelOut
+from schemas.channel import ChannelIn, ChannelOut, ChannelUpdate
 from scripts.add_channel import normalize_channel_identifier
 from services.auth import AuthUser, write_audit_log
 from services.ingest import upsert_channel
@@ -20,7 +20,7 @@ router = APIRouter()
 
 @router.get("/", response_model=list[ChannelOut])
 async def list_channels(
-    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
     result = await session.execute(select(Channel))
@@ -130,3 +130,39 @@ async def delete_channel(
     )
     await session.commit()
     return {"status": "deleted", "channel_id": channel_id, "username": username}
+
+
+@router.patch("/{channel_id}", response_model=ChannelOut)
+async def update_channel(
+    channel_id: int,
+    payload: ChannelUpdate,
+    current_user: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    channel = await session.get(Channel, channel_id)
+    if channel is None:
+        raise HTTPException(status_code=404, detail="Channel not found")
+
+    if payload.title is not None:
+        channel.title = payload.title
+    if payload.category is not None:
+        channel.category = payload.category
+    if payload.is_active is not None:
+        channel.is_active = payload.is_active
+
+    await write_audit_log(
+        session,
+        action="channels.update",
+        actor_user_id=current_user.id,
+        target_type="channel",
+        target_id=str(channel.id),
+        details={
+            "username": channel.username,
+            "title": channel.title,
+            "category": channel.category,
+            "is_active": channel.is_active,
+        },
+    )
+    await session.commit()
+    await session.refresh(channel)
+    return channel

@@ -7,7 +7,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Job
+from db.models import Job, JobDeadLetter
 
 JOB_STATUS_PENDING = "pending"
 JOB_STATUS_RUNNING = "running"
@@ -129,6 +129,29 @@ async def mark_job_failed(
     if attempts >= int(job.max_attempts or 0):
         job.status = JOB_STATUS_FAILED
         job.retry_at = None
+        dead_stmt = (
+            insert(JobDeadLetter)
+            .values(
+                source_job_id=job.id,
+                type=job.type,
+                payload_json=job.payload_json or {},
+                priority=int(job.priority or 100),
+                attempts=attempts,
+                max_attempts=int(job.max_attempts or 0),
+                last_error=job.last_error,
+                failed_at=utcnow(),
+            )
+            .on_conflict_do_update(
+                index_elements=[JobDeadLetter.source_job_id],
+                set_={
+                    "attempts": attempts,
+                    "max_attempts": int(job.max_attempts or 0),
+                    "last_error": job.last_error,
+                    "failed_at": utcnow(),
+                },
+            )
+        )
+        await session.execute(dead_stmt)
     else:
         delay = min(retry_max_seconds, retry_base_seconds * (2 ** max(0, attempts - 1)))
         job.status = JOB_STATUS_PENDING

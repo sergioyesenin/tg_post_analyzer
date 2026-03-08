@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from client import client as default_client
+from config import settings
 from db.models import Comment
 from services.ingest import (
     set_post_comments_count,
@@ -21,11 +22,66 @@ from services.ingest import (
 )
 from services.queries import get_post_with_channel_by_post_id
 
-COMMENTS_SLEEP_EVERY = 50
+COMMENTS_SLEEP_EVERY = max(1, int(getattr(settings, "COMMENTS_SLEEP_EVERY", 8)))
+COMMENTS_SLEEP_BASE_SEC = max(0.0, float(getattr(settings, "COMMENTS_SLEEP_BASE_SEC", 0.9)))
+COMMENTS_SLEEP_JITTER_SEC = max(0.0, float(getattr(settings, "COMMENTS_SLEEP_JITTER_SEC", 0.8)))
 
 
 async def polite_sleep(base: float, jitter: float) -> None:
     await asyncio.sleep(base + random.random() * jitter)
+
+
+async def _resolve_discussion_with_fallback(
+    *,
+    tg_client,
+    entity,
+    tg_message_id: int,
+    original_message_date,
+) -> tuple[object | None, int | None, str | None, int | None]:
+    fallback_window = max(0, int(settings.DISCUSSION_FALLBACK_ID_WINDOW))
+    fallback_max_seconds = max(0, int(settings.DISCUSSION_FALLBACK_MAX_SECONDS))
+
+    candidate_msg_ids = [tg_message_id]
+    for delta in range(1, fallback_window + 1):
+        candidate_msg_ids.append(tg_message_id - delta)
+        candidate_msg_ids.append(tg_message_id + delta)
+
+    last_error: str | None = None
+    for candidate_msg_id in candidate_msg_ids:
+        if candidate_msg_id <= 0:
+            continue
+        try:
+            candidate_msg = await tg_client.get_messages(entity, ids=candidate_msg_id)
+            if isinstance(candidate_msg, list):
+                candidate_msg = candidate_msg[0] if candidate_msg else None
+            if candidate_msg is None:
+                continue
+
+            candidate_date = getattr(candidate_msg, "date", None)
+            if (
+                original_message_date is not None
+                and candidate_date is not None
+                and abs((candidate_date - original_message_date).total_seconds()) > fallback_max_seconds
+            ):
+                continue
+
+            candidate_discussion = await tg_client(GetDiscussionMessageRequest(peer=entity, msg_id=candidate_msg_id))
+            if candidate_discussion and candidate_discussion.chats and candidate_discussion.messages:
+                return candidate_discussion, candidate_msg_id, None, None
+        except MsgIdInvalidError:
+            continue
+        except FloodWaitError as exc:
+            return None, None, "flood_wait", int(exc.seconds)
+        except RPCError as exc:
+            last_error = repr(exc)
+            continue
+        except Exception as exc:
+            last_error = repr(exc)
+            continue
+
+    if last_error:
+        return None, None, "rpc_error", None
+    return None, None, "no_discussion", None
 
 
 async def update_post_comments(session: AsyncSession, post_id: int, tg_client=None) -> dict:
@@ -62,6 +118,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
     )
 
     telegram_replies_count = None
+    head_msg = None
     try:
         head_msg = await tg_client.get_messages(entity, ids=post.tg_message_id)
         if isinstance(head_msg, list):
@@ -74,16 +131,8 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         telegram_replies_count = None
 
     if isinstance(telegram_replies_count, int):
-        if telegram_replies_count == 0:
-            await set_post_last_comments_scan_at(session, post_id=post.id)
-            return {
-                "status": "no_discussion",
-                "post_id": post.id,
-                "comments_saved": existing_comments_count,
-                "commenters_count": 0,
-                "telegram_replies_count": telegram_replies_count,
-            }
-        if telegram_replies_count <= existing_comments_count:
+        # replies_count==0 is not reliable for album-linked discussion threads.
+        if telegram_replies_count > 0 and telegram_replies_count <= existing_comments_count:
             await set_post_last_comments_scan_at(session, post_id=post.id)
             return {
                 "status": "unchanged",
@@ -93,15 +142,35 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 "telegram_replies_count": telegram_replies_count,
             }
 
-    try:
-        discussion = await tg_client(GetDiscussionMessageRequest(peer=entity, msg_id=post.tg_message_id))
-    except MsgIdInvalidError:
-        return {"status": "no_discussion", "post_id": post_id, "comments_saved": 0, "commenters_count": 0}
-    except FloodWaitError as e:
-        return {"status": "flood_wait", "post_id": post_id, "wait_seconds": e.seconds, "comments_saved": 0, "commenters_count": 0}
-    except RPCError:
-        return {"status": "rpc_error", "post_id": post_id, "comments_saved": 0, "commenters_count": 0}
-    except Exception:
+    discussion, discussion_msg_id, discussion_status, wait_seconds = await _resolve_discussion_with_fallback(
+        tg_client=tg_client,
+        entity=entity,
+        tg_message_id=post.tg_message_id,
+        original_message_date=getattr(head_msg, "date", None),
+    )
+    if discussion is None:
+        if discussion_status == "flood_wait":
+            return {
+                "status": "flood_wait",
+                "post_id": post_id,
+                "wait_seconds": int(wait_seconds or 0),
+                "flood_source": "resolve_discussion",
+                "comments_saved": 0,
+                "commenters_count": 0,
+            }
+        if discussion_status == "rpc_error":
+            return {"status": "rpc_error", "post_id": post_id, "comments_saved": 0, "commenters_count": 0}
+        if discussion_status == "no_discussion":
+            if isinstance(telegram_replies_count, int) and telegram_replies_count > 0:
+                return {
+                    "status": "discussion_error",
+                    "post_id": post_id,
+                    "comments_saved": 0,
+                    "commenters_count": 0,
+                    "telegram_replies_count": telegram_replies_count,
+                    "error": "discussion_not_resolved_with_positive_replies",
+                }
+            return {"status": "no_discussion", "post_id": post_id, "comments_saved": 0, "commenters_count": 0}
         return {"status": "discussion_error", "post_id": post_id, "comments_saved": 0, "commenters_count": 0}
 
     if not discussion.chats or not discussion.messages:
@@ -120,6 +189,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         tg_to_depth[tg_message_id] = depth
 
     commenters: set[str] = set()
+    sender_meta_cache: dict[int, tuple[bool, str | None]] = {}
     comments_saved = 0
     k = 0
 
@@ -149,15 +219,22 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 author_username = None
                 author_key_username = None
                 is_bot = False
-                try:
-                    sender = await c.get_sender()
-                    if isinstance(sender, User) and bool(sender.bot):
-                        is_bot = True
+
+                sender = getattr(c, "sender", None)
+                if isinstance(from_id, PeerUser) and isinstance(author_id, int):
+                    cached = sender_meta_cache.get(author_id)
+                    if cached is not None:
+                        is_bot, author_username = cached
+                    elif isinstance(sender, User):
+                        is_bot = bool(sender.bot)
+                        author_username = getattr(sender, "username", None)
+                        sender_meta_cache[author_id] = (is_bot, author_username)
+                elif isinstance(sender, User):
+                    is_bot = bool(sender.bot)
                     author_username = getattr(sender, "username", None)
-                    if author_username:
-                        author_key_username = f"u:{author_username.lower()}"
-                except Exception:
-                    pass
+
+                if author_username:
+                    author_key_username = f"u:{author_username.lower()}"
 
                 if is_bot:
                     continue
@@ -195,13 +272,26 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 tg_to_depth[c.id] = depth
                 comments_saved += 1
 
-                queue.append((c.id, depth))
+                # Query nested replies only when Telegram reports that this
+                # comment actually has children; otherwise we do extra empty
+                # GetRepliesRequest calls that increase flood pressure.
+                comment_replies_obj = getattr(c, "replies", None)
+                nested_replies_count = getattr(comment_replies_obj, "replies", 0) if comment_replies_obj is not None else 0
+                if isinstance(nested_replies_count, int) and nested_replies_count > 0:
+                    queue.append((c.id, depth))
 
                 if k >= COMMENTS_SLEEP_EVERY:
                     k = 0
-                    await polite_sleep(0.4, 0.6)
+                    await polite_sleep(COMMENTS_SLEEP_BASE_SEC, COMMENTS_SLEEP_JITTER_SEC)
     except FloodWaitError as e:
-        return {"status": "flood_wait", "post_id": post_id, "wait_seconds": e.seconds, "comments_saved": comments_saved, "commenters_count": len(commenters)}
+        return {
+            "status": "flood_wait",
+            "post_id": post_id,
+            "wait_seconds": e.seconds,
+            "flood_source": "iter_comments",
+            "comments_saved": comments_saved,
+            "commenters_count": len(commenters),
+        }
     except MsgIdInvalidError:
         return {"status": "no_discussion", "post_id": post_id, "comments_saved": comments_saved, "commenters_count": len(commenters)}
 
@@ -216,6 +306,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
     return {
         "status": "ok",
         "post_id": post.id,
+        "discussion_msg_id": discussion_msg_id,
         "comments_saved": comments_saved,
         "commenters_count": len(commenters),
         "involvement": involvement,

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import settings
 from db.models import Role, User, UserRole
 from deps import get_current_user, get_session, require_roles
-from schemas.auth import LoginIn, TokenOut, UserCreateIn, UserOut, UserRolesIn
+from schemas.auth import LoginIn, LogoutIn, RefreshIn, TokenOut, UserCreateIn, UserOut, UserRolesIn
 from services.auth import (
     AuthUser,
     authenticate_local_user,
@@ -13,6 +13,9 @@ from services.auth import (
     ensure_roles_exist,
     get_user_roles,
     hash_password,
+    issue_refresh_token,
+    revoke_refresh_token,
+    rotate_refresh_token,
     write_audit_log,
 )
 
@@ -43,6 +46,7 @@ async def login(data: LoginIn, session: AsyncSession = Depends(get_session)):
     if auth_user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     token = create_access_token(user_id=auth_user.id, username=auth_user.username, roles=list(auth_user.roles))
+    refresh_token = await issue_refresh_token(session, user_id=auth_user.id)
     await write_audit_log(
         session,
         action="auth.login.success",
@@ -53,9 +57,49 @@ async def login(data: LoginIn, session: AsyncSession = Depends(get_session)):
     await session.commit()
     return TokenOut(
         access_token=token,
+        refresh_token=refresh_token,
         expires_in_seconds=settings.AUTH_ACCESS_TTL_MINUTES * 60,
         roles=list(auth_user.roles),
     )
+
+
+@router.post("/refresh", response_model=TokenOut)
+async def refresh(data: RefreshIn, session: AsyncSession = Depends(get_session)):
+    auth_user, new_refresh_token = await rotate_refresh_token(session, refresh_token=data.refresh_token)
+    token = create_access_token(user_id=auth_user.id, username=auth_user.username, roles=list(auth_user.roles))
+    await write_audit_log(
+        session,
+        action="auth.refresh.success",
+        actor_user_id=auth_user.id,
+        target_type="user",
+        target_id=str(auth_user.id),
+    )
+    await session.commit()
+    return TokenOut(
+        access_token=token,
+        refresh_token=new_refresh_token,
+        expires_in_seconds=settings.AUTH_ACCESS_TTL_MINUTES * 60,
+        roles=list(auth_user.roles),
+    )
+
+
+@router.post("/logout")
+async def logout(
+    data: LogoutIn,
+    current_user: AuthUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    revoked = await revoke_refresh_token(session, refresh_token=data.refresh_token)
+    await write_audit_log(
+        session,
+        action="auth.logout",
+        actor_user_id=current_user.id,
+        target_type="user",
+        target_id=str(current_user.id),
+        details={"refresh_revoked": revoked},
+    )
+    await session.commit()
+    return {"status": "ok", "refresh_revoked": revoked}
 
 
 @router.get("/me", response_model=UserOut)

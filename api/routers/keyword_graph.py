@@ -85,6 +85,8 @@ async def build_graph(
             "graph_mode": payload.graph_mode,
             "nodes": len(result.nodes),
             "edges": len(result.edges),
+            "took_ms": result.took_ms,
+            "meta": result.meta,
         },
     )
     await session.commit()

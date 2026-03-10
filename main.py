@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from agents.reporter import TgReportProject
 from client import client
@@ -17,6 +19,7 @@ from services.TGqueries import update_post_comments
 
 LINK_REPLY_TO = "REPLY_TO"
 MIN_REPLIES_TODAY = 20
+logger = logging.getLogger(__name__)
 
 report_project = TgReportProject(
     llm_model="ollama/llama3:8b-instruct-q4_K_M",
@@ -80,8 +83,21 @@ async def _on_post_saved(session, post, ctx) -> None:
 
     try:
         await link_post_to_graph(session, post=post)
-    except Exception as link_err:
-        print(f"[{ctx.channel.username}] linker warning for post_id={post.id}: {link_err!r}")
+    except (SQLAlchemyError, ValueError, TypeError) as link_err:
+        logger.warning(
+            "link_post_to_graph failed op=link_post_to_graph channel_id=%s post_id=%s channel_username=%s err=%r",
+            ctx.channel.id,
+            post.id,
+            ctx.channel.username,
+            link_err,
+        )
+    except Exception:
+        logger.exception(
+            "unexpected linker failure marker=linker_unexpected op=link_post_to_graph channel_id=%s post_id=%s channel_username=%s",
+            ctx.channel.id,
+            post.id,
+            ctx.channel.username,
+        )
 
     print(
         f"Saved post: channel=@{ctx.channel.username} tg_msg_id={ctx.message.id} "

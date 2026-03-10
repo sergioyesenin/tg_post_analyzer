@@ -157,6 +157,14 @@ async def set_post_comments_count(session: AsyncSession, *, post_id: int, commen
     )
 
 
+async def set_post_views(session: AsyncSession, *, post_id: int, views: Optional[int]) -> None:
+    await session.execute(
+        Post.__table__.update()
+        .where(Post.id == post_id)
+        .values(views=views)
+    )
+
+
 async def set_post_involvement(session: AsyncSession, *, post_id: int, involvement: Optional[float]) -> None:
     await session.execute(
         Post.__table__.update()

@@ -156,6 +156,94 @@ def _extract_post_lemmas(post: Post) -> set[str]:
     return set(build_search_lemmas(post.text_normalized or post.text))
 
 
+def _select_transient_node_ids(
+    *,
+    post_by_id: dict[int, Post],
+    node_sources: dict[int, str],
+    max_nodes: int,
+) -> tuple[list[int], bool]:
+    if len(post_by_id) <= max_nodes:
+        return sorted(post_by_id.keys()), False
+
+    ordered = sorted(
+        post_by_id.keys(),
+        key=lambda post_id: (
+            0 if node_sources.get(post_id) == "seed" else 1,
+            -(post_by_id[post_id].date.timestamp() if post_by_id[post_id].date else 0.0),
+            -post_id,
+        ),
+    )
+    selected = ordered[:max_nodes]
+    return sorted(selected), True
+
+
+def _collect_transient_candidate_pairs(
+    *,
+    post_ids: list[int],
+    post_by_id: dict[int, Post],
+    lemma_sets: dict[int, set[str]],
+    max_time_distance_hours: int,
+    max_candidates_per_node: int,
+) -> tuple[list[tuple[int, int]], dict[str, int]]:
+    sorted_ids = sorted(post_ids, key=lambda post_id: (post_by_id[post_id].date, post_id))
+    window: deque[int] = deque()
+    lemma_index: dict[str, set[int]] = {}
+    candidate_pairs: list[tuple[int, int]] = []
+    seen_pairs: set[tuple[int, int]] = set()
+
+    max_distance = float(max_time_distance_hours) * 3600.0
+    stats = {
+        "pairs_generated": 0,
+        "pairs_deduplicated": 0,
+        "pairs_truncated_by_node_limit": 0,
+    }
+
+    for right_id in sorted_ids:
+        right_post = post_by_id[right_id]
+        right_ts = right_post.date.timestamp()
+
+        while window:
+            leftmost_id = window[0]
+            left_ts = post_by_id[leftmost_id].date.timestamp()
+            if right_ts - left_ts <= max_distance:
+                break
+            stale_id = window.popleft()
+            for lemma in lemma_sets.get(stale_id, set()):
+                ids = lemma_index.get(lemma)
+                if not ids:
+                    continue
+                ids.discard(stale_id)
+                if not ids:
+                    lemma_index.pop(lemma, None)
+
+        candidate_ids: set[int] = set()
+        for lemma in lemma_sets.get(right_id, set()):
+            candidate_ids.update(lemma_index.get(lemma, set()))
+
+        if len(candidate_ids) > max_candidates_per_node:
+            candidate_ids = set(
+                sorted(candidate_ids, key=lambda post_id: post_by_id[post_id].date, reverse=True)[:max_candidates_per_node]
+            )
+            stats["pairs_truncated_by_node_limit"] += 1
+
+        for left_id in candidate_ids:
+            a, b = sorted((left_id, right_id))
+            pair = (a, b)
+            if pair in seen_pairs:
+                stats["pairs_deduplicated"] += 1
+                continue
+            seen_pairs.add(pair)
+            candidate_pairs.append(pair)
+
+        stats["pairs_generated"] += len(candidate_ids)
+
+        window.append(right_id)
+        for lemma in lemma_sets.get(right_id, set()):
+            lemma_index.setdefault(lemma, set()).add(right_id)
+
+    return candidate_pairs, stats
+
+
 async def _refresh_search_lemmas_if_needed(session: AsyncSession, posts: list[Post]) -> None:
     for post in posts:
         existing_entities = post.entities if isinstance(post.entities, dict) else {}
@@ -263,10 +351,11 @@ async def _build_transient_graph(
     session: AsyncSession,
     payload: GraphBuildRequest,
 ) -> GraphBuildResponse:
+    started = time.perf_counter()
     excluded = {int(post_id) for post_id in payload.exclude_post_ids}
     seed_ids = [int(post_id) for post_id in payload.post_ids if int(post_id) not in excluded]
     if not seed_ids:
-        return GraphBuildResponse(seed_post_ids=[], excluded_post_ids=sorted(excluded), nodes=[], edges=[])
+        return GraphBuildResponse(seed_post_ids=[], excluded_post_ids=sorted(excluded), nodes=[], edges=[], took_ms=0, meta={})
 
     seed_rows = (
         await session.execute(
@@ -276,7 +365,7 @@ async def _build_transient_graph(
         )
     ).all()
     if not seed_rows:
-        return GraphBuildResponse(seed_post_ids=seed_ids, excluded_post_ids=sorted(excluded), nodes=[], edges=[])
+        return GraphBuildResponse(seed_post_ids=seed_ids, excluded_post_ids=sorted(excluded), nodes=[], edges=[], took_ms=0, meta={})
 
     post_by_id: dict[int, Post] = {}
     channel_by_post_id: dict[int, Channel] = {}
@@ -330,6 +419,16 @@ async def _build_transient_graph(
             for post, _ in neighbor_rows:
                 lemma_sets[post.id] = _extract_post_lemmas(post)
 
+    selected_node_ids, nodes_truncated = _select_transient_node_ids(
+        post_by_id=post_by_id,
+        node_sources=node_sources,
+        max_nodes=int(payload.transient_max_nodes),
+    )
+    post_by_id = {post_id: post_by_id[post_id] for post_id in selected_node_ids}
+    channel_by_post_id = {post_id: channel_by_post_id[post_id] for post_id in selected_node_ids if post_id in channel_by_post_id}
+    node_sources = {post_id: node_sources[post_id] for post_id in selected_node_ids if post_id in node_sources}
+    lemma_sets = {post_id: lemma_sets.get(post_id, set()) for post_id in selected_node_ids}
+
     nodes: list[GraphNodeOut] = [
         GraphNodeOut(
             post_id=post.id,
@@ -347,57 +446,93 @@ async def _build_transient_graph(
     nodes.sort(key=lambda item: (item.date, item.post_id))
 
     post_ids = [node.post_id for node in nodes]
+    candidate_pairs, candidate_stats = _collect_transient_candidate_pairs(
+        post_ids=post_ids,
+        post_by_id=post_by_id,
+        lemma_sets=lemma_sets,
+        max_time_distance_hours=payload.max_time_distance_hours,
+        max_candidates_per_node=int(payload.transient_max_candidates_per_node),
+    )
+
+    deadline = started + (int(payload.transient_timeout_ms) / 1000.0)
     edges: list[GraphEdgeOut] = []
-    for idx, left_id in enumerate(post_ids):
+    pair_eval_count = 0
+    for left_id, right_id in candidate_pairs:
+        pair_eval_count += 1
+        if len(edges) >= int(payload.transient_max_edges):
+            break
+        if time.perf_counter() > deadline:
+            break
         left_post = post_by_id[left_id]
         left_lemmas = lemma_sets.get(left_id, set())
-        for right_id in post_ids[idx + 1 :]:
-            right_post = post_by_id[right_id]
-            right_lemmas = lemma_sets.get(right_id, set())
-            shared = _shared_lemmas(left_lemmas, right_lemmas)
-            if len(shared) < payload.min_shared_lemmas:
-                continue
-            time_distance_hours = abs((right_post.date - left_post.date).total_seconds()) / 3600.0
-            if time_distance_hours > float(payload.max_time_distance_hours):
-                continue
-            text_similarity = _calc_text_similarity(left_post.text_normalized or left_post.text, right_post.text_normalized or right_post.text)
-            if text_similarity < float(payload.min_text_similarity):
-                continue
-            score = min(
-                1.0,
-                0.45 * min(1.0, len(shared) / max(payload.min_shared_lemmas, 1))
-                + 0.35 * text_similarity
-                + 0.20 * max(0.0, 1.0 - time_distance_hours / max(float(payload.max_time_distance_hours), 1.0)),
-            )
-            edges.append(
-                GraphEdgeOut(
-                    link_id=_stable_pair_link_id(left_id, right_id),
-                    src_post_id=left_id,
-                    dst_post_id=right_id,
-                    link_type="related",
-                    direction="none",
-                    score=score,
-                    status="transient",
-                    edge_source="transient",
-                    evidence={
-                        "shared_lemmas_count": len(shared),
-                        "shared_lemmas_sample": shared[:8],
-                        "time_distance_hours": round(time_distance_hours, 3),
-                        "text_similarity": round(text_similarity, 4),
-                        "thresholds": {
-                            "min_shared_lemmas": payload.min_shared_lemmas,
-                            "max_time_distance_hours": payload.max_time_distance_hours,
-                            "min_text_similarity": payload.min_text_similarity,
-                        },
+        right_post = post_by_id[right_id]
+        right_lemmas = lemma_sets.get(right_id, set())
+        shared = _shared_lemmas(left_lemmas, right_lemmas)
+        if len(shared) < payload.min_shared_lemmas:
+            continue
+        time_distance_hours = abs((right_post.date - left_post.date).total_seconds()) / 3600.0
+        if time_distance_hours > float(payload.max_time_distance_hours):
+            continue
+        text_similarity = _calc_text_similarity(left_post.text_normalized or left_post.text, right_post.text_normalized or right_post.text)
+        if text_similarity < float(payload.min_text_similarity):
+            continue
+        score = min(
+            1.0,
+            0.45 * min(1.0, len(shared) / max(payload.min_shared_lemmas, 1))
+            + 0.35 * text_similarity
+            + 0.20 * max(0.0, 1.0 - time_distance_hours / max(float(payload.max_time_distance_hours), 1.0)),
+        )
+        edges.append(
+            GraphEdgeOut(
+                link_id=_stable_pair_link_id(left_id, right_id),
+                src_post_id=left_id,
+                dst_post_id=right_id,
+                link_type="related",
+                direction="none",
+                score=score,
+                status="transient",
+                edge_source="transient",
+                evidence={
+                    "shared_lemmas_count": len(shared),
+                    "shared_lemmas_sample": shared[:8],
+                    "time_distance_hours": round(time_distance_hours, 3),
+                    "text_similarity": round(text_similarity, 4),
+                    "thresholds": {
+                        "min_shared_lemmas": payload.min_shared_lemmas,
+                        "max_time_distance_hours": payload.max_time_distance_hours,
+                        "min_text_similarity": payload.min_text_similarity,
                     },
-                )
+                },
             )
+        )
+
+    took_ms = int((time.perf_counter() - started) * 1000)
+    edge_limit_hit = len(edges) >= int(payload.transient_max_edges)
+    timeout_hit = time.perf_counter() > deadline
 
     return GraphBuildResponse(
         seed_post_ids=seed_ids,
         excluded_post_ids=sorted(excluded),
         nodes=nodes,
         edges=sorted(edges, key=lambda item: (item.score or 0.0, item.link_id), reverse=True),
+        took_ms=took_ms,
+        meta={
+            "graph_mode": "transient",
+            "node_count": len(nodes),
+            "edge_count": len(edges),
+            "nodes_truncated": nodes_truncated,
+            "edge_limit_hit": edge_limit_hit,
+            "timeout_hit": timeout_hit,
+            "candidate_pairs_count": len(candidate_pairs),
+            "pair_eval_count": pair_eval_count,
+            "candidate_stats": candidate_stats,
+            "transient_limits": {
+                "max_nodes": int(payload.transient_max_nodes),
+                "max_edges": int(payload.transient_max_edges),
+                "max_candidates_per_node": int(payload.transient_max_candidates_per_node),
+                "timeout_ms": int(payload.transient_timeout_ms),
+            },
+        },
     )
 
 
@@ -405,10 +540,11 @@ async def _build_persisted_graph(
     session: AsyncSession,
     payload: GraphBuildRequest,
 ) -> GraphBuildResponse:
+    started = time.perf_counter()
     excluded = {int(post_id) for post_id in payload.exclude_post_ids}
     seed_ids = [int(post_id) for post_id in payload.post_ids if int(post_id) not in excluded]
     if not seed_ids:
-        return GraphBuildResponse(seed_post_ids=[], excluded_post_ids=sorted(excluded), nodes=[], edges=[])
+        return GraphBuildResponse(seed_post_ids=[], excluded_post_ids=sorted(excluded), nodes=[], edges=[], took_ms=0, meta={})
 
     node_sources: dict[int, str] = {post_id: "seed" for post_id in seed_ids}
     node_ids: set[int] = set(seed_ids)
@@ -522,11 +658,18 @@ async def _build_persisted_graph(
             included_by=node_sources.get(post.id, "neighbor"),
         )
 
+    took_ms = int((time.perf_counter() - started) * 1000)
     return GraphBuildResponse(
         seed_post_ids=seed_ids,
         excluded_post_ids=sorted(excluded),
         nodes=sorted(node_map.values(), key=lambda item: (item.date, item.post_id)),
         edges=sorted(edge_by_id.values(), key=lambda item: item.link_id),
+        took_ms=took_ms,
+        meta={
+            "graph_mode": "persisted",
+            "node_count": len(node_map),
+            "edge_count": len(edge_by_id),
+        },
     )
 
 
@@ -571,6 +714,10 @@ async def generate_graph_report(
             min_shared_lemmas=payload.min_shared_lemmas,
             max_time_distance_hours=payload.max_time_distance_hours,
             min_text_similarity=payload.min_text_similarity,
+            transient_max_nodes=payload.transient_max_nodes,
+            transient_max_edges=payload.transient_max_edges,
+            transient_max_candidates_per_node=payload.transient_max_candidates_per_node,
+            transient_timeout_ms=payload.transient_timeout_ms,
         ),
     )
     if not graph.nodes:

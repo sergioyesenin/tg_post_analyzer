@@ -47,6 +47,10 @@ class GraphBuildRequest(BaseModel):
     min_shared_lemmas: int = Field(default=2, ge=1, le=20)
     max_time_distance_hours: int = Field(default=96, ge=1, le=24 * 30)
     min_text_similarity: float = Field(default=0.2, ge=0.0, le=1.0)
+    transient_max_nodes: int = Field(default=300, ge=10, le=2000)
+    transient_max_edges: int = Field(default=1200, ge=10, le=20000)
+    transient_max_candidates_per_node: int = Field(default=120, ge=10, le=5000)
+    transient_timeout_ms: int = Field(default=2500, ge=100, le=30000)
 
 
 class GraphNodeOut(BaseModel):
@@ -78,6 +82,8 @@ class GraphBuildResponse(BaseModel):
     excluded_post_ids: list[int]
     nodes: list[GraphNodeOut]
     edges: list[GraphEdgeOut]
+    took_ms: int = 0
+    meta: dict = Field(default_factory=dict)
 
 
 class GraphReportRequest(BaseModel):
@@ -92,6 +98,10 @@ class GraphReportRequest(BaseModel):
     min_shared_lemmas: int = Field(default=2, ge=1, le=20)
     max_time_distance_hours: int = Field(default=96, ge=1, le=24 * 30)
     min_text_similarity: float = Field(default=0.2, ge=0.0, le=1.0)
+    transient_max_nodes: int = Field(default=300, ge=10, le=2000)
+    transient_max_edges: int = Field(default=1200, ge=10, le=20000)
+    transient_max_candidates_per_node: int = Field(default=120, ge=10, le=5000)
+    transient_timeout_ms: int = Field(default=2500, ge=100, le=30000)
 
 
 class GraphReportResponse(BaseModel):

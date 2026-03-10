@@ -187,3 +187,45 @@ async def run_archive_job(
         "retention_days": retention_days,
         "batch_limit": batch_limit,
     }
+
+
+@router.post("/retention/run")
+async def run_jobs_retention_job(
+    done_retention_days: int = 14,
+    dead_letter_retention_days: int = 90,
+    batch_limit: int = 1000,
+    current_user: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    job = await enqueue_job(
+        session,
+        job_type=JobType.JOBS_RETENTION,
+        payload={
+            "done_retention_days": done_retention_days,
+            "dead_letter_retention_days": dead_letter_retention_days,
+            "batch_limit": batch_limit,
+        },
+        priority=96,
+        dedupe_key=None,
+    )
+    await write_audit_log(
+        session,
+        action="jobs.retention.run",
+        actor_user_id=current_user.id,
+        target_type="jobs_retention",
+        details={
+            "done_retention_days": done_retention_days,
+            "dead_letter_retention_days": dead_letter_retention_days,
+            "batch_limit": batch_limit,
+            "job_id": job.id if job else None,
+        },
+    )
+    await session.commit()
+    return {
+        "status": "queued",
+        "job_id": job.id if job else None,
+        "job_type": JobType.JOBS_RETENTION,
+        "done_retention_days": done_retention_days,
+        "dead_letter_retention_days": dead_letter_retention_days,
+        "batch_limit": batch_limit,
+    }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 from collections import deque
 
@@ -18,18 +19,22 @@ from services.ingest import (
     set_post_comments_count,
     set_post_involvement,
     set_post_last_comments_scan_at,
+    set_post_views,
     upsert_comment,
 )
 from services.queries import get_post_with_channel_by_post_id
 
-COMMENTS_SLEEP_EVERY = 50
+COMMENTS_SLEEP_EVERY = max(1, int(getattr(settings, "COMMENTS_SLEEP_EVERY", 10)))
+COMMENTS_SLEEP_BASE_SEC = max(0.0, float(getattr(settings, "COMMENTS_SLEEP_BASE_SEC", 0.6)))
+COMMENTS_SLEEP_JITTER_SEC = max(0.0, float(getattr(settings, "COMMENTS_SLEEP_JITTER_SEC", 0.4)))
+logger = logging.getLogger(__name__)
 
 
 async def polite_sleep(base: float, jitter: float) -> None:
     await asyncio.sleep(base + random.random() * jitter)
 
 
-async def   _resolve_discussion_with_fallback(
+async def _resolve_discussion_with_fallback(
     *,
     tg_client,
     entity,
@@ -73,7 +78,19 @@ async def   _resolve_discussion_with_fallback(
         except RPCError as exc:
             last_error = repr(exc)
             continue
+        except (AttributeError, TypeError, ValueError) as exc:
+            logger.warning(
+                "discussion candidate skipped op=resolve_discussion candidate_msg_id=%s err=%r",
+                candidate_msg_id,
+                exc,
+            )
+            last_error = repr(exc)
+            continue
         except Exception as exc:
+            logger.exception(
+                "unexpected discussion resolution error marker=discussion_unexpected op=resolve_discussion candidate_msg_id=%s",
+                candidate_msg_id,
+            )
             last_error = repr(exc)
             continue
 
@@ -99,7 +116,55 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         if not tg_client.is_connected():
             await tg_client.start()
         entity = await tg_client.get_entity(peer)
+    except FloodWaitError as exc:
+        logger.warning(
+            "flood wait while resolving entity op=resolve_entity post_id=%s channel_id=%s wait_seconds=%s",
+            post_id,
+            channel.id,
+            int(exc.seconds),
+        )
+        return {
+            "status": "flood_wait",
+            "post_id": post_id,
+            "wait_seconds": int(exc.seconds),
+            "flood_source": "resolve_entity",
+            "comments_saved": 0,
+            "commenters_count": 0,
+        }
+    except RPCError as exc:
+        logger.warning(
+            "telegram rpc entity error op=resolve_entity post_id=%s channel_id=%s err=%r",
+            post_id,
+            channel.id,
+            exc,
+        )
+        return {
+            "status": "entity_error",
+            "post_id": post_id,
+            "comments_saved": 0,
+            "commenters_count": 0,
+            "error": repr(exc),
+        }
+    except (TypeError, ValueError, AttributeError) as exc:
+        logger.warning(
+            "entity validation error op=resolve_entity post_id=%s channel_id=%s err=%r",
+            post_id,
+            channel.id,
+            exc,
+        )
+        return {
+            "status": "entity_error",
+            "post_id": post_id,
+            "comments_saved": 0,
+            "commenters_count": 0,
+            "error": repr(exc),
+        }
     except Exception as exc:
+        logger.exception(
+            "unexpected entity resolution failure marker=entity_unexpected op=resolve_entity post_id=%s channel_id=%s",
+            post_id,
+            channel.id,
+        )
         return {
             "status": "entity_error",
             "post_id": post_id,
@@ -116,6 +181,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
     )
 
     telegram_replies_count = None
+    head_views = None
     head_msg = None
     try:
         head_msg = await tg_client.get_messages(entity, ids=post.tg_message_id)
@@ -125,10 +191,44 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         replies_count = getattr(replies_obj, "replies", None) if replies_obj is not None else None
         if isinstance(replies_count, int) and replies_count >= 0:
             telegram_replies_count = replies_count
+        current_views = getattr(head_msg, "views", None) if head_msg is not None else None
+        if isinstance(current_views, int) and current_views >= 0:
+            head_views = current_views
+    except FloodWaitError as exc:
+        logger.warning(
+            "flood wait while loading head message op=load_head_message post_id=%s channel_id=%s wait_seconds=%s",
+            post.id,
+            channel.id,
+            int(exc.seconds),
+        )
+        return {
+            "status": "flood_wait",
+            "post_id": post_id,
+            "wait_seconds": int(exc.seconds),
+            "flood_source": "head_message",
+            "comments_saved": 0,
+            "commenters_count": 0,
+        }
+    except (RPCError, MsgIdInvalidError, AttributeError, TypeError, ValueError) as exc:
+        logger.warning(
+            "head message probe failed op=load_head_message post_id=%s channel_id=%s err=%r",
+            post.id,
+            channel.id,
+            exc,
+        )
+        telegram_replies_count = None
     except Exception:
+        logger.exception(
+            "unexpected head message failure marker=head_message_unexpected op=load_head_message post_id=%s channel_id=%s",
+            post.id,
+            channel.id,
+        )
         telegram_replies_count = None
 
     if isinstance(telegram_replies_count, int):
+        if telegram_replies_count != existing_comments_count and isinstance(head_views, int):
+            await set_post_views(session, post_id=post.id, views=head_views)
+            post.views = head_views
         # replies_count==0 is not reliable for album-linked discussion threads.
         if telegram_replies_count > 0 and telegram_replies_count <= existing_comments_count:
             await set_post_last_comments_scan_at(session, post_id=post.id)
@@ -152,6 +252,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 "status": "flood_wait",
                 "post_id": post_id,
                 "wait_seconds": int(wait_seconds or 0),
+                "flood_source": "resolve_discussion",
                 "comments_saved": 0,
                 "commenters_count": 0,
             }
@@ -186,6 +287,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         tg_to_depth[tg_message_id] = depth
 
     commenters: set[str] = set()
+    sender_meta_cache: dict[int, tuple[bool, str | None]] = {}
     comments_saved = 0
     k = 0
 
@@ -215,15 +317,21 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 author_username = None
                 author_key_username = None
                 is_bot = False
-                try:
-                    sender = await c.get_sender()
-                    if isinstance(sender, User) and bool(sender.bot):
-                        is_bot = True
+                sender = getattr(c, "sender", None)
+                if isinstance(from_id, PeerUser) and isinstance(author_id, int):
+                    cached = sender_meta_cache.get(author_id)
+                    if cached is not None:
+                        is_bot, author_username = cached
+                    elif isinstance(sender, User):
+                        is_bot = bool(sender.bot)
+                        author_username = getattr(sender, "username", None)
+                        sender_meta_cache[author_id] = (is_bot, author_username)
+                elif isinstance(sender, User):
+                    is_bot = bool(sender.bot)
                     author_username = getattr(sender, "username", None)
-                    if author_username:
-                        author_key_username = f"u:{author_username.lower()}"
-                except Exception:
-                    pass
+
+                if author_username:
+                    author_key_username = f"u:{author_username.lower()}"
 
                 if is_bot:
                     continue
@@ -261,15 +369,52 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 tg_to_depth[c.id] = depth
                 comments_saved += 1
 
-                queue.append((c.id, depth))
+                comment_replies_obj = getattr(c, "replies", None)
+                nested_replies_count = getattr(comment_replies_obj, "replies", 0) if comment_replies_obj is not None else 0
+                if isinstance(nested_replies_count, int) and nested_replies_count > 0:
+                    queue.append((c.id, depth))
 
                 if k >= COMMENTS_SLEEP_EVERY:
                     k = 0
-                    await polite_sleep(0.4, 0.6)
+                    await polite_sleep(COMMENTS_SLEEP_BASE_SEC, COMMENTS_SLEEP_JITTER_SEC)
     except FloodWaitError as e:
-        return {"status": "flood_wait", "post_id": post_id, "wait_seconds": e.seconds, "comments_saved": comments_saved, "commenters_count": len(commenters)}
+        return {
+            "status": "flood_wait",
+            "post_id": post_id,
+            "wait_seconds": e.seconds,
+            "flood_source": "iter_comments",
+            "comments_saved": comments_saved,
+            "commenters_count": len(commenters),
+        }
     except MsgIdInvalidError:
         return {"status": "no_discussion", "post_id": post_id, "comments_saved": comments_saved, "commenters_count": len(commenters)}
+    except RPCError as exc:
+        logger.warning(
+            "telegram rpc while iterating comments op=iter_comments post_id=%s channel_id=%s err=%r",
+            post_id,
+            channel.id,
+            exc,
+        )
+        return {
+            "status": "rpc_error",
+            "post_id": post_id,
+            "comments_saved": comments_saved,
+            "commenters_count": len(commenters),
+            "error": repr(exc),
+        }
+    except Exception:
+        logger.exception(
+            "unexpected comments iteration failure marker=iter_comments_unexpected op=iter_comments post_id=%s channel_id=%s",
+            post_id,
+            channel.id,
+        )
+        return {
+            "status": "discussion_error",
+            "post_id": post_id,
+            "comments_saved": comments_saved,
+            "commenters_count": len(commenters),
+            "error": "unexpected_iter_comments_error",
+        }
 
     await set_post_comments_count(session, post_id=post.id, comments_count=comments_saved)
 

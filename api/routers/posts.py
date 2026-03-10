@@ -72,11 +72,12 @@ async def get_comments(
     _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
+    post = (await session.execute(select(Post).where(Post.id == post_id))).scalar_one_or_none()
+    if post is None:
+        raise HTTPException(status_code=404, detail="Post not found")
     result = await session.execute(
         select(Comment).where(Comment.post_id == post_id)
     )
-    if result is None:
-        raise HTTPException(status_code=404, detail="Post not found")
     return result.scalars().all()
 
 @router.post("/{post_id}/comments/update")

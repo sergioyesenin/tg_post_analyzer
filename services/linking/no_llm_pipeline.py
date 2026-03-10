@@ -26,6 +26,7 @@ class NoLlmLinkingPipeline:
         if not post.parent_post_id:
             return 0
 
+        # Canonical domain semantics: native Telegram reply relation is UPDATE.
         stmt = (
             insert(PostLink)
             .values(

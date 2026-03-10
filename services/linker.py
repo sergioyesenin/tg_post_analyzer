@@ -24,7 +24,11 @@ def _normalize_link_type(value: str) -> PostLinkType:
         "consequence": "consequence",
         "cites_source": "background",
         "translation": "related",
-        "reply_to": "background",
+        "background": "background",
+        # Canonical domain semantics: Telegram native reply relation is an UPDATE link.
+        "reply_to": "update",
+        "reply": "update",
+        "native_reply": "update",
         "related": "related",
         "unrelated": "unrelated",
     }

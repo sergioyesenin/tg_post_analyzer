@@ -22,6 +22,7 @@ class JobType:
     BUILD_EVENT_REPORT: str = "build_event_report"
     BUILD_PROCESS_REPORT: str = "build_process_report"
     ARCHIVE_RETENTION: str = "archive_retention"
+    JOBS_RETENTION: str = "jobs_retention"
 
 
 def utcnow() -> datetime:

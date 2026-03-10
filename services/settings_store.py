@@ -8,70 +8,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents.reporter import ReportConfig
 from db.models import AppSetting
+from services.settings_defaults import get_canonical_defaults
 from services.settings_validation import validate_setting_payload
 
 
-DEFAULT_SETTINGS: dict[str, dict] = {
-    "ingest": {
-        "poll_seconds": 240,
-        "max_posts_per_channel": 30,
-        "comment_first_delay_hours": 2,
-        "comment_interval_hours": 2,
-        "comment_window_hours": 24,
-        "collect_comments_sleep_min_ms": 5000,
-        "collect_comments_sleep_max_ms": 9000,
-        "comment_schedule_jitter_seconds": 7200,
-    },
-    "reports": {
-        "post_report_delay_hours": 6,
-        "min_comments": 20,
-        "report_word_target": 350,
-        "report_word_min": 200,
-        "report_word_max": 500,
-    },
-    "retention": {
-        "retention_days": 30,
-        "archive_batch_size": 1000,
-    },
-    "jobs": {
-        "job_batch_size": 20,
-        "collect_comments_quota_per_run": 2,
-    },
-    "api": {
-        "top_posts_default_limit": 20,
-    },
-    "monitor": {
-        "disk_used_percent_warn": 80,
-        "disk_used_percent_crit": 90,
-        "memory_used_percent_warn": 80,
-        "memory_used_percent_crit": 90,
-        "pending_jobs_warn": 500,
-        "pending_jobs_crit": 2000,
-        "pending_lag_seconds_warn": 1800,
-        "pending_lag_seconds_crit": 7200,
-        "retry_lag_seconds_warn": 1800,
-        "retry_lag_seconds_crit": 7200,
-        "database_latency_ms_warn": 200,
-        "database_latency_ms_crit": 1000,
-        "dead_letter_count_warn": 1,
-        "dead_letter_count_crit": 20,
-        "ingest_lag_seconds_warn": 1800,
-        "ingest_lag_seconds_crit": 7200,
-        "backlog_delta_1h_warn": 200,
-        "backlog_delta_1h_crit": 1000,
-        "collect_comments_flood_rate_warn": 0.2,
-        "collect_comments_flood_rate_crit": 0.5,
-        "collect_comments_rpc_rate_warn": 0.1,
-        "collect_comments_rpc_rate_crit": 0.3,
-        "archive_lag_seconds_warn": 86400,
-        "archive_lag_seconds_crit": 259200,
-        "telegram_disconnected_is_warn": True,
-    },
-    "features": {
-        "keyword_graph_api_enabled": True,
-        "keyword_graph_rollout_percent": 100,
-    },
-}
+DEFAULT_SETTINGS: dict[str, dict] = get_canonical_defaults()
 
 
 def _merge_dict(base: dict, extra: dict | None) -> dict:

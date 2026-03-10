@@ -1,0 +1,1131 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import random
+import sqlite3
+import sys
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from sqlalchemy import and_, func, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+from telethon import TelegramClient
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from agents.reporter import TgReportProject
+from client.config import load_client_settings
+from db.models import Channel, Job, JobDeadLetter, Post, Report
+from db.session import AsyncSessionLocal
+from services.archive import run_archive_retention
+from services.events.build_events import rebuild_events
+from services.ingestion_core import IngestionCore, IngestionContext, IngestionOptions
+from services.jobs import (
+    JobType,
+    defer_locked_job,
+    enqueue_job,
+    fetch_and_lock_jobs,
+    get_job_result,
+    mark_job_done,
+    mark_job_failed,
+    requeue_job,
+    set_job_result,
+)
+from services.jobs_retention import run_jobs_retention
+from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
+from services.processes.build_processes import rebuild_processes
+from services.reporting import build_event_report_draft, build_post_report, build_process_report_draft
+from services.settings_store import get_all_settings, report_config_from_settings
+from services.TGqueries import update_post_comments
+
+logger = logging.getLogger(__name__)
+
+PRIORITY_API_REPORT = 1
+PRIORITY_API_COMMENT_REFRESH = 1
+PRIORITY_API_POST_REPORT = 1
+PRIORITY_BUILD_POST_REPORT = 40
+PRIORITY_ARCHIVE_RETENTION = 95
+PRIORITY_JOBS_RETENTION = 96
+
+TELEGRAM_JOB_TYPES = {
+    JobType.COLLECT_COMMENTS,
+    JobType.REFRESH_COMMENTS,
+    JobType.BUILD_POST_LINKS,
+    JobType.ARCHIVE_RETENTION,
+    JobType.JOBS_RETENTION,
+}
+
+AI_JOB_TYPES = {
+    JobType.BUILD_POST_REPORT,
+    JobType.BUILD_EVENT_REPORT,
+    JobType.BUILD_PROCESS_REPORT,
+}
+
+SKIP_CHANNEL_IDS: dict[int, str] = {}
+
+
+@dataclass(frozen=True)
+class TelegramCycleMetrics:
+    processed_posts: int
+    executed_jobs: int
+
+
+@dataclass
+class TelegramPipelineClient:
+    client: TelegramClient
+    operation_lock: asyncio.Lock
+
+    async def start(self):
+        return await self.client.start()
+
+    async def disconnect(self):
+        return await self.client.disconnect()
+
+
+def _clamp_positive_int(value: int | None, *, default: int, minimum: int = 1, maximum: int = 64) -> int:
+    try:
+        parsed = int(value) if value is not None else int(default)
+    except (TypeError, ValueError):
+        parsed = int(default)
+    return max(minimum, min(maximum, parsed))
+
+
+def _resolve_setting_value(*, settings_value, cli_value, fallback):
+    if settings_value is not None:
+        return settings_value
+    if cli_value is not None:
+        return cli_value
+    return fallback
+
+
+def configure_logging(level: str) -> None:
+    logging.basicConfig(level=getattr(logging, level), format="%(asctime)s | %(levelname)-7s | %(message)s")
+
+
+def build_worker_id(prefix: str) -> str:
+    return f"{prefix}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+
+
+def build_tg_client(*, session_suffix: str, unique_session_per_run: bool) -> TelegramPipelineClient:
+    client_settings = load_client_settings()
+    session_name = "tg_analytics.session"
+    suffix = session_suffix.strip()
+    if suffix:
+        session_name = f"{session_name}_{suffix}"
+    if unique_session_per_run:
+        session_name = f"{session_name}_{os.getpid()}"
+    return TelegramPipelineClient(
+        client=TelegramClient(
+            session=session_name,
+            api_id=client_settings.api_id,
+            api_hash=client_settings.api_hash,
+            flood_sleep_threshold=client_settings.flood_sleep_threshold,
+        ),
+        operation_lock=asyncio.Lock(),
+    )
+
+
+def is_session_locked_error(exc: Exception) -> bool:
+    return isinstance(exc, sqlite3.OperationalError) and "database is locked" in str(exc).lower()
+
+
+async def with_session_lock_retry(coro_factory, *, op_name: str, retries: int = 3, delay_sec: float = 1.5):
+    last_exc: sqlite3.OperationalError | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            return await coro_factory()
+        except sqlite3.OperationalError as exc:
+            last_exc = exc
+            if not is_session_locked_error(exc) or attempt >= retries:
+                raise
+            logger.warning(
+                "Telethon session locked op=%s retry=%s/%s delay_sec=%.1f",
+                op_name,
+                attempt,
+                retries,
+                delay_sec,
+            )
+            await asyncio.sleep(delay_sec)
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError(f"{op_name} failed unexpectedly")
+
+
+async def collect_backlog_snapshot(*, allowed_types: set[str] | None = None) -> dict[str, int]:
+    now_utc = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as session:
+        stmt = select(Job.status, func.count()).group_by(Job.status)
+        if allowed_types:
+            stmt = stmt.where(Job.type.in_(allowed_types))
+        rows = (await session.execute(stmt)).all()
+
+        pending_stmt = select(func.min(func.coalesce(Job.retry_at, Job.run_at))).where(Job.status == "pending")
+        if allowed_types:
+            pending_stmt = pending_stmt.where(Job.type.in_(allowed_types))
+        pending_oldest = await session.scalar(pending_stmt)
+
+        dead_stmt = select(func.count()).select_from(JobDeadLetter)
+        if allowed_types:
+            dead_stmt = dead_stmt.where(JobDeadLetter.type.in_(allowed_types))
+        dead_letters = int((await session.scalar(dead_stmt)) or 0)
+
+    counts = {str(status): int(count) for status, count in rows}
+    pending_lag_seconds = 0
+    if pending_oldest is not None:
+        pending_lag_seconds = max(0, int((now_utc - pending_oldest).total_seconds()))
+    return {
+        "pending": int(counts.get("pending", 0)),
+        "running": int(counts.get("running", 0)),
+        "done": int(counts.get("done", 0)),
+        "failed": int(counts.get("failed", 0)),
+        "dead_letters": dead_letters,
+        "pending_lag_seconds": pending_lag_seconds,
+    }
+
+
+async def has_due_priority_job(*, allowed_types: set[str], max_priority: int) -> bool:
+    now_utc = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as session:
+        stmt = (
+            select(Job.id)
+            .where(Job.status == "pending")
+            .where(Job.type.in_(allowed_types))
+            .where(Job.priority <= max_priority)
+            .where(func.coalesce(Job.retry_at, Job.run_at) <= now_utc)
+            .limit(1)
+        )
+        job_id = await session.scalar(stmt)
+    return job_id is not None
+
+
+async def get_telegram_poll_seconds(*, cli_override: int | None, default: int = 240) -> int:
+    async with AsyncSessionLocal() as session:
+        effective_settings = await get_all_settings(session)
+    ingest_settings = effective_settings.get("ingest", {})
+    resolved = _resolve_setting_value(
+        settings_value=ingest_settings.get("poll_seconds"),
+        cli_value=cli_override,
+        fallback=default,
+    )
+    return max(5, int(resolved))
+
+
+async def get_ai_poll_seconds(*, cli_override: int | None, default: int = 120) -> int:
+    async with AsyncSessionLocal() as session:
+        effective_settings = await get_all_settings(session)
+    jobs_settings = effective_settings.get("jobs", {})
+    resolved = _resolve_setting_value(
+        settings_value=jobs_settings.get("ai_poll_seconds"),
+        cli_value=cli_override,
+        fallback=default,
+    )
+    return max(5, int(resolved))
+
+
+async def sleep_until_next_telegram_cycle(*, target_seconds: int, wake_priority_threshold: int = PRIORITY_API_COMMENT_REFRESH) -> None:
+    remaining = max(1, int(target_seconds))
+    while remaining > 0:
+        if await has_due_priority_job(
+            allowed_types={JobType.REFRESH_COMMENTS},
+            max_priority=wake_priority_threshold,
+        ):
+            return
+        chunk = min(1, remaining)
+        await asyncio.sleep(chunk)
+        remaining -= chunk
+
+
+async def enqueue_comment_refresh_job(
+    session: AsyncSession,
+    *,
+    post_id: int,
+    priority: int = PRIORITY_API_COMMENT_REFRESH,
+    source: str = "api",
+) -> Job | None:
+    return await enqueue_job(
+        session,
+        job_type=JobType.REFRESH_COMMENTS,
+        payload={"post_id": post_id, "source": source},
+        run_at=datetime.now(timezone.utc),
+        priority=priority,
+        max_attempts=8,
+        dedupe_key=None,
+    )
+
+
+async def enqueue_event_report_job(
+    session: AsyncSession,
+    *,
+    event_id: int,
+    priority: int = PRIORITY_API_REPORT,
+    source: str = "api",
+) -> Job | None:
+    return await enqueue_job(
+        session,
+        job_type=JobType.BUILD_EVENT_REPORT,
+        payload={"event_id": event_id, "source": source},
+        run_at=datetime.now(timezone.utc),
+        priority=priority,
+        max_attempts=5,
+        dedupe_key=None,
+    )
+
+
+async def enqueue_process_report_job(
+    session: AsyncSession,
+    *,
+    process_id: int,
+    priority: int = PRIORITY_API_REPORT,
+    source: str = "api",
+) -> Job | None:
+    return await enqueue_job(
+        session,
+        job_type=JobType.BUILD_PROCESS_REPORT,
+        payload={"process_id": process_id, "source": source},
+        run_at=datetime.now(timezone.utc),
+        priority=priority,
+        max_attempts=5,
+        dedupe_key=None,
+    )
+
+
+async def enqueue_post_report_job(
+    session: AsyncSession,
+    *,
+    post_id: int,
+    priority: int = PRIORITY_API_POST_REPORT,
+    source: str = "api",
+) -> Job | None:
+    return await enqueue_job(
+        session,
+        job_type=JobType.BUILD_POST_REPORT,
+        payload={"post_id": post_id, "source": source},
+        run_at=datetime.now(timezone.utc),
+        priority=priority,
+        max_attempts=5,
+        dedupe_key=None,
+    )
+
+
+async def wait_for_job_result(*, job_id: int, timeout_seconds: int = 180, poll_interval_seconds: float = 0.5) -> dict:
+    deadline = datetime.now(timezone.utc) + timedelta(seconds=max(1, timeout_seconds))
+    while datetime.now(timezone.utc) < deadline:
+        async with AsyncSessionLocal() as session:
+            job = await session.get(Job, job_id)
+            if job is None:
+                return {"status": "not_found", "job_id": job_id}
+            if job.status == "done":
+                result = get_job_result(job)
+                return result or {"status": "done", "job_id": job_id}
+            if job.status == "failed":
+                result = get_job_result(job) or {}
+                result.setdefault("status", "failed")
+                if job.last_error:
+                    result.setdefault("error", job.last_error)
+                result["job_id"] = job.id
+                return result
+        await asyncio.sleep(max(0.1, poll_interval_seconds))
+    return {"status": "timeout", "job_id": job_id}
+
+
+async def schedule_due_post_report_jobs(*, min_age_hours: int, limit: int) -> int:
+    threshold = datetime.now(timezone.utc) - timedelta(hours=max(1, int(min_age_hours)))
+    queued = 0
+    async with AsyncSessionLocal() as session:
+        stmt = (
+            select(Post.id)
+            .outerjoin(Report, Report.post_id == Post.id)
+            .where(Post.date <= threshold)
+            .where(Post.last_comments_scan_at.is_not(None))
+            .where(Report.id.is_(None))
+            .order_by(Post.date.asc(), Post.id.asc())
+            .limit(limit)
+        )
+        post_ids = [int(row[0]) for row in (await session.execute(stmt)).all()]
+        now_utc = datetime.now(timezone.utc)
+        for post_id in post_ids:
+            job = await enqueue_job(
+                session,
+                job_type=JobType.BUILD_POST_REPORT,
+                payload={"post_id": post_id, "source": "scheduler"},
+                run_at=now_utc,
+                priority=PRIORITY_BUILD_POST_REPORT,
+                max_attempts=5,
+                dedupe_key=f"build_post_report:{post_id}",
+            )
+            if job is not None:
+                queued += 1
+        await session.commit()
+    return queued
+
+
+async def _get_active_channels() -> list[Channel]:
+    async with AsyncSessionLocal() as session:
+        stmt = select(Channel).where(Channel.is_active.is_(True)).order_by(Channel.id.asc())
+        return list((await session.execute(stmt)).scalars().all())
+
+
+async def _get_last_tg_message_id_for_channel(*, session: AsyncSession, channel_id: int) -> int:
+    stmt = select(func.max(Post.tg_message_id)).where(Post.channel_id == channel_id)
+    last_value = (await session.execute(stmt)).scalar_one_or_none()
+    if isinstance(last_value, int) and last_value > 0:
+        return last_value
+    return 0
+
+
+def _collect_comments_job_priority(*, post: Post, scan_index: int) -> int:
+    priority = 20
+    if scan_index == 0:
+        priority -= 2
+    elif scan_index == 1:
+        priority -= 1
+
+    comments = int(post.comments_count or 0)
+    if comments >= 100:
+        priority -= 4
+    elif comments >= 50:
+        priority -= 3
+    elif comments >= 20:
+        priority -= 2
+    elif comments >= 5:
+        priority -= 1
+
+    views = int(post.views or 0)
+    if views >= 5000:
+        priority -= 2
+    elif views >= 1000:
+        priority -= 1
+
+    if isinstance(post.involvement, (int, float)):
+        if post.involvement >= 0.20:
+            priority -= 2
+        elif post.involvement >= 0.10:
+            priority -= 1
+
+    return max(5, min(90, priority))
+
+
+async def _schedule_post_jobs(
+    session: AsyncSession,
+    *,
+    post: Post,
+    comment_first_delay_hours: int,
+    comment_interval_hours: int,
+    comment_window_hours: int,
+    comment_schedule_jitter_seconds: int,
+) -> None:
+    await enqueue_job(
+        session,
+        job_type=JobType.BUILD_POST_LINKS,
+        payload={"post_id": post.id},
+        run_at=datetime.now(timezone.utc),
+        priority=10,
+        max_attempts=5,
+        dedupe_key=f"build_post_links:{post.id}",
+    )
+
+    first_comment_at = post.date + timedelta(hours=comment_first_delay_hours)
+    comment_until = post.date + timedelta(hours=comment_window_hours)
+    current = first_comment_at
+    scan_index = 0
+    while current <= comment_until:
+        jitter_seconds = random.randint(0, max(0, int(comment_schedule_jitter_seconds)))
+        scheduled_at = current + timedelta(seconds=jitter_seconds)
+        ts = int(scheduled_at.timestamp())
+        await enqueue_job(
+            session,
+            job_type=JobType.COLLECT_COMMENTS,
+            payload={"post_id": post.id, "scan_index": scan_index, "source": "scheduler"},
+            run_at=scheduled_at,
+            priority=_collect_comments_job_priority(post=post, scan_index=scan_index),
+            max_attempts=8,
+            dedupe_key=f"collect_comments:{post.id}:{ts}",
+        )
+        current = current + timedelta(hours=comment_interval_hours)
+        scan_index += 1
+
+
+async def _process_channel(
+    client: TelegramPipelineClient,
+    channel: Channel,
+    *,
+    since_utc: datetime,
+    max_posts: int,
+    comment_first_delay_hours: int,
+    comment_interval_hours: int,
+    comment_window_hours: int,
+    comment_schedule_jitter_seconds: int,
+) -> int:
+    if channel.id in SKIP_CHANNEL_IDS:
+        logger.info("Skip channel id=%s (@%s): excluded by config", channel.id, channel.username)
+        return 0
+
+    logger.info("Parsing channel @%s since %s", channel.username, since_utc.isoformat())
+    async with AsyncSessionLocal() as session:
+        channel_last_tg_msg_id = await _get_last_tg_message_id_for_channel(session=session, channel_id=channel.id)
+
+    core = IngestionCore(tg_client=client.client, session_factory=AsyncSessionLocal)
+    options = IngestionOptions(
+        since_utc=since_utc,
+        max_posts=max_posts,
+        min_tg_message_id_exclusive=channel_last_tg_msg_id,
+        resolve_album_representative=True,
+    )
+
+    async def _on_post_saved(session: AsyncSession, post: Post, ctx: IngestionContext) -> None:
+        await _schedule_post_jobs(
+            session,
+            post=post,
+            comment_first_delay_hours=comment_first_delay_hours,
+            comment_interval_hours=comment_interval_hours,
+            comment_window_hours=comment_window_hours,
+            comment_schedule_jitter_seconds=comment_schedule_jitter_seconds,
+        )
+        logger.info("Saved post id=%s tg_msg_id=%s channel=@%s", post.id, ctx.message.id, channel.username)
+
+    async with client.operation_lock:
+        result = await core.ingest_channel(channel=channel, options=options, on_post_saved=_on_post_saved)
+    logger.info(
+        "Finished @%s processed_posts=%s stopped_reason=%s",
+        channel.username,
+        result.processed_posts,
+        result.stopped_reason,
+    )
+    return result.processed_posts
+
+
+async def _rebuild_event_process_graphs(*, date_from: datetime, date_to: datetime) -> None:
+    async with AsyncSessionLocal() as session:
+        rebuilt_events = await rebuild_events(
+            session,
+            date_from=date_from,
+            date_to=date_to,
+            created_by="telegram-pipeline",
+        )
+        await session.commit()
+    logger.info("Rebuilt events=%s for %s..%s", rebuilt_events, date_from.isoformat(), date_to.isoformat())
+
+    async with AsyncSessionLocal() as session:
+        rebuilt_process_edges = await rebuild_processes(
+            session,
+            date_from=date_from,
+            date_to=date_to,
+            created_by="telegram-pipeline",
+        )
+        await session.commit()
+    logger.info(
+        "Rebuilt process_edges=%s for %s..%s",
+        rebuilt_process_edges,
+        date_from.isoformat(),
+        date_to.isoformat(),
+    )
+
+
+async def _run_link_job(*, job: Job, worker_id: str) -> int:
+    async with AsyncSessionLocal() as session:
+        db_job = await session.get(Job, job.id)
+        if db_job is None:
+            return 0
+        payload = db_job.payload_json or {}
+        post = await session.get(Post, int(payload.get("post_id")))
+        if post is None:
+            await mark_job_done(session, job=db_job)
+            await session.commit()
+            return 0
+        try:
+            pipeline = NoLlmLinkingPipeline.build_default()
+            result = await pipeline.run_for_post(session, post)
+            await mark_job_done(session, job=db_job)
+            await session.commit()
+            logger.info(
+                "Job build_post_links post_id=%s verified=%s rejected=%s candidates=%s worker_id=%s",
+                post.id,
+                result.links_verified,
+                result.links_rejected,
+                result.candidates_checked,
+                worker_id,
+            )
+            return 1
+        except Exception as exc:
+            await mark_job_failed(
+                session,
+                job=db_job,
+                error=f"job_unexpected:{db_job.type}:{type(exc).__name__}:{exc}",
+            )
+            await session.commit()
+            logger.exception(
+                "Job failed marker=job_unexpected op=build_post_links job_id=%s worker_id=%s err=%r",
+                db_job.id,
+                worker_id,
+                exc,
+            )
+            return 0
+
+
+async def _run_maintenance_job(*, job: Job, worker_id: str) -> int:
+    async with AsyncSessionLocal() as session:
+        db_job = await session.get(Job, job.id)
+        if db_job is None:
+            return 0
+        payload = db_job.payload_json or {}
+        try:
+            if db_job.type == JobType.ARCHIVE_RETENTION:
+                result = await run_archive_retention(
+                    session,
+                    retention_days=int(payload.get("retention_days", 30)),
+                    batch_limit=int(payload.get("batch_limit", 1000)),
+                )
+            elif db_job.type == JobType.JOBS_RETENTION:
+                result = await run_jobs_retention(
+                    session,
+                    done_retention_days=int(payload.get("done_retention_days", 14)),
+                    dead_letter_retention_days=int(payload.get("dead_letter_retention_days", 90)),
+                    batch_limit=int(payload.get("batch_limit", 1000)),
+                )
+            else:
+                raise ValueError(f"Unsupported maintenance job type: {db_job.type}")
+            await mark_job_done(session, job=db_job)
+            await session.commit()
+            logger.info("Job %s status=ok details=%s worker_id=%s", db_job.type, result, worker_id)
+            return 1
+        except Exception as exc:
+            await mark_job_failed(
+                session,
+                job=db_job,
+                error=f"job_unexpected:{db_job.type}:{type(exc).__name__}:{exc}",
+            )
+            await session.commit()
+            logger.exception(
+                "Job failed marker=job_unexpected op=maintenance job_id=%s worker_id=%s err=%r",
+                db_job.id,
+                worker_id,
+                exc,
+            )
+            return 0
+
+
+async def _run_comment_job(
+    *,
+    job: Job,
+    tg_client: TelegramPipelineClient,
+    worker_id: str,
+    cc_sleep_min_ms: int,
+    cc_sleep_max_ms: int,
+    collect_comments_processed: int,
+    collect_comments_quota_per_run: int,
+    collect_comments_global_cooldown_until: datetime | None,
+    collect_comments_flood_streak: int,
+) -> tuple[int, int, datetime | None, int, bool]:
+    executed = 0
+    should_break = False
+    async with AsyncSessionLocal() as session:
+        db_job = await session.get(Job, job.id)
+        if db_job is None:
+            return executed, collect_comments_processed, collect_comments_global_cooldown_until, collect_comments_flood_streak, should_break
+        try:
+            payload = db_job.payload_json or {}
+            source = str(payload.get("source") or "scheduler")
+            if collect_comments_processed >= collect_comments_quota_per_run:
+                await defer_locked_job(
+                    session,
+                    job=db_job,
+                    retry_at=datetime.now(timezone.utc) + timedelta(seconds=60),
+                    reason=f"{db_job.type}:quota_deferred",
+                    preserve_attempt_budget=True,
+                )
+                await session.commit()
+                return executed, collect_comments_processed, collect_comments_global_cooldown_until, collect_comments_flood_streak, should_break
+
+            now = datetime.now(timezone.utc)
+            if collect_comments_global_cooldown_until is not None and now < collect_comments_global_cooldown_until:
+                await asyncio.sleep((collect_comments_global_cooldown_until - now).total_seconds())
+
+            post_id = int(payload.get("post_id"))
+            collect_comments_processed += 1
+            async with tg_client.operation_lock:
+                result = await update_post_comments(session, post_id, tg_client=tg_client.client)
+            status = str(result.get("status") or "unknown")
+            logger.info("Job %s post_id=%s status=%s worker_id=%s", db_job.type, post_id, status, worker_id)
+
+            if status in {"ok", "unchanged"}:
+                collect_comments_flood_streak = 0
+                set_job_result(db_job, result)
+                await mark_job_done(session, job=db_job)
+                await session.commit()
+                executed += 1
+            elif status == "no_discussion":
+                collect_comments_flood_streak = 0
+                await session.execute(
+                    text(
+                        "DELETE FROM jobs "
+                        "WHERE type IN (:collect_type, :refresh_type) "
+                        "AND status = 'pending' "
+                        "AND id <> :job_id "
+                        "AND payload_json->>'post_id' = :post_id"
+                    ),
+                    {
+                        "collect_type": JobType.COLLECT_COMMENTS,
+                        "refresh_type": JobType.REFRESH_COMMENTS,
+                        "job_id": db_job.id,
+                        "post_id": str(post_id),
+                    },
+                )
+                set_job_result(db_job, result)
+                await mark_job_done(session, job=db_job)
+                await session.commit()
+                executed += 1
+            elif status == "flood_wait":
+                wait_seconds = int(result.get("wait_seconds") or 30)
+                if source == "api":
+                    collect_comments_flood_streak = 0
+                    set_job_result(db_job, result)
+                    await mark_job_done(session, job=db_job)
+                    await session.commit()
+                    executed += 1
+                    return executed, collect_comments_processed, collect_comments_global_cooldown_until, collect_comments_flood_streak, should_break
+                now_utc = datetime.now(timezone.utc)
+                retry_at = now_utc + timedelta(seconds=max(60, wait_seconds * 4))
+                collect_comments_flood_streak += 1
+                base_cooldown_sec = max(300, wait_seconds * 6)
+                if collect_comments_flood_streak >= 2:
+                    adaptive_cooldown_sec = min(1800, base_cooldown_sec * (2 ** (collect_comments_flood_streak - 1)))
+                else:
+                    adaptive_cooldown_sec = base_cooldown_sec
+                collect_comments_global_cooldown_until = now_utc + timedelta(seconds=adaptive_cooldown_sec)
+                await requeue_job(
+                    session,
+                    job=db_job,
+                    retry_at=max(retry_at, collect_comments_global_cooldown_until),
+                    error=f"{db_job.type}:flood_wait:{wait_seconds}",
+                )
+                await session.execute(
+                    text(
+                        "UPDATE jobs "
+                        "SET retry_at = :retry_at "
+                        "WHERE type IN (:collect_type, :refresh_type) "
+                        "AND status = 'pending' "
+                        "AND id <> :job_id "
+                        "AND (retry_at IS NULL OR retry_at < :retry_at)"
+                    ),
+                    {
+                        "retry_at": collect_comments_global_cooldown_until,
+                        "collect_type": JobType.COLLECT_COMMENTS,
+                        "refresh_type": JobType.REFRESH_COMMENTS,
+                        "job_id": db_job.id,
+                    },
+                )
+                await session.commit()
+                should_break = True
+            elif status in {"entity_error", "rpc_error", "discussion_error"}:
+                collect_comments_flood_streak = 0
+                if source == "api":
+                    set_job_result(db_job, result)
+                    await mark_job_done(session, job=db_job)
+                    await session.commit()
+                    executed += 1
+                    return executed, collect_comments_processed, collect_comments_global_cooldown_until, collect_comments_flood_streak, should_break
+                await mark_job_failed(
+                    session,
+                    job=db_job,
+                    error=f"{db_job.type}:{status}",
+                    retry_base_seconds=120,
+                    retry_max_seconds=7200,
+                )
+                await session.commit()
+            elif status == "not_found":
+                collect_comments_flood_streak = 0
+                set_job_result(db_job, result)
+                await mark_job_done(session, job=db_job)
+                await session.commit()
+                executed += 1
+            else:
+                collect_comments_flood_streak = 0
+                if source == "api":
+                    set_job_result(db_job, result)
+                    await mark_job_done(session, job=db_job)
+                    await session.commit()
+                    executed += 1
+                    return executed, collect_comments_processed, collect_comments_global_cooldown_until, collect_comments_flood_streak, should_break
+                await mark_job_failed(
+                    session,
+                    job=db_job,
+                    error=f"{db_job.type}:unexpected_status:{status}",
+                    retry_base_seconds=120,
+                    retry_max_seconds=7200,
+                )
+                await session.commit()
+
+            if cc_sleep_max_ms > 0 and not should_break:
+                await asyncio.sleep(random.randint(cc_sleep_min_ms, cc_sleep_max_ms) / 1000.0)
+        except Exception as exc:
+            await mark_job_failed(
+                session,
+                job=db_job,
+                error=f"job_unexpected:{db_job.type}:{type(exc).__name__}:{exc}",
+            )
+            await session.commit()
+            logger.exception(
+                "Job failed marker=job_unexpected op=comment_job job_id=%s worker_id=%s err=%r",
+                db_job.id,
+                worker_id,
+                exc,
+            )
+    return executed, collect_comments_processed, collect_comments_global_cooldown_until, collect_comments_flood_streak, should_break
+
+
+async def run_telegram_jobs(
+    *,
+    job_batch_size: int,
+    worker_id: str,
+    collect_comments_quota_per_run: int,
+    tg_client: TelegramPipelineClient,
+    job_worker_concurrency: int,
+) -> int:
+    executed = 0
+    collect_comments_global_cooldown_until: datetime | None = None
+    collect_comments_processed = 0
+    collect_comments_flood_streak = 0
+
+    async with AsyncSessionLocal() as session:
+        effective_settings = await get_all_settings(session)
+        jobs = await fetch_and_lock_jobs(
+            session,
+            worker_id=worker_id,
+            limit=job_batch_size,
+            allowed_types=TELEGRAM_JOB_TYPES,
+        )
+        await session.commit()
+
+    ingest_settings = effective_settings.get("ingest", {})
+    cc_sleep_min_ms = int(ingest_settings.get("collect_comments_sleep_min_ms", 2500))
+    cc_sleep_max_ms = int(ingest_settings.get("collect_comments_sleep_max_ms", 4500))
+    if cc_sleep_max_ms < cc_sleep_min_ms:
+        cc_sleep_max_ms = cc_sleep_min_ms
+
+    comment_jobs = [job for job in jobs if job.type in {JobType.COLLECT_COMMENTS, JobType.REFRESH_COMMENTS}]
+    other_jobs = [job for job in jobs if job.type not in {JobType.COLLECT_COMMENTS, JobType.REFRESH_COMMENTS}]
+
+    for job in comment_jobs:
+        result = await _run_comment_job(
+            job=job,
+            tg_client=tg_client,
+            worker_id=worker_id,
+            cc_sleep_min_ms=cc_sleep_min_ms,
+            cc_sleep_max_ms=cc_sleep_max_ms,
+            collect_comments_processed=collect_comments_processed,
+            collect_comments_quota_per_run=collect_comments_quota_per_run,
+            collect_comments_global_cooldown_until=collect_comments_global_cooldown_until,
+            collect_comments_flood_streak=collect_comments_flood_streak,
+        )
+        delta, collect_comments_processed, collect_comments_global_cooldown_until, collect_comments_flood_streak, should_break = result
+        executed += delta
+        if should_break:
+            break
+
+    if not other_jobs:
+        return executed
+
+    parallelism = _clamp_positive_int(job_worker_concurrency, default=2, minimum=1, maximum=16)
+    semaphore = asyncio.Semaphore(parallelism)
+
+    async def _run_other(job: Job) -> int:
+        async with semaphore:
+            if job.type == JobType.BUILD_POST_LINKS:
+                return await _run_link_job(job=job, worker_id=worker_id)
+            return await _run_maintenance_job(job=job, worker_id=worker_id)
+
+    executed += sum(await asyncio.gather(*[_run_other(job) for job in other_jobs]))
+    return executed
+
+
+async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurrency: int) -> int:
+    async with AsyncSessionLocal() as session:
+        effective_settings = await get_all_settings(session)
+        jobs = await fetch_and_lock_jobs(
+            session,
+            worker_id=worker_id,
+            limit=job_batch_size,
+            allowed_types=AI_JOB_TYPES,
+        )
+        await session.commit()
+
+    report_project = TgReportProject(llm_model="ollama/llama3:8b-instruct-q4_K_M")
+    report_config = report_config_from_settings(effective_settings)
+    parallelism = _clamp_positive_int(job_worker_concurrency, default=2, minimum=1, maximum=16)
+    semaphore = asyncio.Semaphore(parallelism)
+
+    async def _run_one(job: Job) -> int:
+        async with semaphore:
+            async with AsyncSessionLocal() as session:
+                db_job = await session.get(Job, job.id)
+                if db_job is None:
+                    return 0
+                payload = db_job.payload_json or {}
+                try:
+                    if db_job.type == JobType.BUILD_POST_REPORT:
+                        result = await build_post_report(
+                            session,
+                            post_id=int(payload.get("post_id")),
+                            report_project=report_project,
+                            report_config=report_config,
+                        )
+                    elif db_job.type == JobType.BUILD_EVENT_REPORT:
+                        result = await build_event_report_draft(session, event_id=int(payload.get("event_id")))
+                    elif db_job.type == JobType.BUILD_PROCESS_REPORT:
+                        result = await build_process_report_draft(session, process_id=int(payload.get("process_id")))
+                    else:
+                        raise ValueError(f"Unsupported AI job type: {db_job.type}")
+                    set_job_result(db_job, result)
+                    await mark_job_done(session, job=db_job)
+                    await session.commit()
+                    logger.info("Job %s status=%s worker_id=%s", db_job.type, result.get("status"), worker_id)
+                    return 1
+                except Exception as exc:
+                    await mark_job_failed(
+                        session,
+                        job=db_job,
+                        error=f"job_unexpected:{db_job.type}:{type(exc).__name__}:{exc}",
+                    )
+                    await session.commit()
+                    logger.exception(
+                        "Job failed marker=job_unexpected op=ai_job job_id=%s worker_id=%s err=%r",
+                        db_job.id,
+                        worker_id,
+                        exc,
+                    )
+                    return 0
+
+    return sum(await asyncio.gather(*[_run_one(job) for job in jobs]))
+
+
+async def run_telegram_cycle(
+    *,
+    client: TelegramPipelineClient,
+    days: int,
+    max_posts_per_channel_arg: int,
+    comment_first_delay_hours_arg: int,
+    comment_interval_hours_arg: int,
+    comment_window_hours_arg: int,
+    job_batch_size_arg: int,
+    retention_days_arg: int,
+    archive_batch_size_arg: int,
+    skip_rebuild_graphs: bool,
+    worker_id: str,
+) -> TelegramCycleMetrics:
+    async with AsyncSessionLocal() as session:
+        effective_settings = await get_all_settings(session)
+
+    ingest_settings = effective_settings.get("ingest", {})
+    jobs_settings = effective_settings.get("jobs", {})
+    retention_settings = effective_settings.get("retention", {})
+    lookback_days = int(_resolve_setting_value(
+        settings_value=ingest_settings.get("lookback_days"),
+        cli_value=days,
+        fallback=3,
+    ))
+    since_utc = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+
+    max_posts_per_channel = int(_resolve_setting_value(
+        settings_value=ingest_settings.get("max_posts_per_channel"),
+        cli_value=max_posts_per_channel_arg,
+        fallback=30,
+    ))
+    comment_first_delay_hours = int(_resolve_setting_value(
+        settings_value=ingest_settings.get("comment_first_delay_hours"),
+        cli_value=comment_first_delay_hours_arg,
+        fallback=2,
+    ))
+    comment_interval_hours = int(_resolve_setting_value(
+        settings_value=ingest_settings.get("comment_interval_hours"),
+        cli_value=comment_interval_hours_arg,
+        fallback=2,
+    ))
+    comment_window_hours = int(_resolve_setting_value(
+        settings_value=ingest_settings.get("comment_window_hours"),
+        cli_value=comment_window_hours_arg,
+        fallback=24,
+    ))
+    comment_schedule_jitter_seconds = int(_resolve_setting_value(
+        settings_value=ingest_settings.get("comment_schedule_jitter_seconds"),
+        cli_value=None,
+        fallback=7200,
+    ))
+    job_batch_size = int(_resolve_setting_value(
+        settings_value=jobs_settings.get("job_batch_size"),
+        cli_value=job_batch_size_arg,
+        fallback=20,
+    ))
+    collect_comments_quota_per_run = int(_resolve_setting_value(
+        settings_value=jobs_settings.get("collect_comments_quota_per_run"),
+        cli_value=None,
+        fallback=2,
+    ))
+    done_retention_days = int(_resolve_setting_value(
+        settings_value=jobs_settings.get("done_retention_days"),
+        cli_value=None,
+        fallback=14,
+    ))
+    dead_letter_retention_days = int(_resolve_setting_value(
+        settings_value=jobs_settings.get("dead_letter_retention_days"),
+        cli_value=None,
+        fallback=90,
+    ))
+    cleanup_batch_size = int(_resolve_setting_value(
+        settings_value=jobs_settings.get("cleanup_batch_size"),
+        cli_value=None,
+        fallback=1000,
+    ))
+    channel_concurrency = _clamp_positive_int(
+        _resolve_setting_value(settings_value=ingest_settings.get("channel_concurrency"), cli_value=None, fallback=2),
+        default=2,
+        minimum=1,
+        maximum=8,
+    )
+    job_worker_concurrency = _clamp_positive_int(
+        _resolve_setting_value(settings_value=jobs_settings.get("job_worker_concurrency"), cli_value=None, fallback=2),
+        default=2,
+        minimum=1,
+        maximum=16,
+    )
+    retention_days = int(_resolve_setting_value(
+        settings_value=retention_settings.get("retention_days"),
+        cli_value=retention_days_arg,
+        fallback=30,
+    ))
+    archive_batch_size = int(_resolve_setting_value(
+        settings_value=retention_settings.get("archive_batch_size"),
+        cli_value=archive_batch_size_arg,
+        fallback=1000,
+    ))
+
+    channels = await _get_active_channels()
+    total_processed_posts = 0
+    if not channels:
+        logger.warning("No active channels found.")
+    elif channel_concurrency <= 1 or len(channels) <= 1:
+        for channel in channels:
+            total_processed_posts += await _process_channel(
+                client,
+                channel,
+                since_utc=since_utc,
+                max_posts=max_posts_per_channel,
+                comment_first_delay_hours=comment_first_delay_hours,
+                comment_interval_hours=comment_interval_hours,
+                comment_window_hours=comment_window_hours,
+                comment_schedule_jitter_seconds=comment_schedule_jitter_seconds,
+            )
+    else:
+        semaphore = asyncio.Semaphore(channel_concurrency)
+
+        async def _process_with_limit(channel: Channel) -> int:
+            async with semaphore:
+                try:
+                    return await _process_channel(
+                        client,
+                        channel,
+                        since_utc=since_utc,
+                        max_posts=max_posts_per_channel,
+                        comment_first_delay_hours=comment_first_delay_hours,
+                        comment_interval_hours=comment_interval_hours,
+                        comment_window_hours=comment_window_hours,
+                        comment_schedule_jitter_seconds=comment_schedule_jitter_seconds,
+                    )
+                except Exception as exc:
+                    logger.exception(
+                        "Channel processing failed marker=channel_unexpected channel_id=%s channel_username=%s err=%r",
+                        channel.id,
+                        channel.username,
+                        exc,
+                    )
+                    return 0
+
+        total_processed_posts = sum(await asyncio.gather(*[_process_with_limit(channel) for channel in channels]))
+
+    if not skip_rebuild_graphs and total_processed_posts > 0:
+        await _rebuild_event_process_graphs(date_from=since_utc, date_to=datetime.now(timezone.utc))
+    elif not skip_rebuild_graphs:
+        logger.info("Skip rebuild: no new posts in this cycle.")
+
+    async with AsyncSessionLocal() as session:
+        now = datetime.now(timezone.utc)
+        daily_key = now.date().isoformat()
+        await enqueue_job(
+            session,
+            job_type=JobType.ARCHIVE_RETENTION,
+            payload={"retention_days": retention_days, "batch_limit": archive_batch_size},
+            run_at=now,
+            priority=PRIORITY_ARCHIVE_RETENTION,
+            dedupe_key=f"archive_retention:{daily_key}",
+        )
+        await enqueue_job(
+            session,
+            job_type=JobType.JOBS_RETENTION,
+            payload={
+                "done_retention_days": done_retention_days,
+                "dead_letter_retention_days": dead_letter_retention_days,
+                "batch_limit": cleanup_batch_size,
+            },
+            run_at=now,
+            priority=PRIORITY_JOBS_RETENTION,
+            dedupe_key=f"jobs_retention:{daily_key}",
+        )
+        await session.commit()
+
+    executed_jobs = await run_telegram_jobs(
+        job_batch_size=job_batch_size,
+        worker_id=worker_id,
+        collect_comments_quota_per_run=collect_comments_quota_per_run,
+        tg_client=client,
+        job_worker_concurrency=job_worker_concurrency,
+    )
+    return TelegramCycleMetrics(processed_posts=total_processed_posts, executed_jobs=executed_jobs)
+
+
+async def run_ai_cycle(*, worker_id: str, job_batch_size_arg: int, job_worker_concurrency_arg: int, post_report_age_hours_arg: int, scheduler_limit_arg: int) -> tuple[int, int]:
+    async with AsyncSessionLocal() as session:
+        effective_settings = await get_all_settings(session)
+
+    jobs_settings = effective_settings.get("jobs", {})
+    reports_settings = effective_settings.get("reports", {})
+    job_batch_size = int(_resolve_setting_value(
+        settings_value=jobs_settings.get("job_batch_size"),
+        cli_value=job_batch_size_arg,
+        fallback=20,
+    ))
+    job_worker_concurrency = _clamp_positive_int(
+        _resolve_setting_value(
+            settings_value=jobs_settings.get("job_worker_concurrency"),
+            cli_value=job_worker_concurrency_arg,
+            fallback=2,
+        ),
+        default=2,
+        minimum=1,
+        maximum=16,
+    )
+    post_report_age_hours = int(_resolve_setting_value(
+        settings_value=reports_settings.get("post_report_delay_hours"),
+        cli_value=post_report_age_hours_arg,
+        fallback=12,
+    ))
+    scheduler_limit = max(1, int(_resolve_setting_value(
+        settings_value=jobs_settings.get("ai_scheduler_limit"),
+        cli_value=scheduler_limit_arg,
+        fallback=200,
+    )))
+
+    queued = await schedule_due_post_report_jobs(
+        min_age_hours=post_report_age_hours,
+        limit=scheduler_limit,
+    )
+    executed = await run_ai_jobs(
+        job_batch_size=job_batch_size,
+        worker_id=worker_id,
+        job_worker_concurrency=job_worker_concurrency,
+    )
+    return queued, executed

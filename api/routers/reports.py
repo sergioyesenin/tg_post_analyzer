@@ -22,7 +22,12 @@ from db.models import (
 )
 from schemas.report import ReportOut
 from services.auth import AuthUser
-from services.reporting import build_event_report_draft, build_post_report, build_process_report_draft
+from services.pipeline_runtime import (
+    enqueue_event_report_job,
+    enqueue_post_report_job,
+    enqueue_process_report_job,
+    wait_for_job_result,
+)
 from services.settings_store import get_all_settings, report_config_from_settings
 
 router = APIRouter()
@@ -104,25 +109,25 @@ async def get_report(
     return report
 
 
-@router.post("/post/{post_id}/update", response_model=ReportOut)
+@router.post("/post/{post_id}/update")
 async def update_report(
     post_id: int,
     _: AuthUser = Depends(require_roles("admin", "analyst")),
     session: AsyncSession = Depends(get_session),
 ):
-    effective_settings = await get_all_settings(session)
-    report_config = report_config_from_settings(effective_settings)
-    result = await build_post_report(
-        session,
-        post_id=post_id,
-        report_project=report_project,
-        report_config=report_config,
-    )
-    if result.get("status") == "not_found":
+    post = await session.get(Post, post_id)
+    if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
-    report = (await session.execute(select(Report).where(Report.post_id == post_id))).scalar_one()
+    job = await enqueue_post_report_job(session, post_id=post_id, source="api")
     await session.commit()
-
+    if job is None:
+        raise HTTPException(status_code=500, detail="Failed to enqueue build_post_report job")
+    result = await wait_for_job_result(job_id=job.id)
+    if result.get("status") == "timeout":
+        raise HTTPException(status_code=504, detail="Timed out waiting for post report")
+    if result.get("status") == "skipped_min_comments":
+        return result
+    report = (await session.execute(select(Report).where(Report.post_id == post_id))).scalar_one()
     return report
 
 
@@ -427,8 +432,13 @@ async def update_event_report(
     event = await session.get(Event, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    result = await build_event_report_draft(session, event_id=event_id)
+    job = await enqueue_event_report_job(session, event_id=event_id, source="api")
     await session.commit()
+    if job is None:
+        raise HTTPException(status_code=500, detail="Failed to enqueue build_event_report job")
+    result = await wait_for_job_result(job_id=job.id)
+    if result.get("status") == "timeout":
+        raise HTTPException(status_code=504, detail="Timed out waiting for event report")
     return result
 
 
@@ -441,6 +451,11 @@ async def update_process_report(
     process = await session.get(Process, process_id)
     if process is None:
         raise HTTPException(status_code=404, detail="Process not found")
-    result = await build_process_report_draft(session, process_id=process_id)
+    job = await enqueue_process_report_job(session, process_id=process_id, source="api")
     await session.commit()
+    if job is None:
+        raise HTTPException(status_code=500, detail="Failed to enqueue build_process_report job")
+    result = await wait_for_job_result(job_id=job.id)
+    if result.get("status") == "timeout":
+        raise HTTPException(status_code=504, detail="Timed out waiting for process report")
     return result

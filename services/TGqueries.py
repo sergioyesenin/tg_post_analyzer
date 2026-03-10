@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import sqlite3
 from collections import deque
 
 from telethon.errors import FloodWaitError, RPCError
@@ -32,6 +33,32 @@ logger = logging.getLogger(__name__)
 
 async def polite_sleep(base: float, jitter: float) -> None:
     await asyncio.sleep(base + random.random() * jitter)
+
+
+def _is_session_locked_error(exc: Exception) -> bool:
+    return isinstance(exc, sqlite3.OperationalError) and "database is locked" in str(exc).lower()
+
+
+async def _with_session_lock_retry(coro_factory, *, op_name: str, retries: int = 3, delay_sec: float = 1.5):
+    last_exc: sqlite3.OperationalError | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            return await coro_factory()
+        except sqlite3.OperationalError as exc:
+            last_exc = exc
+            if not _is_session_locked_error(exc) or attempt >= retries:
+                raise
+            logger.warning(
+                "Telethon session locked op=%s retry=%s/%s delay_sec=%.1f",
+                op_name,
+                attempt,
+                retries,
+                delay_sec,
+            )
+            await asyncio.sleep(delay_sec)
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError(f"{op_name} failed unexpectedly")
 
 
 async def _resolve_discussion_with_fallback(
@@ -114,8 +141,8 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
 
     try:
         if not tg_client.is_connected():
-            await tg_client.start()
-        entity = await tg_client.get_entity(peer)
+            await _with_session_lock_retry(lambda: tg_client.start(), op_name="tg_client.start")
+        entity = await _with_session_lock_retry(lambda: tg_client.get_entity(peer), op_name="tg_client.get_entity")
     except FloodWaitError as exc:
         logger.warning(
             "flood wait while resolving entity op=resolve_entity post_id=%s channel_id=%s wait_seconds=%s",
@@ -148,6 +175,20 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
     except (TypeError, ValueError, AttributeError) as exc:
         logger.warning(
             "entity validation error op=resolve_entity post_id=%s channel_id=%s err=%r",
+            post_id,
+            channel.id,
+            exc,
+        )
+        return {
+            "status": "entity_error",
+            "post_id": post_id,
+            "comments_saved": 0,
+            "commenters_count": 0,
+            "error": repr(exc),
+        }
+    except sqlite3.OperationalError as exc:
+        logger.warning(
+            "telethon session lock op=resolve_entity post_id=%s channel_id=%s err=%r",
             post_id,
             channel.id,
             exc,

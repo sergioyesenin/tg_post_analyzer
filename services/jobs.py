@@ -13,11 +13,14 @@ JOB_STATUS_PENDING = "pending"
 JOB_STATUS_RUNNING = "running"
 JOB_STATUS_DONE = "done"
 JOB_STATUS_FAILED = "failed"
+JOB_RESULT_KEY = "_job_result"
 
 
 @dataclass(frozen=True)
 class JobType:
     COLLECT_COMMENTS: str = "collect_comments"
+    REFRESH_COMMENTS: str = "refresh_comments"
+    BUILD_POST_LINKS: str = "build_post_links"
     BUILD_POST_REPORT: str = "build_post_report"
     BUILD_EVENT_REPORT: str = "build_event_report"
     BUILD_PROCESS_REPORT: str = "build_process_report"
@@ -68,6 +71,18 @@ async def enqueue_job(
     session.add(job)
     await session.flush()
     return job
+
+
+def set_job_result(job: Job, result: dict) -> None:
+    payload = dict(job.payload_json or {})
+    payload[JOB_RESULT_KEY] = result
+    job.payload_json = payload
+
+
+def get_job_result(job: Job) -> dict | None:
+    payload = job.payload_json or {}
+    result = payload.get(JOB_RESULT_KEY)
+    return result if isinstance(result, dict) else None
 
 
 def _job_query(now: datetime, *, limit: int, allowed_types: set[str] | None) -> Select:

@@ -5,6 +5,7 @@ from copy import deepcopy
 
 CANONICAL_SETTINGS_DEFAULTS: dict[str, dict] = {
     "ingest": {
+        "lookback_days": 3,
         "poll_seconds": 240,
         "max_posts_per_channel": 30,
         "channel_concurrency": 2,
@@ -16,7 +17,7 @@ CANONICAL_SETTINGS_DEFAULTS: dict[str, dict] = {
         "comment_schedule_jitter_seconds": 7200,
     },
     "reports": {
-        "post_report_delay_hours": 6,
+        "post_report_delay_hours": 12,
         "min_comments": 20,
         "report_word_target": 350,
         "report_word_min": 200,
@@ -30,6 +31,8 @@ CANONICAL_SETTINGS_DEFAULTS: dict[str, dict] = {
         "job_batch_size": 20,
         "job_worker_concurrency": 2,
         "collect_comments_quota_per_run": 2,
+        "ai_poll_seconds": 120,
+        "ai_scheduler_limit": 200,
         "done_retention_days": 14,
         "dead_letter_retention_days": 90,
         "cleanup_batch_size": 1000,

@@ -9,6 +9,7 @@ class _StrictConfigModel(BaseModel):
 
 
 class IngestSettings(_StrictConfigModel):
+    lookback_days: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["ingest"]["lookback_days"], ge=1, le=3650)
     poll_seconds: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["ingest"]["poll_seconds"], ge=5, le=3600)
     max_posts_per_channel: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["ingest"]["max_posts_per_channel"], ge=1, le=2000)
     channel_concurrency: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["ingest"]["channel_concurrency"], ge=1, le=8)
@@ -37,6 +38,8 @@ class JobsSettings(_StrictConfigModel):
     job_batch_size: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["jobs"]["job_batch_size"], ge=1, le=5000)
     job_worker_concurrency: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["jobs"]["job_worker_concurrency"], ge=1, le=16)
     collect_comments_quota_per_run: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["jobs"]["collect_comments_quota_per_run"], ge=1, le=5000)
+    ai_poll_seconds: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["jobs"]["ai_poll_seconds"], ge=5, le=3600)
+    ai_scheduler_limit: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["jobs"]["ai_scheduler_limit"], ge=1, le=10000)
     done_retention_days: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["jobs"]["done_retention_days"], ge=1, le=3650)
     dead_letter_retention_days: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["jobs"]["dead_letter_retention_days"], ge=1, le=3650)
     cleanup_batch_size: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["jobs"]["cleanup_batch_size"], ge=10, le=50000)

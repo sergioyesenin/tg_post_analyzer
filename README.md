@@ -62,10 +62,10 @@ Keep the following invariants unchanged unless you run a dedicated load test.
    - `flood_source="iter_comments"` for comments iteration path
    - This is required for diagnosis when flood wait appears.
 
-5. In `scripts/pipeline.py` flood-wait requeue must not run earlier than global cooldown.
+5. In `scripts/run_telegram_pipeline.py` flood-wait requeue must not run earlier than global cooldown.
    - Keep `effective_retry_at = max(retry_at, collect_comments_global_cooldown_until)`.
 
-6. Default inter-job sleeps for collect-comments in `scripts/pipeline.py` must remain conservative.
+6. Default inter-job sleeps for collect-comments in `scripts/run_telegram_pipeline.py` must remain conservative.
    - If DB settings do not override them, keep safe defaults:
    - `collect_comments_sleep_min_ms=2500`
    - `collect_comments_sleep_max_ms=4500`
@@ -96,12 +96,56 @@ venv\Scripts\python -m pytest -q tests
 
 ## Pipeline Concurrency Settings
 
-Use `/api/settings` to tune safe concurrency limits for `scripts/pipeline.py`:
+Use `/api/settings` to tune safe concurrency limits for `scripts/run_telegram_pipeline.py` and `scripts/run_ai_pipeline.py`:
 
 - `ingest.channel_concurrency` (default: `2`, range: `1..8`)
 - `jobs.job_worker_concurrency` (default: `2`, range: `1..16`)
+- `ingest.poll_seconds` controls Telegram pipeline poll interval
+- `ingest.lookback_days` controls Telegram ingest lookback window
+- `jobs.ai_poll_seconds` controls AI pipeline poll interval
+- `jobs.ai_scheduler_limit` controls how many background post-report jobs AI pipeline enqueues per cycle
 
 Notes:
 
-- `collect_comments` jobs remain sequential inside one worker to respect Telegram FloodWait limits.
-- Non-Telegram jobs (`build_*_report`, `archive_retention`) can run in parallel up to `job_worker_concurrency`.
+- `collect_comments` and `refresh_comments` jobs remain sequential inside one Telegram worker to respect Telegram FloodWait limits.
+- Telegram-side linking and AI report jobs run in separate pipelines and no longer compete in one worker loop.
+- Runtime settings are resolved in this order: `settings table -> explicit CLI value, if settings key is absent -> canonical default`.
+
+## Pipeline Run Commands
+
+Run API in one process:
+
+```bash
+uvicorn api.main:app --reload
+```
+
+Run Telegram pipeline in a separate process:
+
+```bash
+python scripts/run_telegram_pipeline.py --daemon
+```
+
+Useful flags:
+- `--poll-seconds 240` overrides the delay between cycles only if `ingest.poll_seconds` is absent in settings.
+- `--days 3` overrides the ingest lookback window only if `ingest.lookback_days` is absent in settings.
+- `--skip-rebuild-graphs` disables event/process graph rebuild after ingest.
+
+Run AI pipeline in another separate process:
+
+```bash
+python scripts/run_ai_pipeline.py --daemon
+```
+
+Useful flags:
+- `--poll-seconds 120` overrides AI cycle delay only if `jobs.ai_poll_seconds` is absent in settings.
+- `--post-report-age-hours 12` overrides the minimum post age for background post reports only if `reports.post_report_delay_hours` is absent in settings.
+- `--scheduler-limit 200` overrides AI scheduling limit only if `jobs.ai_scheduler_limit` is absent in settings.
+
+Recommended setup:
+- `uvicorn api.main:app --reload`
+- `python scripts/run_telegram_pipeline.py --daemon`
+- `python scripts/run_ai_pipeline.py --daemon`
+
+Pipeline responsibilities:
+- `scripts/run_telegram_pipeline.py`: ingest, collect/refresh comments, build post links, retention jobs.
+- `scripts/run_ai_pipeline.py`: background `build_post_report` for posts older than 12 hours, plus high-priority `build_event_report` and `build_process_report` jobs triggered by API.

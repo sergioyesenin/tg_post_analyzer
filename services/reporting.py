@@ -8,6 +8,9 @@ from db.models import Channel, Comment, Event, EventPost, EventReport, Post, Pro
 from services.ingest import upsert_report
 
 
+SKIPPED_MIN_COMMENTS_PREFIX = "STATUS: SKIPPED_MIN_COMMENTS"
+
+
 async def build_post_report(
     session: AsyncSession,
     *,
@@ -73,6 +76,13 @@ async def build_post_report(
     except Exception as exc:
         status = "failed"
         content = f"STATUS: FAILED\nREASON: {exc!r}"
+
+    if isinstance(content, str) and content.startswith(SKIPPED_MIN_COMMENTS_PREFIX):
+        return {
+            "status": "skipped_min_comments",
+            "post_id": post.id,
+            "report_id": None,
+        }
 
     report = await upsert_report(
         session,

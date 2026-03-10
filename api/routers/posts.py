@@ -8,8 +8,8 @@ from deps import get_session, require_roles
 from db.models import Post, Channel, Comment
 from schemas.post import PostCardOut, PostDetailOut
 from schemas.comment import CommentOut
-from services.TGqueries import update_post_comments
 from services.auth import AuthUser
+from services.pipeline_runtime import enqueue_comment_refresh_job, wait_for_job_result
 from services.settings_store import get_setting
 
 router = APIRouter()
@@ -86,9 +86,16 @@ async def update_comments(
     _: AuthUser = Depends(require_roles("admin", "analyst")),
     session: AsyncSession = Depends(get_session),
 ):
-    async with session.begin():
-        result = await update_post_comments(session, post_id)
-
-    if result.get("status") == "not_found":
+    post = (await session.execute(select(Post).where(Post.id == post_id))).scalar_one_or_none()
+    if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
+
+    job = await enqueue_comment_refresh_job(session, post_id=post_id, source="api")
+    await session.commit()
+    if job is None:
+        raise HTTPException(status_code=500, detail="Failed to enqueue refresh_comments job")
+
+    result = await wait_for_job_result(job_id=job.id)
+    if result.get("status") == "timeout":
+        raise HTTPException(status_code=504, detail="Timed out waiting for comments refresh")
     return result

@@ -9,6 +9,7 @@ from api.routers import settings as settings_router
 from deps import get_current_user
 from services.auth import AuthUser
 from services.settings_defaults import CANONICAL_SETTINGS_DEFAULTS, get_canonical_defaults
+from services import pipeline_runtime
 from services.settings_store import get_all_settings
 from services.settings_validation import SCHEMA_BY_KEY
 
@@ -60,3 +61,12 @@ def test_effective_settings_endpoint_returns_expected_defaults(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == get_canonical_defaults()
+
+
+def test_pipeline_runtime_fallbacks_match_canonical_defaults():
+    defaults = CANONICAL_SETTINGS_DEFAULTS
+
+    assert pipeline_runtime.get_telegram_poll_seconds.__kwdefaults__ == {"default": None}
+    assert pipeline_runtime.get_ai_poll_seconds.__kwdefaults__ == {"default": None}
+    assert defaults["ingest"]["collect_comments_sleep_min_ms"] == 2500
+    assert defaults["ingest"]["collect_comments_sleep_max_ms"] == 4500

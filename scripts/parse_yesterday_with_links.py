@@ -11,7 +11,7 @@ from telethon.errors.rpcerrorlist import MsgIdInvalidError
 from telethon.tl.functions.messages import GetDiscussionMessageRequest
 from telethon.tl.types import PeerChannel, PeerUser, User
 
-from client import client
+from client import client, ensure_telegram_client_started
 from config import settings
 from db.models import Channel, Post
 from db.session import AsyncSessionLocal
@@ -391,7 +391,7 @@ async def main() -> None:
         print("No active channels in DB. Add channels first.")
         return
 
-    await client.start()
+    await ensure_telegram_client_started(client, op_name="scripts.parse_yesterday.start")
     try:
         for channel in channels:
             await parse_channel_yesterday(channel)

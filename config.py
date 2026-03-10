@@ -22,8 +22,8 @@ class Settings:
 
         self.TG_API_ID = self._env_int("TG_API_ID", default=None, required=True, errors=errors)
         self.TG_API_HASH = self._env_str("TG_API_HASH", required=True, errors=errors)
-        self.TG_SESSION_NAME = self._env_str("TG_SESSION_NAME", default="tg_session", errors=errors)
-        self.TG_FLOOD_SLEEP_THRESHOLD = self._env_int("TG_FLOOD_SLEEP_THRESHOLD", default=180, errors=errors)
+        self.TG_SESSION_NAME = self._env_str("TG_SESSION_NAME", default="tg_analytics.session", errors=errors)
+        self.TG_FLOOD_SLEEP_THRESHOLD = self._env_int("TG_FLOOD_SLEEP_THRESHOLD", default=5, errors=errors)
         self.DB_URL = self._env_str("DB_URL", alias="DATABASE_URL", required=True, errors=errors)
         self.APP_ENV = self._env_str("APP_ENV", default="dev", errors=errors) or "dev"
         self._validate_non_dev_db_credentials(self.DB_URL, self.APP_ENV, errors)

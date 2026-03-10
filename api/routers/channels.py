@@ -7,7 +7,7 @@ from telethon.errors import RPCError
 from telethon.tl.functions.channels import JoinChannelRequest
 from telethon.tl.types import Channel as TgChannel
 
-from client import client
+from client import client, ensure_telegram_client_started
 from db.models import Channel
 from deps import get_session, require_roles
 from schemas.channel import ChannelIn, ChannelOut, ChannelUpdate
@@ -35,8 +35,7 @@ async def add_channel(
 ):
     ident = normalize_channel_identifier(user.username)
     normalized_username = ident.lstrip("@").strip()
-    if not client.is_connected():
-        await client.start()
+    await ensure_telegram_client_started(client, op_name="api.channels.add.start")
 
     try:
         entity = await client.get_entity(ident)

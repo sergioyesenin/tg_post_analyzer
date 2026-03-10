@@ -12,8 +12,8 @@ CANONICAL_SETTINGS_DEFAULTS: dict[str, dict] = {
         "comment_first_delay_hours": 2,
         "comment_interval_hours": 2,
         "comment_window_hours": 24,
-        "collect_comments_sleep_min_ms": 5000,
-        "collect_comments_sleep_max_ms": 9000,
+        "collect_comments_sleep_min_ms": 2500,
+        "collect_comments_sleep_max_ms": 4500,
         "comment_schedule_jitter_seconds": 7200,
     },
     "reports": {
@@ -76,3 +76,7 @@ CANONICAL_SETTINGS_DEFAULTS: dict[str, dict] = {
 
 def get_canonical_defaults() -> dict[str, dict]:
     return deepcopy(CANONICAL_SETTINGS_DEFAULTS)
+
+
+def get_default_setting(scope: str, key: str):
+    return deepcopy(CANONICAL_SETTINGS_DEFAULTS[scope][key])

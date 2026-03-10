@@ -149,3 +149,28 @@ Recommended setup:
 Pipeline responsibilities:
 - `scripts/run_telegram_pipeline.py`: ingest, collect/refresh comments, build post links, retention jobs.
 - `scripts/run_ai_pipeline.py`: background `build_post_report` for posts older than 12 hours, plus high-priority `build_event_report` and `build_process_report` jobs triggered by API.
+
+## Canonical Telegram Runtime
+
+- Production Telegram runtime core: `services/pipeline_runtime.py`.
+- Production Telegram entrypoint: `python scripts/run_telegram_pipeline.py --daemon`.
+- `main.py`, `parse_today.py`, and `scripts/pipeline.py` are deprecated compatibility wrappers over the canonical runtime.
+
+## Runtime Settings Contract
+
+- Canonical runtime defaults live in `services/settings_defaults.py`.
+- Effective runtime resolution order is: `settings table -> explicit CLI value -> canonical default`.
+- Telegram pipeline defaults currently include:
+  - `ingest.poll_seconds=240`
+  - `ingest.lookback_days=3`
+  - `ingest.collect_comments_sleep_min_ms=2500`
+  - `ingest.collect_comments_sleep_max_ms=4500`
+  - `jobs.job_batch_size=20`
+  - `jobs.ai_poll_seconds=120`
+  - `reports.post_report_delay_hours=12`
+- Telegram env defaults currently include:
+  - `TG_SESSION_NAME=tg_analytics.session`
+  - `TG_FLOOD_SLEEP_THRESHOLD=5`
+- Throttling scopes are different and both are supported:
+  - `COMMENTS_SLEEP_*` env vars control intra-request comment iteration in `services/TGqueries.py`
+  - `ingest.collect_comments_sleep_*_ms` settings control inter-job pacing in Telegram pipeline workers

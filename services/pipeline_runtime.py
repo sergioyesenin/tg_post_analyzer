@@ -4,7 +4,6 @@ import asyncio
 import logging
 import os
 import random
-import sqlite3
 import sys
 import uuid
 from dataclasses import dataclass
@@ -13,14 +12,18 @@ from pathlib import Path
 
 from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from telethon import TelegramClient
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from agents.reporter import TgReportProject
-from client.config import load_client_settings
+from client.telegram import (
+    TelegramClientHandle,
+    build_telegram_client,
+    is_session_locked_error,
+    with_session_lock_retry,
+)
 from db.models import Channel, Job, JobDeadLetter, Post, Report
 from db.session import AsyncSessionLocal
 from services.archive import run_archive_retention
@@ -41,6 +44,7 @@ from services.jobs_retention import run_jobs_retention
 from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
 from services.processes.build_processes import rebuild_processes
 from services.reporting import build_event_report_draft, build_post_report, build_process_report_draft
+from services.settings_defaults import get_default_setting
 from services.settings_store import get_all_settings, report_config_from_settings
 from services.TGqueries import update_post_comments
 
@@ -76,16 +80,7 @@ class TelegramCycleMetrics:
     executed_jobs: int
 
 
-@dataclass
-class TelegramPipelineClient:
-    client: TelegramClient
-    operation_lock: asyncio.Lock
-
-    async def start(self):
-        return await self.client.start()
-
-    async def disconnect(self):
-        return await self.client.disconnect()
+TelegramPipelineClient = TelegramClientHandle
 
 
 def _clamp_positive_int(value: int | None, *, default: int, minimum: int = 1, maximum: int = 64) -> int:
@@ -113,48 +108,10 @@ def build_worker_id(prefix: str) -> str:
 
 
 def build_tg_client(*, session_suffix: str, unique_session_per_run: bool) -> TelegramPipelineClient:
-    client_settings = load_client_settings()
-    session_name = "tg_analytics.session"
-    suffix = session_suffix.strip()
-    if suffix:
-        session_name = f"{session_name}_{suffix}"
-    if unique_session_per_run:
-        session_name = f"{session_name}_{os.getpid()}"
-    return TelegramPipelineClient(
-        client=TelegramClient(
-            session=session_name,
-            api_id=client_settings.api_id,
-            api_hash=client_settings.api_hash,
-            flood_sleep_threshold=client_settings.flood_sleep_threshold,
-        ),
-        operation_lock=asyncio.Lock(),
+    return build_telegram_client(
+        session_suffix=session_suffix,
+        unique_session_per_run=unique_session_per_run,
     )
-
-
-def is_session_locked_error(exc: Exception) -> bool:
-    return isinstance(exc, sqlite3.OperationalError) and "database is locked" in str(exc).lower()
-
-
-async def with_session_lock_retry(coro_factory, *, op_name: str, retries: int = 3, delay_sec: float = 1.5):
-    last_exc: sqlite3.OperationalError | None = None
-    for attempt in range(1, retries + 1):
-        try:
-            return await coro_factory()
-        except sqlite3.OperationalError as exc:
-            last_exc = exc
-            if not is_session_locked_error(exc) or attempt >= retries:
-                raise
-            logger.warning(
-                "Telethon session locked op=%s retry=%s/%s delay_sec=%.1f",
-                op_name,
-                attempt,
-                retries,
-                delay_sec,
-            )
-            await asyncio.sleep(delay_sec)
-    if last_exc is not None:
-        raise last_exc
-    raise RuntimeError(f"{op_name} failed unexpectedly")
 
 
 async def collect_backlog_snapshot(*, allowed_types: set[str] | None = None) -> dict[str, int]:
@@ -204,26 +161,26 @@ async def has_due_priority_job(*, allowed_types: set[str], max_priority: int) ->
     return job_id is not None
 
 
-async def get_telegram_poll_seconds(*, cli_override: int | None, default: int = 240) -> int:
+async def get_telegram_poll_seconds(*, cli_override: int | None, default: int | None = None) -> int:
     async with AsyncSessionLocal() as session:
         effective_settings = await get_all_settings(session)
     ingest_settings = effective_settings.get("ingest", {})
     resolved = _resolve_setting_value(
         settings_value=ingest_settings.get("poll_seconds"),
         cli_value=cli_override,
-        fallback=default,
+        fallback=get_default_setting("ingest", "poll_seconds") if default is None else default,
     )
     return max(5, int(resolved))
 
 
-async def get_ai_poll_seconds(*, cli_override: int | None, default: int = 120) -> int:
+async def get_ai_poll_seconds(*, cli_override: int | None, default: int | None = None) -> int:
     async with AsyncSessionLocal() as session:
         effective_settings = await get_all_settings(session)
     jobs_settings = effective_settings.get("jobs", {})
     resolved = _resolve_setting_value(
         settings_value=jobs_settings.get("ai_poll_seconds"),
         cli_value=cli_override,
-        fallback=default,
+        fallback=get_default_setting("jobs", "ai_poll_seconds") if default is None else default,
     )
     return max(5, int(resolved))
 
@@ -470,7 +427,7 @@ async def _process_channel(
     async with AsyncSessionLocal() as session:
         channel_last_tg_msg_id = await _get_last_tg_message_id_for_channel(session=session, channel_id=channel.id)
 
-    core = IngestionCore(tg_client=client.client, session_factory=AsyncSessionLocal)
+    core = IngestionCore(tg_client=client, session_factory=AsyncSessionLocal)
     options = IngestionOptions(
         since_utc=since_utc,
         max_posts=max_posts,
@@ -578,15 +535,17 @@ async def _run_maintenance_job(*, job: Job, worker_id: str) -> int:
             if db_job.type == JobType.ARCHIVE_RETENTION:
                 result = await run_archive_retention(
                     session,
-                    retention_days=int(payload.get("retention_days", 30)),
-                    batch_limit=int(payload.get("batch_limit", 1000)),
+                    retention_days=int(payload.get("retention_days", get_default_setting("retention", "retention_days"))),
+                    batch_limit=int(payload.get("batch_limit", get_default_setting("retention", "archive_batch_size"))),
                 )
             elif db_job.type == JobType.JOBS_RETENTION:
                 result = await run_jobs_retention(
                     session,
-                    done_retention_days=int(payload.get("done_retention_days", 14)),
-                    dead_letter_retention_days=int(payload.get("dead_letter_retention_days", 90)),
-                    batch_limit=int(payload.get("batch_limit", 1000)),
+                    done_retention_days=int(payload.get("done_retention_days", get_default_setting("jobs", "done_retention_days"))),
+                    dead_letter_retention_days=int(
+                        payload.get("dead_letter_retention_days", get_default_setting("jobs", "dead_letter_retention_days"))
+                    ),
+                    batch_limit=int(payload.get("batch_limit", get_default_setting("jobs", "cleanup_batch_size"))),
                 )
             else:
                 raise ValueError(f"Unsupported maintenance job type: {db_job.type}")
@@ -649,7 +608,7 @@ async def _run_comment_job(
             post_id = int(payload.get("post_id"))
             collect_comments_processed += 1
             async with tg_client.operation_lock:
-                result = await update_post_comments(session, post_id, tg_client=tg_client.client)
+                result = await update_post_comments(session, post_id, tg_client=tg_client)
             status = str(result.get("status") or "unknown")
             logger.info("Job %s post_id=%s status=%s worker_id=%s", db_job.type, post_id, status, worker_id)
 
@@ -803,8 +762,8 @@ async def run_telegram_jobs(
         await session.commit()
 
     ingest_settings = effective_settings.get("ingest", {})
-    cc_sleep_min_ms = int(ingest_settings.get("collect_comments_sleep_min_ms", 2500))
-    cc_sleep_max_ms = int(ingest_settings.get("collect_comments_sleep_max_ms", 4500))
+    cc_sleep_min_ms = int(ingest_settings.get("collect_comments_sleep_min_ms", get_default_setting("ingest", "collect_comments_sleep_min_ms")))
+    cc_sleep_max_ms = int(ingest_settings.get("collect_comments_sleep_max_ms", get_default_setting("ingest", "collect_comments_sleep_max_ms")))
     if cc_sleep_max_ms < cc_sleep_min_ms:
         cc_sleep_max_ms = cc_sleep_min_ms
 
@@ -927,68 +886,76 @@ async def run_telegram_cycle(
     lookback_days = int(_resolve_setting_value(
         settings_value=ingest_settings.get("lookback_days"),
         cli_value=days,
-        fallback=3,
+        fallback=get_default_setting("ingest", "lookback_days"),
     ))
     since_utc = datetime.now(timezone.utc) - timedelta(days=lookback_days)
 
     max_posts_per_channel = int(_resolve_setting_value(
         settings_value=ingest_settings.get("max_posts_per_channel"),
         cli_value=max_posts_per_channel_arg,
-        fallback=30,
+        fallback=get_default_setting("ingest", "max_posts_per_channel"),
     ))
     comment_first_delay_hours = int(_resolve_setting_value(
         settings_value=ingest_settings.get("comment_first_delay_hours"),
         cli_value=comment_first_delay_hours_arg,
-        fallback=2,
+        fallback=get_default_setting("ingest", "comment_first_delay_hours"),
     ))
     comment_interval_hours = int(_resolve_setting_value(
         settings_value=ingest_settings.get("comment_interval_hours"),
         cli_value=comment_interval_hours_arg,
-        fallback=2,
+        fallback=get_default_setting("ingest", "comment_interval_hours"),
     ))
     comment_window_hours = int(_resolve_setting_value(
         settings_value=ingest_settings.get("comment_window_hours"),
         cli_value=comment_window_hours_arg,
-        fallback=24,
+        fallback=get_default_setting("ingest", "comment_window_hours"),
     ))
     comment_schedule_jitter_seconds = int(_resolve_setting_value(
         settings_value=ingest_settings.get("comment_schedule_jitter_seconds"),
         cli_value=None,
-        fallback=7200,
+        fallback=get_default_setting("ingest", "comment_schedule_jitter_seconds"),
     ))
     job_batch_size = int(_resolve_setting_value(
         settings_value=jobs_settings.get("job_batch_size"),
         cli_value=job_batch_size_arg,
-        fallback=20,
+        fallback=get_default_setting("jobs", "job_batch_size"),
     ))
     collect_comments_quota_per_run = int(_resolve_setting_value(
         settings_value=jobs_settings.get("collect_comments_quota_per_run"),
         cli_value=None,
-        fallback=2,
+        fallback=get_default_setting("jobs", "collect_comments_quota_per_run"),
     ))
     done_retention_days = int(_resolve_setting_value(
         settings_value=jobs_settings.get("done_retention_days"),
         cli_value=None,
-        fallback=14,
+        fallback=get_default_setting("jobs", "done_retention_days"),
     ))
     dead_letter_retention_days = int(_resolve_setting_value(
         settings_value=jobs_settings.get("dead_letter_retention_days"),
         cli_value=None,
-        fallback=90,
+        fallback=get_default_setting("jobs", "dead_letter_retention_days"),
     ))
     cleanup_batch_size = int(_resolve_setting_value(
         settings_value=jobs_settings.get("cleanup_batch_size"),
         cli_value=None,
-        fallback=1000,
+        fallback=get_default_setting("jobs", "cleanup_batch_size"),
     ))
     channel_concurrency = _clamp_positive_int(
-        _resolve_setting_value(settings_value=ingest_settings.get("channel_concurrency"), cli_value=None, fallback=2),
+        _resolve_setting_value(
+            settings_value=ingest_settings.get("channel_concurrency"),
+            cli_value=None,
+            fallback=get_default_setting("ingest", "channel_concurrency"),
+        ),
         default=2,
         minimum=1,
         maximum=8,
     )
     job_worker_concurrency = _clamp_positive_int(
-        _resolve_setting_value(settings_value=jobs_settings.get("job_worker_concurrency"), cli_value=None, fallback=2),
+        _resolve_setting_value(
+            settings_value=jobs_settings.get("job_worker_concurrency"),
+            cli_value=None,
+            fallback=get_default_setting("jobs", "job_worker_concurrency"),
+        ),
         default=2,
         minimum=1,
         maximum=16,
@@ -996,12 +963,12 @@ async def run_telegram_cycle(
     retention_days = int(_resolve_setting_value(
         settings_value=retention_settings.get("retention_days"),
         cli_value=retention_days_arg,
-        fallback=30,
+        fallback=get_default_setting("retention", "retention_days"),
     ))
     archive_batch_size = int(_resolve_setting_value(
         settings_value=retention_settings.get("archive_batch_size"),
         cli_value=archive_batch_size_arg,
-        fallback=1000,
+        fallback=get_default_setting("retention", "archive_batch_size"),
     ))
 
     channels = await _get_active_channels()
@@ -1096,13 +1063,13 @@ async def run_ai_cycle(*, worker_id: str, job_batch_size_arg: int, job_worker_co
     job_batch_size = int(_resolve_setting_value(
         settings_value=jobs_settings.get("job_batch_size"),
         cli_value=job_batch_size_arg,
-        fallback=20,
+        fallback=get_default_setting("jobs", "job_batch_size"),
     ))
     job_worker_concurrency = _clamp_positive_int(
         _resolve_setting_value(
             settings_value=jobs_settings.get("job_worker_concurrency"),
             cli_value=job_worker_concurrency_arg,
-            fallback=2,
+            fallback=get_default_setting("jobs", "job_worker_concurrency"),
         ),
         default=2,
         minimum=1,
@@ -1111,12 +1078,12 @@ async def run_ai_cycle(*, worker_id: str, job_batch_size_arg: int, job_worker_co
     post_report_age_hours = int(_resolve_setting_value(
         settings_value=reports_settings.get("post_report_delay_hours"),
         cli_value=post_report_age_hours_arg,
-        fallback=12,
+        fallback=get_default_setting("reports", "post_report_delay_hours"),
     ))
     scheduler_limit = max(1, int(_resolve_setting_value(
         settings_value=jobs_settings.get("ai_scheduler_limit"),
         cli_value=scheduler_limit_arg,
-        fallback=200,
+        fallback=get_default_setting("jobs", "ai_scheduler_limit"),
     )))
 
     queued = await schedule_due_post_report_jobs(

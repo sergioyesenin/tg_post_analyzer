@@ -7,7 +7,7 @@ from typing import Optional
 
 from telethon.tl.types import Channel as TgChannel
 
-from client import client
+from client import client, ensure_telegram_client_started
 from db.session import AsyncSessionLocal
 from services.ingest import upsert_channel
 
@@ -33,7 +33,7 @@ async def main() -> None:
     ident = normalize_channel_identifier(sys.argv[1])
     normalized_username = ident.lstrip("@").strip()
 
-    await client.start()
+    await ensure_telegram_client_started(client, op_name="scripts.add_channel.start")
 
     entity = await client.get_entity(ident)
     if not isinstance(entity, TgChannel):

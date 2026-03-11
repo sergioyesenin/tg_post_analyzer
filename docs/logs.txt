@@ -1,0 +1,91 @@
+(venv) D:\Projects\tg_post_analyzer>python scripts/run_telegram_pipeline.py --daemon
+2026-03-10 12:22:06,198 | INFO    | Connecting to 149.154.175.52:443/TcpFull...
+2026-03-10 12:22:06,300 | INFO    | Connection to 149.154.175.52:443/TcpFull complete!
+2026-03-10 12:22:07,403 | INFO    | Parsing channel @minsk_gl since 2026-03-07T09:22:07.398380+00:00
+2026-03-10 12:22:07,404 | INFO    | Parsing channel @vitebsk since 2026-03-07T09:22:07.398380+00:00
+2026-03-10 12:22:08,474 | INFO    | Finished @minsk_gl processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:22:08,474 | INFO    | Parsing channel @brest_gl since 2026-03-07T09:22:07.398380+00:00
+2026-03-10 12:22:09,306 | INFO    | Finished @vitebsk processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:22:09,306 | INFO    | Parsing channel @gomel since 2026-03-07T09:22:07.398380+00:00
+2026-03-10 12:22:10,305 | INFO    | Saved post id=991 tg_msg_id=13030 channel=@brest_gl
+2026-03-10 12:22:10,327 | INFO    | Finished @brest_gl processed_posts=1 stopped_reason=already_ingested
+2026-03-10 12:22:11,203 | INFO    | Finished @gomel processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:22:11,588 | INFO    | Rebuilt events=126 for 2026-03-07T09:22:07.398380+00:00..2026-03-10T09:22:11.203875+00:00
+2026-03-10 12:22:11,632 | INFO    | Rebuilt process_edges=4 for 2026-03-07T09:22:07.398380+00:00..2026-03-10T09:22:11.203875+00:00
+2026-03-10 12:22:18,540 | INFO    | Job collect_comments post_id=949 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:22:21,905 | INFO    | Job collect_comments post_id=934 status=no_discussion worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:22:28,542 | INFO    | Job collect_comments post_id=957 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:22:34,070 | INFO    | Job collect_comments post_id=932 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:22:39,663 | INFO    | Job collect_comments post_id=896 status=ok worker_id=tg-pipeline-9604-962c6ad2
+D:\Projects\tg_post_analyzer\venv\Lib\site-packages\pymorphy2\analyzer.py:114: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  import pkg_resources
+2026-03-10 12:22:42,730 | INFO    | Loading dictionaries from D:\Projects\tg_post_analyzer\venv\Lib\site-packages\pymorphy2_dicts_ru\data
+2026-03-10 12:22:42,761 | INFO    | format: 2.4, revision: 417127, updated: 2020-10-11T15:05:51.070345
+2026-03-10 12:22:45,486 | INFO    | Job build_post_links post_id=991 verified=0 rejected=0 candidates=0 worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:22:45,495 | INFO    | Telegram cycle worker_id=tg-pipeline-9604-962c6ad2 processed_posts=1 executed_jobs=6 backlog_before={'pending': 1301, 'running': 319, 'done': 2060, 'failed': 0, 'dead_letters': 0, 'pending_lag_seconds': 656196} backlog_after={'pending': 1297, 'running': 319, 'done': 2066, 'failed': 0, 'dead_letters': 0, 'pending_lag_seconds': 656235}
+2026-03-10 12:22:46,528 | INFO    | Parsing channel @minsk_gl since 2026-03-07T09:22:46.523994+00:00
+2026-03-10 12:22:46,529 | INFO    | Parsing channel @vitebsk since 2026-03-07T09:22:46.523994+00:00
+2026-03-10 12:22:47,400 | INFO    | Finished @minsk_gl processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:22:47,402 | INFO    | Parsing channel @brest_gl since 2026-03-07T09:22:46.523994+00:00
+2026-03-10 12:22:48,229 | INFO    | Finished @vitebsk processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:22:48,230 | INFO    | Parsing channel @gomel since 2026-03-07T09:22:46.523994+00:00
+2026-03-10 12:22:49,255 | INFO    | Finished @brest_gl processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:22:50,129 | INFO    | Finished @gomel processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:22:50,130 | INFO    | Skip rebuild: no new posts in this cycle.
+2026-03-10 12:22:53,207 | INFO    | Job collect_comments post_id=886 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:22:58,590 | INFO    | Job collect_comments post_id=914 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:23:04,189 | INFO    | Job collect_comments post_id=913 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:23:09,186 | INFO    | Job collect_comments post_id=881 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:23:14,470 | INFO    | Job collect_comments post_id=882 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:23:17,399 | INFO    | Telegram cycle worker_id=tg-pipeline-9604-962c6ad2 processed_posts=0 executed_jobs=5 backlog_before={'pending': 1297, 'running': 319, 'done': 2066, 'failed': 0, 'dead_letters': 0, 'pending_lag_seconds': 656236} backlog_after={'pending': 1292, 'running': 319, 'done': 2071, 'failed': 0, 'dead_letters': 0, 'pending_lag_seconds': 656267}
+2026-03-10 12:23:18,440 | INFO    | Parsing channel @minsk_gl since 2026-03-07T09:23:18.437668+00:00
+2026-03-10 12:23:18,441 | INFO    | Parsing channel @vitebsk since 2026-03-07T09:23:18.437668+00:00
+2026-03-10 12:23:19,392 | INFO    | Finished @minsk_gl processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:23:19,393 | INFO    | Parsing channel @brest_gl since 2026-03-07T09:23:18.437668+00:00
+2026-03-10 12:23:20,158 | INFO    | Finished @vitebsk processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:23:20,159 | INFO    | Parsing channel @gomel since 2026-03-07T09:23:18.437668+00:00
+2026-03-10 12:23:21,107 | INFO    | Finished @brest_gl processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:23:22,037 | INFO    | Finished @gomel processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:23:22,038 | INFO    | Skip rebuild: no new posts in this cycle.
+2026-03-10 12:23:23,888 | INFO    | Job collect_comments post_id=982 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:23:29,353 | INFO    | Job collect_comments post_id=950 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:23:35,196 | INFO    | Job collect_comments post_id=932 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:23:40,119 | INFO    | Job collect_comments post_id=932 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:23:45,874 | INFO    | Job collect_comments post_id=881 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:23:48,062 | INFO    | Telegram cycle worker_id=tg-pipeline-9604-962c6ad2 processed_posts=0 executed_jobs=5 backlog_before={'pending': 1292, 'running': 319, 'done': 2071, 'failed': 0, 'dead_letters': 0, 'pending_lag_seconds': 656268} backlog_after={'pending': 1287, 'running': 319, 'done': 2076, 'failed': 0, 'dead_letters': 0, 'pending_lag_seconds': 656297}
+2026-03-10 12:23:49,093 | INFO    | Parsing channel @minsk_gl since 2026-03-07T09:23:49.090216+00:00
+2026-03-10 12:23:49,093 | INFO    | Parsing channel @vitebsk since 2026-03-07T09:23:49.090216+00:00
+2026-03-10 12:23:49,996 | INFO    | Finished @minsk_gl processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:23:49,997 | INFO    | Parsing channel @brest_gl since 2026-03-07T09:23:49.090216+00:00
+2026-03-10 12:23:50,962 | INFO    | Finished @vitebsk processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:23:50,963 | INFO    | Parsing channel @gomel since 2026-03-07T09:23:49.090216+00:00
+2026-03-10 12:23:51,923 | INFO    | Finished @brest_gl processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:23:52,807 | INFO    | Finished @gomel processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:23:52,808 | INFO    | Skip rebuild: no new posts in this cycle.
+2026-03-10 12:23:55,670 | INFO    | Job collect_comments post_id=886 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:24:01,335 | INFO    | Job collect_comments post_id=910 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:24:06,687 | INFO    | Job collect_comments post_id=881 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:24:12,769 | INFO    | Job collect_comments post_id=881 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:24:17,935 | INFO    | Job collect_comments post_id=909 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:24:22,017 | INFO    | Telegram cycle worker_id=tg-pipeline-9604-962c6ad2 processed_posts=0 executed_jobs=5 backlog_before={'pending': 1287, 'running': 319, 'done': 2076, 'failed': 0, 'dead_letters': 0, 'pending_lag_seconds': 656298} backlog_after={'pending': 1282, 'running': 319, 'done': 2081, 'failed': 0, 'dead_letters': 0, 'pending_lag_seconds': 656331}
+2026-03-10 12:24:23,044 | INFO    | Parsing channel @minsk_gl since 2026-03-07T09:24:23.041851+00:00
+2026-03-10 12:24:23,044 | INFO    | Parsing channel @vitebsk since 2026-03-07T09:24:23.041851+00:00
+2026-03-10 12:24:24,108 | INFO    | Finished @minsk_gl processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:24:24,109 | INFO    | Parsing channel @brest_gl since 2026-03-07T09:24:23.041851+00:00
+2026-03-10 12:24:24,941 | INFO    | Finished @vitebsk processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:24:24,942 | INFO    | Parsing channel @gomel since 2026-03-07T09:24:23.041851+00:00
+2026-03-10 12:24:25,850 | INFO    | Finished @brest_gl processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:24:26,730 | INFO    | Finished @gomel processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:24:26,731 | INFO    | Skip rebuild: no new posts in this cycle.
+2026-03-10 12:24:28,579 | INFO    | Job collect_comments post_id=913 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:24:32,865 | INFO    | Job collect_comments post_id=881 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:24:37,175 | INFO    | Job collect_comments post_id=910 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:24:42,206 | INFO    | Job collect_comments post_id=909 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:24:46,679 | INFO    | Job collect_comments post_id=932 status=ok worker_id=tg-pipeline-9604-962c6ad2
+2026-03-10 12:24:50,447 | INFO    | Telegram cycle worker_id=tg-pipeline-9604-962c6ad2 processed_posts=0 executed_jobs=5 backlog_before={'pending': 1282, 'running': 319, 'done': 2081, 'failed': 0, 'dead_letters': 0, 'pending_lag_seconds': 656332} backlog_after={'pending': 1277, 'running': 319, 'done': 2086, 'failed': 0, 'dead_letters': 0, 'pending_lag_seconds': 656360}
+2026-03-10 12:24:52,478 | INFO    | Parsing channel @minsk_gl since 2026-03-07T09:24:52.478684+00:00
+2026-03-10 12:24:52,478 | INFO    | Parsing channel @vitebsk since 2026-03-07T09:24:52.478684+00:00
+2026-03-10 12:24:53,233 | INFO    | Finished @minsk_gl processed_posts=0 stopped_reason=already_ingested
+2026-03-10 12:24:53,239 | INFO    | Parsing channel @brest_gl since 2026-03-07T09:24:52.478684+00:00
+2026-03-10 12:24:53,392 | INFO    | Disconnecting from 149.154.175.52:443/TcpFull...
+2026-03-10 12:24:53,393 | INFO    | Disconnection from 149.154.175.52:443/TcpFull complete!

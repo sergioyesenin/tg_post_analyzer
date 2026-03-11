@@ -44,6 +44,7 @@ from services.jobs_retention import run_jobs_retention
 from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
 from services.processes.build_processes import rebuild_processes
 from services.reporting import build_event_report_draft, build_post_report, build_process_report_draft
+from services.scheduler_dispatch import enqueue_daily_retention_jobs, retention_scheduler_enabled
 from services.settings_defaults import get_default_setting
 from services.settings_store import get_all_settings, report_config_from_settings
 from services.TGqueries import update_post_comments
@@ -105,6 +106,40 @@ def configure_logging(level: str) -> None:
 
 def build_worker_id(prefix: str) -> str:
     return f"{prefix}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+
+
+async def _persist_job_failure_after_exception(
+    session: AsyncSession,
+    *,
+    job_id: int,
+    error: str,
+    retry_base_seconds: int = 30,
+    retry_max_seconds: int = 3600,
+) -> bool:
+    try:
+        await session.rollback()
+    except Exception:
+        logger.exception("Failed to rollback aborted transaction for job_id=%s", job_id)
+
+    db_job = await session.get(Job, job_id)
+    if db_job is None:
+        logger.warning("Unable to persist failure state: job_id=%s no longer exists", job_id)
+        return False
+
+    try:
+        await mark_job_failed(
+            session,
+            job=db_job,
+            error=error,
+            retry_base_seconds=retry_base_seconds,
+            retry_max_seconds=retry_max_seconds,
+        )
+        await session.commit()
+        return True
+    except Exception:
+        await session.rollback()
+        logger.exception("Failed to persist failure state for job_id=%s", job_id)
+        return False
 
 
 def build_tg_client(*, session_suffix: str, unique_session_per_run: bool) -> TelegramPipelineClient:
@@ -510,12 +545,11 @@ async def _run_link_job(*, job: Job, worker_id: str) -> int:
             )
             return 1
         except Exception as exc:
-            await mark_job_failed(
+            await _persist_job_failure_after_exception(
                 session,
-                job=db_job,
+                job_id=db_job.id,
                 error=f"job_unexpected:{db_job.type}:{type(exc).__name__}:{exc}",
             )
-            await session.commit()
             logger.exception(
                 "Job failed marker=job_unexpected op=build_post_links job_id=%s worker_id=%s err=%r",
                 db_job.id,
@@ -554,12 +588,11 @@ async def _run_maintenance_job(*, job: Job, worker_id: str) -> int:
             logger.info("Job %s status=ok details=%s worker_id=%s", db_job.type, result, worker_id)
             return 1
         except Exception as exc:
-            await mark_job_failed(
+            await _persist_job_failure_after_exception(
                 session,
-                job=db_job,
+                job_id=db_job.id,
                 error=f"job_unexpected:{db_job.type}:{type(exc).__name__}:{exc}",
             )
-            await session.commit()
             logger.exception(
                 "Job failed marker=job_unexpected op=maintenance job_id=%s worker_id=%s err=%r",
                 db_job.id,
@@ -723,12 +756,11 @@ async def _run_comment_job(
             if cc_sleep_max_ms > 0 and not should_break:
                 await asyncio.sleep(random.randint(cc_sleep_min_ms, cc_sleep_max_ms) / 1000.0)
         except Exception as exc:
-            await mark_job_failed(
+            await _persist_job_failure_after_exception(
                 session,
-                job=db_job,
+                job_id=db_job.id,
                 error=f"job_unexpected:{db_job.type}:{type(exc).__name__}:{exc}",
             )
-            await session.commit()
             logger.exception(
                 "Job failed marker=job_unexpected op=comment_job job_id=%s worker_id=%s err=%r",
                 db_job.id,
@@ -846,12 +878,11 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
                     logger.info("Job %s status=%s worker_id=%s", db_job.type, result.get("status"), worker_id)
                     return 1
                 except Exception as exc:
-                    await mark_job_failed(
+                    await _persist_job_failure_after_exception(
                         session,
-                        job=db_job,
+                        job_id=db_job.id,
                         error=f"job_unexpected:{db_job.type}:{type(exc).__name__}:{exc}",
                     )
-                    await session.commit()
                     logger.exception(
                         "Job failed marker=job_unexpected op=ai_job job_id=%s worker_id=%s err=%r",
                         db_job.id,
@@ -1019,30 +1050,18 @@ async def run_telegram_cycle(
     elif not skip_rebuild_graphs:
         logger.info("Skip rebuild: no new posts in this cycle.")
 
-    async with AsyncSessionLocal() as session:
-        now = datetime.now(timezone.utc)
-        daily_key = now.date().isoformat()
-        await enqueue_job(
-            session,
-            job_type=JobType.ARCHIVE_RETENTION,
-            payload={"retention_days": retention_days, "batch_limit": archive_batch_size},
-            run_at=now,
-            priority=PRIORITY_ARCHIVE_RETENTION,
-            dedupe_key=f"archive_retention:{daily_key}",
-        )
-        await enqueue_job(
-            session,
-            job_type=JobType.JOBS_RETENTION,
-            payload={
-                "done_retention_days": done_retention_days,
-                "dead_letter_retention_days": dead_letter_retention_days,
-                "batch_limit": cleanup_batch_size,
-            },
-            run_at=now,
-            priority=PRIORITY_JOBS_RETENTION,
-            dedupe_key=f"jobs_retention:{daily_key}",
-        )
-        await session.commit()
+    if not retention_scheduler_enabled(effective_settings):
+        async with AsyncSessionLocal() as session:
+            await enqueue_daily_retention_jobs(
+                session,
+                effective_settings=effective_settings,
+                now=datetime.now(timezone.utc),
+                retention_days=retention_days,
+                archive_batch_size=archive_batch_size,
+                done_retention_days=done_retention_days,
+                dead_letter_retention_days=dead_letter_retention_days,
+                cleanup_batch_size=cleanup_batch_size,
+            )
 
     executed_jobs = await run_telegram_jobs(
         job_batch_size=job_batch_size,

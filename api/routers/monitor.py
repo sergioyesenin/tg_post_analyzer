@@ -14,6 +14,7 @@ from services.monitoring import (
     health_snapshot,
     jobs_snapshot,
     pipeline_snapshot,
+    scheduler_snapshot,
     system_snapshot,
 )
 
@@ -86,7 +87,8 @@ async def monitor_health(
     _: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    return await health_snapshot(session)
+    effective_settings = await get_all_settings(session)
+    return await health_snapshot(session, effective_settings=effective_settings)
 
 
 @router.get("/system")
@@ -113,10 +115,11 @@ async def monitor_full(
     monitor_settings = effective_settings.get("monitor", {})
     retention_settings = effective_settings.get("retention", {})
     retention_days = int(retention_settings.get("retention_days", 30))
-    health = await health_snapshot(session)
+    health = await health_snapshot(session, effective_settings=effective_settings)
     system = system_snapshot()
     jobs = await jobs_snapshot(session)
     pipeline = await pipeline_snapshot(session, retention_days=retention_days)
+    scheduler = await scheduler_snapshot(session, effective_settings=effective_settings)
     alerts = evaluate_alerts(
         health=health,
         system=system,
@@ -129,6 +132,7 @@ async def monitor_full(
         "system": system,
         "jobs": jobs,
         "pipeline": pipeline,
+        "scheduler": scheduler,
         "alerts": alerts,
         "activity_24h": await activity_snapshot(session, hours=24),
         "database": await database_snapshot(session),
@@ -147,6 +151,15 @@ async def monitor_full(
     return payload
 
 
+@router.get("/scheduler")
+async def monitor_scheduler(
+    _: AuthUser = Depends(require_roles("admin")),
+    session: AsyncSession = Depends(get_session),
+):
+    effective_settings = await get_all_settings(session)
+    return await scheduler_snapshot(session, effective_settings=effective_settings)
+
+
 @router.get("/alerts")
 async def monitor_alerts(
     current_user: AuthUser = Depends(require_roles("admin")),
@@ -156,7 +169,7 @@ async def monitor_alerts(
     monitor_settings = effective_settings.get("monitor", {})
     retention_settings = effective_settings.get("retention", {})
     retention_days = int(retention_settings.get("retention_days", 30))
-    health = await health_snapshot(session)
+    health = await health_snapshot(session, effective_settings=effective_settings)
     system = system_snapshot()
     jobs = await jobs_snapshot(session)
     pipeline = await pipeline_snapshot(session, retention_days=retention_days)

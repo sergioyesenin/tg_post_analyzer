@@ -49,6 +49,12 @@ class ApiSettings(_StrictConfigModel):
     top_posts_default_limit: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["api"]["top_posts_default_limit"], ge=1, le=500)
 
 
+class SchedulerSettings(_StrictConfigModel):
+    enabled: bool = Field(default=CANONICAL_SETTINGS_DEFAULTS["scheduler"]["enabled"])
+    retention_hour: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["scheduler"]["retention_hour"], ge=0, le=23)
+    retention_minute: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["scheduler"]["retention_minute"], ge=0, le=59)
+
+
 class MonitorSettings(_StrictConfigModel):
     disk_used_percent_warn: float = Field(default=CANONICAL_SETTINGS_DEFAULTS["monitor"]["disk_used_percent_warn"], ge=1, le=99)
     disk_used_percent_crit: float = Field(default=CANONICAL_SETTINGS_DEFAULTS["monitor"]["disk_used_percent_crit"], ge=1, le=99)
@@ -80,6 +86,7 @@ class MonitorSettings(_StrictConfigModel):
 class FeaturesSettings(_StrictConfigModel):
     keyword_graph_api_enabled: bool = Field(default=CANONICAL_SETTINGS_DEFAULTS["features"]["keyword_graph_api_enabled"])
     keyword_graph_rollout_percent: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["features"]["keyword_graph_rollout_percent"], ge=0, le=100)
+    scheduler_retention_v2: bool = Field(default=CANONICAL_SETTINGS_DEFAULTS["features"]["scheduler_retention_v2"])
 
 
 SCHEMA_BY_KEY = {
@@ -88,6 +95,7 @@ SCHEMA_BY_KEY = {
     "retention": RetentionSettings,
     "jobs": JobsSettings,
     "api": ApiSettings,
+    "scheduler": SchedulerSettings,
     "monitor": MonitorSettings,
     "features": FeaturesSettings,
 }

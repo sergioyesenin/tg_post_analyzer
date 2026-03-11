@@ -4,12 +4,17 @@ import os
 import shutil
 import time
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from client import client
+from config import settings
 from db.models import Comment, Job, JobDeadLetter, Post
+from services.jobs import JobType
+from services.runtime_heartbeat import HEARTBEAT_TIMEOUT_SECONDS, get_runtime_heartbeat
+from services.scheduler_dispatch import retention_scheduler_enabled
 
 try:
     import psutil  # type: ignore
@@ -19,6 +24,19 @@ except Exception:  # pragma: no cover - optional dependency
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _scheduled_run_bounds(*, now: datetime, hour: int, minute: int, tz_name: str) -> tuple[datetime, datetime]:
+    tz = ZoneInfo(tz_name)
+    local_now = now.astimezone(tz)
+    scheduled_today = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if local_now >= scheduled_today:
+        last_expected_local = scheduled_today
+        next_expected_local = scheduled_today + timedelta(days=1)
+    else:
+        last_expected_local = scheduled_today - timedelta(days=1)
+        next_expected_local = scheduled_today
+    return last_expected_local.astimezone(timezone.utc), next_expected_local.astimezone(timezone.utc)
 
 
 def system_snapshot() -> dict:
@@ -261,7 +279,86 @@ async def pipeline_snapshot(session: AsyncSession, *, retention_days: int = 30) 
     }
 
 
-async def health_snapshot(session: AsyncSession) -> dict:
+async def scheduler_snapshot(session: AsyncSession, *, effective_settings: dict) -> dict:
+    now = _utcnow()
+    scheduler_settings = effective_settings.get("scheduler", {})
+    scheduler_enabled = retention_scheduler_enabled(effective_settings)
+    retention_hour = int(scheduler_settings.get("retention_hour", 3))
+    retention_minute = int(scheduler_settings.get("retention_minute", 0))
+    last_expected_run_at, next_expected_run_at = _scheduled_run_bounds(
+        now=now,
+        hour=retention_hour,
+        minute=retention_minute,
+        tz_name=settings.tz,
+    )
+
+    archive_enqueue_at = await session.scalar(
+        select(func.max(Job.created_at)).where(Job.type == JobType.ARCHIVE_RETENTION)
+    )
+    jobs_retention_enqueue_at = await session.scalar(
+        select(func.max(Job.created_at)).where(Job.type == JobType.JOBS_RETENTION)
+    )
+    last_enqueue_at = max(
+        [value for value in [archive_enqueue_at, jobs_retention_enqueue_at] if value is not None],
+        default=None,
+    )
+    heartbeat_payload = await get_runtime_heartbeat(session, runtime_name="scheduler")
+    heartbeat_at_raw = None if heartbeat_payload is None else heartbeat_payload.get("heartbeat_at")
+    heartbeat_at = None
+    if isinstance(heartbeat_at_raw, str):
+        try:
+            heartbeat_at = datetime.fromisoformat(heartbeat_at_raw)
+        except ValueError:
+            heartbeat_at = None
+    heartbeat_age_seconds = None
+    if heartbeat_at is not None:
+        heartbeat_age_seconds = max(0.0, (now - heartbeat_at).total_seconds())
+
+    process_state = "missing"
+    if heartbeat_payload is not None:
+        process_state = str(heartbeat_payload.get("status") or "unknown")
+        if process_state == "running" and heartbeat_age_seconds is not None and heartbeat_age_seconds > HEARTBEAT_TIMEOUT_SECONDS:
+            process_state = "stale"
+
+    enqueue_lag_seconds = None
+    if last_enqueue_at is not None:
+        enqueue_lag_seconds = max(0.0, (now - last_enqueue_at).total_seconds())
+
+    if not scheduler_enabled:
+        status = "disabled"
+    elif process_state in {"missing", "stale", "stopped", "unknown"}:
+        status = f"process_{process_state}"
+    elif last_enqueue_at is None or last_enqueue_at < last_expected_run_at:
+        status = "late_or_missing"
+    else:
+        status = "ok"
+
+    return {
+        "status": status,
+        "retention_mode": "scheduler" if scheduler_enabled else "telegram_fallback",
+        "enabled": scheduler_enabled,
+        "timezone": settings.tz,
+        "schedule": {
+            "retention_hour": retention_hour,
+            "retention_minute": retention_minute,
+            "last_expected_run_at": last_expected_run_at.isoformat(),
+            "next_expected_run_at": next_expected_run_at.isoformat(),
+        },
+        "process": {
+            "status": process_state if scheduler_enabled else "disabled",
+            "last_heartbeat_at": heartbeat_at.isoformat() if heartbeat_at else None,
+            "heartbeat_age_seconds": heartbeat_age_seconds,
+            "heartbeat_timeout_seconds": HEARTBEAT_TIMEOUT_SECONDS,
+            "pid": None if heartbeat_payload is None else ((heartbeat_payload.get("details") or {}).get("pid")),
+        },
+        "last_archive_enqueue_at": archive_enqueue_at.isoformat() if archive_enqueue_at else None,
+        "last_jobs_retention_enqueue_at": jobs_retention_enqueue_at.isoformat() if jobs_retention_enqueue_at else None,
+        "last_enqueue_at": last_enqueue_at.isoformat() if last_enqueue_at else None,
+        "enqueue_lag_seconds": enqueue_lag_seconds,
+    }
+
+
+async def health_snapshot(session: AsyncSession, *, effective_settings: dict | None = None) -> dict:
     started = time.perf_counter()
     db_ok = True
     db_error = None
@@ -273,21 +370,39 @@ async def health_snapshot(session: AsyncSession) -> dict:
 
     db_latency_ms = round((time.perf_counter() - started) * 1000.0, 2)
     tg_connected = bool(client.is_connected())
+    scheduler = None
+    if effective_settings is not None:
+        scheduler = await scheduler_snapshot(session, effective_settings=effective_settings)
     status = "ok" if db_ok else "degraded"
+    if scheduler is not None and scheduler.get("status") not in {"ok", "disabled"}:
+        status = "degraded"
+    dependencies = {
+        "database": {
+            "ok": db_ok,
+            "latency_ms": db_latency_ms,
+            "error": db_error,
+        },
+        "telegram_client": {
+            "ok": tg_connected,
+            "connected": tg_connected,
+        },
+    }
+    if scheduler is not None:
+        dependencies["scheduler"] = {
+            "ok": scheduler.get("status") in {"ok", "disabled"},
+            "enabled": scheduler.get("enabled"),
+            "status": scheduler.get("status"),
+            "retention_mode": scheduler.get("retention_mode"),
+            "next_expected_run_at": ((scheduler.get("schedule") or {}).get("next_expected_run_at")),
+            "last_enqueue_at": scheduler.get("last_enqueue_at"),
+            "last_heartbeat_at": ((scheduler.get("process") or {}).get("last_heartbeat_at")),
+            "process_status": ((scheduler.get("process") or {}).get("status")),
+        }
+
     return {
         "status": status,
         "time_utc": _utcnow().isoformat(),
-        "dependencies": {
-            "database": {
-                "ok": db_ok,
-                "latency_ms": db_latency_ms,
-                "error": db_error,
-            },
-            "telegram_client": {
-                "ok": tg_connected,
-                "connected": tg_connected,
-            },
-        },
+        "dependencies": dependencies,
     }
 
 
@@ -331,6 +446,10 @@ def evaluate_alerts(
     db_latency_ms = ((health.get("dependencies") or {}).get("database") or {}).get("latency_ms")
     tg_connected = ((health.get("dependencies") or {}).get("telegram_client") or {}).get("connected")
     dead_letter_count = jobs.get("dead_letter_count")
+    scheduler_dependency = ((health.get("dependencies") or {}).get("scheduler") or {})
+    scheduler_ok = scheduler_dependency.get("ok")
+    scheduler_enabled = scheduler_dependency.get("enabled")
+    scheduler_status = scheduler_dependency.get("status")
     pipeline = pipeline or {}
     pipeline_ingest_lag = ((pipeline.get("ingest") or {}).get("ingest_lag_seconds"))
     pipeline_backlog_delta = ((pipeline.get("backlog") or {}).get("delta_1h"))
@@ -430,6 +549,14 @@ def evaluate_alerts(
             tg_connected,
             True,
             "Telegram client is disconnected.",
+        )
+    if scheduler_enabled and scheduler_ok is False:
+        _add_alert(
+            "warning",
+            "scheduler.status",
+            scheduler_status,
+            "ok",
+            "Scheduler process or retention schedule state is degraded.",
         )
 
     status = "ok"

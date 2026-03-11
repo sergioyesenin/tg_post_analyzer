@@ -7,7 +7,7 @@ from db.models import AppSetting
 from deps import get_session, require_roles
 from schemas.settings import AppSettingOut, AppSettingUpdateIn
 from services.auth import AuthUser, write_audit_log
-from services.settings_store import DEFAULT_SETTINGS, get_all_settings, upsert_setting
+from services.settings_store import DEFAULT_SETTINGS, get_all_settings, is_internal_setting_key, upsert_setting
 from services.settings_validation import validate_setting_payload
 
 router = APIRouter()
@@ -28,6 +28,7 @@ async def list_settings(
             updated_at=row.updated_at,
         )
         for row in rows
+        if not is_internal_setting_key(row.key)
     ]
 
 
@@ -47,7 +48,7 @@ async def update_setting(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Supported keys: ingest, reports, retention, jobs, api, monitor, features.
+    Supported keys: ingest, reports, retention, jobs, api, scheduler, monitor, features.
     """
     if key not in DEFAULT_SETTINGS:
         raise HTTPException(status_code=404, detail=f"Unknown setting key: {key}")

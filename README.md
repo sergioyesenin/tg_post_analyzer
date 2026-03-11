@@ -145,10 +145,12 @@ Recommended setup:
 - `uvicorn api.main:app --reload`
 - `python scripts/run_telegram_pipeline.py --daemon`
 - `python scripts/run_ai_pipeline.py --daemon`
+- `python scripts/run_scheduler.py`
 
 Pipeline responsibilities:
-- `scripts/run_telegram_pipeline.py`: ingest, collect/refresh comments, build post links, retention jobs.
+- `scripts/run_telegram_pipeline.py`: ingest, collect/refresh comments, build post links, and retention enqueue fallback while scheduler rollout is disabled.
 - `scripts/run_ai_pipeline.py`: background `build_post_report` for posts older than 12 hours, plus high-priority `build_event_report` and `build_process_report` jobs triggered by API.
+- `scripts/run_scheduler.py`: APScheduler control plane for feature-flagged periodic scheduling such as daily retention enqueue.
 
 ## Canonical Telegram Runtime
 
@@ -166,11 +168,20 @@ Pipeline responsibilities:
   - `ingest.collect_comments_sleep_min_ms=2500`
   - `ingest.collect_comments_sleep_max_ms=4500`
   - `jobs.job_batch_size=20`
-  - `jobs.ai_poll_seconds=120`
-  - `reports.post_report_delay_hours=12`
+- `jobs.ai_poll_seconds=120`
+- `reports.post_report_delay_hours=12`
+- `scheduler.enabled=false`
 - Telegram env defaults currently include:
   - `TG_SESSION_NAME=tg_analytics.session`
   - `TG_FLOOD_SLEEP_THRESHOLD=5`
 - Throttling scopes are different and both are supported:
-  - `COMMENTS_SLEEP_*` env vars control intra-request comment iteration in `services/TGqueries.py`
-  - `ingest.collect_comments_sleep_*_ms` settings control inter-job pacing in Telegram pipeline workers
+- `COMMENTS_SLEEP_*` env vars control intra-request comment iteration in `services/TGqueries.py`
+- `ingest.collect_comments_sleep_*_ms` settings control inter-job pacing in Telegram pipeline workers
+
+## APScheduler Retention Rollout
+
+- Enable `features.scheduler_retention_v2=true` and `scheduler.enabled=true` in `/api/settings`.
+- Configure daily retention enqueue time with `scheduler.retention_hour` and `scheduler.retention_minute`.
+- While the feature flag is disabled, retention jobs continue to be enqueued by `run_telegram_pipeline.py`.
+- Inspect scheduler rollout state via `/api/monitor/scheduler` or `/api/monitor/full`.
+- Monitoring includes scheduler process heartbeat, so it can distinguish a stale/missing scheduler process from a healthy process with a retention enqueue issue.

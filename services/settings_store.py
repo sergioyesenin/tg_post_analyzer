@@ -15,6 +15,10 @@ from services.settings_validation import validate_setting_payload
 DEFAULT_SETTINGS: dict[str, dict] = get_canonical_defaults()
 
 
+def is_internal_setting_key(key: str) -> bool:
+    return key.startswith("runtime.")
+
+
 def _merge_dict(base: dict, extra: dict | None) -> dict:
     out = deepcopy(base)
     if not isinstance(extra, dict):
@@ -37,6 +41,8 @@ async def get_all_settings(session: AsyncSession) -> dict[str, dict]:
     result: dict[str, dict] = {k: deepcopy(v) for k, v in DEFAULT_SETTINGS.items()}
     rows = (await session.execute(select(AppSetting))).scalars().all()
     for row in rows:
+        if is_internal_setting_key(row.key):
+            continue
         merged = _merge_dict(result.get(row.key, {}), row.value_json if isinstance(row.value_json, dict) else {})
         result[row.key] = validate_setting_payload(row.key, merged) if row.key in DEFAULT_SETTINGS else merged
     return result

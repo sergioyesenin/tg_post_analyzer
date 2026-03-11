@@ -40,6 +40,11 @@ CANONICAL_SETTINGS_DEFAULTS: dict[str, dict] = {
     "api": {
         "top_posts_default_limit": 20,
     },
+    "scheduler": {
+        "enabled": False,
+        "retention_hour": 3,
+        "retention_minute": 0,
+    },
     "monitor": {
         "disk_used_percent_warn": 80,
         "disk_used_percent_crit": 90,
@@ -70,6 +75,7 @@ CANONICAL_SETTINGS_DEFAULTS: dict[str, dict] = {
     "features": {
         "keyword_graph_api_enabled": True,
         "keyword_graph_rollout_percent": 100,
+        "scheduler_retention_v2": False,
     },
 }
 

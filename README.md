@@ -152,6 +152,7 @@ Pipeline responsibilities:
 - `scripts/run_telegram_pipeline.py`: ingest, collect/refresh comments, build post links, and retention enqueue fallback while scheduler rollout is disabled.
 - `scripts/run_ai_pipeline.py`: background `build_post_report` for posts older than 12 hours, plus high-priority `build_event_report` and `build_process_report` jobs triggered by API.
 - `scripts/run_scheduler.py`: APScheduler control plane for feature-flagged periodic scheduling such as daily retention enqueue.
+- `/api/monitor/health` and `/api/monitor/full` use runtime heartbeats from Telegram, AI, and scheduler processes instead of API-local process state.
 
 ## Canonical Telegram Runtime
 
@@ -166,18 +167,30 @@ Pipeline responsibilities:
 - Telegram pipeline defaults currently include:
   - `ingest.poll_seconds=240`
   - `ingest.lookback_days=3`
+  - `ingest.max_posts_per_channel=30`
+  - `ingest.comment_first_delay_hours=2`
+  - `ingest.comment_interval_hours=2`
+  - `ingest.comment_window_hours=24`
+  - `ingest.comment_schedule_jitter_seconds=7200`
   - `ingest.collect_comments_sleep_min_ms=2500`
   - `ingest.collect_comments_sleep_max_ms=4500`
+  - `jobs.collect_comments_quota_per_run=2`
   - `jobs.job_batch_size=20`
-- `jobs.ai_poll_seconds=120`
-- `reports.post_report_delay_hours=12`
-- `scheduler.enabled=false`
+  - `jobs.job_worker_concurrency=2`
+- AI pipeline defaults currently include:
+  - `jobs.ai_poll_seconds=120`
+  - `jobs.ai_scheduler_limit=200`
+  - `reports.post_report_delay_hours=12`
+- Scheduler defaults currently include:
+  - `scheduler.enabled=false`
+  - `scheduler.retention_hour=3`
+  - `scheduler.retention_minute=0`
 - Telegram env defaults currently include:
   - `TG_SESSION_NAME=tg_analytics.session`
   - `TG_FLOOD_SLEEP_THRESHOLD=5`
 - Throttling scopes are different and both are supported:
-- `COMMENTS_SLEEP_*` env vars control intra-request comment iteration in `services/TGqueries.py`
-- `ingest.collect_comments_sleep_*_ms` settings control inter-job pacing in Telegram pipeline workers
+  - `COMMENTS_SLEEP_*` env vars control intra-request comment iteration in `services/TGqueries.py`
+  - `ingest.collect_comments_sleep_*_ms` settings control inter-job pacing in Telegram pipeline workers
 
 ## APScheduler Retention Rollout
 

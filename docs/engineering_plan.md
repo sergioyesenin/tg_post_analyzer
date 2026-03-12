@@ -302,10 +302,6 @@ requirements.txt, импортируемые модули, README.
 
 
 
-TASK-006
-TASK-007
-TASK-010
-TASK-013
 
 TASK-009
 TASK-011

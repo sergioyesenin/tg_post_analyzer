@@ -12,6 +12,7 @@ from services.auth import (
     create_access_token,
     ensure_roles_exist,
     get_user_roles,
+    get_user_roles_map,
     hash_password,
     issue_refresh_token,
     revoke_refresh_token,
@@ -23,6 +24,11 @@ router = APIRouter()
 
 
 async def _serialize_user(session: AsyncSession, user: User) -> UserOut:
+    roles_map = await get_user_roles_map(session, [user.id])
+    return _serialize_user_with_roles(user, roles_map)
+
+
+def _serialize_user_with_roles(user: User, roles_map: dict[int, list[str]]) -> UserOut:
     return UserOut(
         id=user.id,
         username=user.username,
@@ -30,7 +36,7 @@ async def _serialize_user(session: AsyncSession, user: User) -> UserOut:
         full_name=user.full_name,
         is_active=user.is_active,
         is_local=user.is_local,
-        roles=await get_user_roles(session, user.id),
+        roles=roles_map.get(user.id, []),
         created_at=user.created_at,
     )
 
@@ -119,7 +125,8 @@ async def list_users(
     session: AsyncSession = Depends(get_session),
 ):
     users = (await session.execute(select(User).order_by(User.id.asc()))).scalars().all()
-    return [await _serialize_user(session, user) for user in users]
+    roles_map = await get_user_roles_map(session, [user.id for user in users])
+    return [_serialize_user_with_roles(user, roles_map) for user in users]
 
 
 @router.post("/users", response_model=UserOut)

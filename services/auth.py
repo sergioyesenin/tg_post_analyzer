@@ -87,6 +87,22 @@ async def get_user_roles(session: AsyncSession, user_id: int) -> list[str]:
     return [row[0] for row in (await session.execute(stmt)).all()]
 
 
+async def get_user_roles_map(session: AsyncSession, user_ids: list[int]) -> dict[int, list[str]]:
+    if not user_ids:
+        return {}
+    stmt = (
+        select(UserRole.user_id, Role.name)
+        .join(Role, Role.id == UserRole.role_id)
+        .where(UserRole.user_id.in_(user_ids))
+        .order_by(UserRole.user_id.asc(), Role.name.asc())
+    )
+    rows = (await session.execute(stmt)).all()
+    roles_map: dict[int, list[str]] = {user_id: [] for user_id in user_ids}
+    for user_id, role_name in rows:
+        roles_map.setdefault(int(user_id), []).append(str(role_name))
+    return roles_map
+
+
 async def authenticate_local_user(session: AsyncSession, *, username: str, password: str) -> AuthUser | None:
     user = await get_user_by_username(session, username)
     if user is None or not user.is_active:

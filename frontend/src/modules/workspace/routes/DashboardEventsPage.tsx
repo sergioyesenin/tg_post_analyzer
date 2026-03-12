@@ -1,5 +1,5 @@
-import { DashboardModePage } from '@modules/workspace/components/DashboardModePage';
+import { EventsDashboardScreen } from '@modules/workspace/events/EventsDashboardScreen';
 
 export function DashboardEventsPage() {
-  return <DashboardModePage mode="events" />;
+  return <EventsDashboardScreen />;
 }

@@ -1,4 +1,4 @@
-import type { PostsDashboardResponse } from '@shared/dashboard/contracts';
+import type { EventGraphResponse, EventsDashboardResponse, PostsDashboardResponse } from '@shared/dashboard/contracts';
 import type {
   CommentDto,
   LinkDto,
@@ -75,6 +75,134 @@ export function createPostsDashboardResponse(
       sort: { by: 'date', order: 'desc' },
       supported_sorts: ['comments_count', 'date', 'views', 'involvement'],
     },
+    ...overrides,
+  };
+}
+
+export function createEventsDashboardResponse(
+  overrides: Partial<EventsDashboardResponse> = {},
+): EventsDashboardResponse {
+  return {
+    mode: 'events',
+    generated_at: '2026-03-13T08:45:00Z',
+    partial: false,
+    warnings: [],
+    filters_applied: {
+      date_from: null,
+      date_to: null,
+      limit: 25,
+      status: [],
+      channel_ids: [],
+      categories: [],
+      min_comments: null,
+      sort_by: 'started_at',
+      sort_order: 'desc',
+    },
+    summary: {
+      events_count: 2,
+      total_linked_posts: 5,
+      total_comments: 611,
+      avg_involvement: 0.42,
+      draft_reports: 1,
+      ready_reports: 1,
+      failed_reports: 0,
+    },
+    items: [
+      {
+        event_id: 81,
+        title: 'Election coverage spike',
+        status: 'active',
+        started_at: '2026-03-12T06:30:00Z',
+        ended_at: null,
+        confidence: 0.88,
+        comments_count: 310,
+        involvement: 0.57,
+        posts_count: 3,
+        post_ids: [4012, 3975, 3980],
+        root_post_id: 4012,
+        channels: [
+          { channel_id: 77, channel_username: 'signal_watch' },
+          { channel_id: 91, channel_username: 'briefing_room' },
+        ],
+        report_status: 'draft',
+        graph_ready: true,
+      },
+      {
+        event_id: 82,
+        title: 'Official response cascade',
+        status: 'cooling',
+        started_at: '2026-03-11T14:00:00Z',
+        ended_at: '2026-03-12T02:30:00Z',
+        confidence: 0.73,
+        comments_count: 301,
+        involvement: 0.35,
+        posts_count: 2,
+        post_ids: [4100, 4105],
+        root_post_id: 4100,
+        channels: [{ channel_id: 22, channel_username: 'gov_updates' }],
+        report_status: 'ready',
+        graph_ready: true,
+      },
+    ],
+    meta: {
+      sort: { by: 'started_at', order: 'desc' },
+      supported_sorts: ['started_at', 'comments_count', 'involvement', 'posts_count'],
+    },
+    ...overrides,
+  };
+}
+
+export function createEventGraphResponse(
+  overrides: Partial<EventGraphResponse> = {},
+): EventGraphResponse {
+  return {
+    event: {
+      event_id: 81,
+      title: 'Election coverage spike',
+      status: 'active',
+      started_at: '2026-03-12T06:30:00Z',
+      ended_at: null,
+      confidence: 0.88,
+      report_status: 'draft',
+      posts_count: 3,
+      comments_count: 310,
+      involvement: 0.57,
+    },
+    nodes: [
+      {
+        post_id: 4012,
+        channel_id: 77,
+        channel_username: 'signal_watch',
+        date: '2026-03-12T06:45:00Z',
+        text_preview: 'Root post drives the event graph.',
+        comments_count: 170,
+        views: 14300,
+        involvement: 0.62,
+        is_root: true,
+      },
+      {
+        post_id: 3975,
+        channel_id: 91,
+        channel_username: 'briefing_room',
+        date: '2026-03-12T07:10:00Z',
+        text_preview: 'Linked post extends the same event narrative.',
+        comments_count: 83,
+        views: 9800,
+        involvement: 0.38,
+        is_root: false,
+      },
+    ],
+    edges: [
+      {
+        link_id: 18,
+        src_post_id: 4012,
+        dst_post_id: 3975,
+        link_type: 'related',
+        direction: 'src_to_dst',
+        score: 0.81,
+        status: 'verified',
+      },
+    ],
     ...overrides,
   };
 }

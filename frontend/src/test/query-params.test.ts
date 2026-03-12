@@ -35,7 +35,7 @@ describe('Dashboard filter parsing and serialization', () => {
     expect(
       parseDashboardFilters(
         'posts',
-        '?date_from=2026-03-01&date_to=2026-03-10&channel_ids=3&channel_ids=9&categories=media&report_status=ready&min_comments=12&sort_by=views&sort_order=asc',
+        '?date_from=2026-03-01&date_to=2026-03-10&channel_ids=3,9&categories=media&report_status=ready&min_comments=12&sort_by=views&sort_order=asc',
       ),
     ).toEqual({
       date_from: '2026-03-01',
@@ -56,14 +56,14 @@ describe('Dashboard filter parsing and serialization', () => {
         date_from: '2026-03-01',
         date_to: null,
         limit: 25,
-        status: ['active'],
-        channel_ids: [7],
-        categories: [],
+        status: ['active', 'cooling'],
+        channel_ids: [7, 9],
+        categories: ['media'],
         min_comments: null,
         sort_by: 'started_at',
         sort_order: 'asc',
       }),
-    ).toBe('date_from=2026-03-01&status=active&channel_ids=7&sort_order=asc');
+    ).toBe('date_from=2026-03-01&status=active%2Ccooling&channel_ids=7%2C9&categories=media&sort_order=asc');
   });
 
   it('keeps only target-supported shared filters when switching dashboard modes', () => {

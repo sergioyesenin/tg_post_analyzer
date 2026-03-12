@@ -9,6 +9,7 @@ export type DashboardTableColumn = {
 export type DashboardTableRow = {
   id: string;
   href?: string;
+  isSelected?: boolean;
   cells: Record<string, ReactNode>;
 };
 
@@ -43,10 +44,10 @@ export function DashboardTableShell({ title, description, columns, rows }: Dashb
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id}>
+              <tr key={row.id} className={row.isSelected ? 'dashboard-table-shell__row--selected' : undefined}>
                 {columns.map((column) => (
                   <td key={column.id} data-column-id={column.id}>
-                    {row.cells[column.id] ?? '—'}
+                    {row.cells[column.id] ?? '-'}
                   </td>
                 ))}
               </tr>

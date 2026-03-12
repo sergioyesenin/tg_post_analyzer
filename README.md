@@ -376,6 +376,66 @@ frontend/
 - `partial`: warnings banner plus partial notice render without replacing the table.
 - `viewer`: read-only notice renders and mutation entry points stay hidden while detail navigation remains available.
 
+### dashboard/events
+
+- `/dashboard/events` is now implemented against live `GET /api/dashboard/events`.
+- Supported filter params:
+- `date_from`
+- `date_to`
+- `limit`
+- `status`
+- `channel_ids`
+- `categories`
+- `min_comments`
+- `sort_by`
+- `sort_order`
+- Supported events sorts:
+- `started_at`
+- `comments_count`
+- `involvement`
+- `posts_count`
+- The screen renders:
+- KPI summary cards from `summary`
+- dense event table from `items`
+- selected-event graph area backed by `GET /api/dashboard/events/{event_id}/graph`
+- selected-event detail panel with related posts list
+- event report status badges
+- `generated_at`
+- `warnings[]`
+- `partial=true` as a non-blocking exploration state
+- async draft report action for analyst/admin users
+
+### Event Graph Architecture
+
+- Dashboard snapshot and graph snapshot are intentionally split:
+- `GET /api/dashboard/events` provides table/summary/selection candidates
+- `GET /api/dashboard/events/{event_id}/graph` loads only for the currently selected event
+- This avoids unnecessary graph fetch chains on route entry and keeps graph loading scoped to one selected entity.
+- Graph UI is composed from reusable parts:
+- `EventGraphPanel`
+- `EventGraphToolbar`
+- `EventGraphLegend`
+- no-selection placeholder
+- no-edges state
+- partial-graph notice
+- Current rendering uses a framework-native graph surface because React Flow is not installed in this repository yet.
+
+### Event Selection Model
+
+- Selection is local UI state, not a backend filter.
+- The first available event auto-selects after dashboard data loads, so the graph area opens without an extra click.
+- If filters or refetches keep the selected event in the snapshot, selection is preserved.
+- If the selected event disappears from the new snapshot, selection falls back to the first available row.
+- Graph query is enabled only when a valid selected event exists.
+
+### Event Detail Panel Behavior
+
+- The detail rail stays mounted beside the table and graph so layout does not collapse during graph loading or error states.
+- Event metadata comes from the dashboard snapshot; graph-specific enrichments come from the selected graph response when available.
+- Related posts list reuses graph nodes when loaded and falls back to dashboard `post_ids` when graph data is absent or degraded.
+- Viewer access remains read-only: selection, graph exploration and related-post navigation stay visible, while draft-report mutation is hidden.
+- Analyst and admin users can trigger `POST /api/reports/events/{event_id}/update`, with jobs polling and invalidation handled through the shared async jobs layer.
+
 ### Post Detail
 
 - `/posts/:postId` is now implemented as the detail entry point for `dashboard/posts`.
@@ -426,7 +486,8 @@ frontend/
 - Stage 2 workspace foundation is implemented: one analytics workspace layout, role-aware navigation, mode switcher, URL-owned dashboard filters, generated-at rendering and non-blocking partial/warnings layer.
 - Stage 3 posts dashboard is implemented against live `GET /api/dashboard/posts`.
 - Stage 4 post detail is implemented against live post/comments/report/links endpoints with role-aware async mutation flows and jobs polling.
-- Events and processes dashboards still use contract-safe placeholder transport snapshots.
+- Stage 5 events dashboard is implemented against live dashboard and event-graph endpoints with stable selection and async event report draft actions.
+- Processes dashboard still uses a contract-safe placeholder transport snapshot.
 - Desktop-first split layout foundation is in place for future table/detail/graph composition.
 
 ### Assumptions And Deferred Edges
@@ -434,16 +495,16 @@ frontend/
 - No proactive token refresh scheduler or expiry countdown is implemented yet; current scope is refresh-on-401 only.
 - No final UX copy handoff exists for all data-block errors, so shared messages remain minimal safe defaults.
 - The repository frontend currently does not ship MUI, MUI X, React Hook Form, Zod or React Flow packages, so this stage uses framework-native foundations while keeping component boundaries ready for later migration.
-- Detail mutation support currently covers only post comment refresh and post report generation/update.
+- Detail mutation support currently covers post comment refresh, post report generation/update, and event report draft generation/update.
 
 ### Remaining Gaps Against Spec
 
 - No access-token expiry countdown or proactive refresh scheduling yet.
-- `dashboard/events` and `dashboard/processes` still do not use live `/api/dashboard/*` queries.
+- `dashboard/processes` still does not use live `/api/dashboard/*` queries.
 - No MUI/MUI X DataGrid integration yet; dashboard table is a reusable HTML shell only.
-- No graph panels, details drawers, or broader mutation controls beyond post detail async actions yet.
+- Event graph is implemented, but process graph and broader graph tooling remain unfinished.
 - No finalized table specs, graph specs, detail panel rules, copy rules or API-to-UI mapping implementation from the handoff checklist yet.
-- Action-level RBAC is implemented for current post detail mutations, but not yet rolled out across future dashboard/event/process actions.
+- Action-level RBAC is implemented for current post detail and event dashboard mutations, but not yet rolled out across future process/actions surfaces.
 - No final UI/UX handoff artifacts such as wireframes, hi-fi mocks, status matrix or interaction matrix in the repo yet.
 
 ## Pipeline Concurrency Settings

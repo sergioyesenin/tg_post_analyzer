@@ -95,12 +95,19 @@ const filterConfigs: { [TMode in DashboardMode]: FilterConfig<TMode> } = {
 };
 
 function parseStringList(params: URLSearchParams, key: string) {
-  return params.getAll(key).map((value) => value.trim()).filter(Boolean);
+  return params
+    .getAll(key)
+    .flatMap((value) => value.split(','))
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 function parseNumberList(params: URLSearchParams, key: string) {
   return params
     .getAll(key)
+    .flatMap((value) => value.split(','))
+    .map((value) => value.trim())
+    .filter(Boolean)
     .map((value) => Number(value))
     .filter((value) => Number.isFinite(value));
 }
@@ -189,7 +196,7 @@ export function serializeDashboardFilters<TMode extends DashboardMode>(
         return;
       }
 
-      query[key] = [...value];
+      query[key] = value.join(',');
       return;
     }
 

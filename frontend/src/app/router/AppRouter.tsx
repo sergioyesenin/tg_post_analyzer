@@ -11,6 +11,7 @@ import { MonitorPlaceholderPage } from '@modules/platform/routes/MonitorPlacehol
 import { ReportsPlaceholderPage } from '@modules/platform/routes/ReportsPlaceholderPage';
 import { SettingsPlaceholderPage } from '@modules/platform/routes/SettingsPlaceholderPage';
 import { UsersPlaceholderPage } from '@modules/platform/routes/UsersPlaceholderPage';
+import { AnalyticsWorkspaceLayout } from '@modules/workspace/layouts/AnalyticsWorkspaceLayout';
 import { DashboardEventsPage } from '@modules/workspace/routes/DashboardEventsPage';
 import { DashboardPostsPage } from '@modules/workspace/routes/DashboardPostsPage';
 import { DashboardProcessesPage } from '@modules/workspace/routes/DashboardProcessesPage';
@@ -39,16 +40,22 @@ const routes = [
         element: <RootRedirect />,
       },
       {
-        path: 'dashboard/posts',
-        element: <DashboardPostsPage />,
-      },
-      {
-        path: 'dashboard/events',
-        element: <DashboardEventsPage />,
-      },
-      {
-        path: 'dashboard/processes',
-        element: <DashboardProcessesPage />,
+        path: 'dashboard',
+        element: <AnalyticsWorkspaceLayout />,
+        children: [
+          {
+            path: 'posts',
+            element: <DashboardPostsPage />,
+          },
+          {
+            path: 'events',
+            element: <DashboardEventsPage />,
+          },
+          {
+            path: 'processes',
+            element: <DashboardProcessesPage />,
+          },
+        ],
       },
       {
         path: 'posts/:postId',

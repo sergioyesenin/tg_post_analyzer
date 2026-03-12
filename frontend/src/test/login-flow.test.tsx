@@ -56,7 +56,7 @@ describe('Login flow', () => {
     await user.click(screen.getByRole('button', { name: /Sign in/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Posts dashboard foundation/i)).toBeInTheDocument();
+      expect(screen.getByText(/Posts workspace/i)).toBeInTheDocument();
     });
 
     expect(screen.getByText(/analyst@example.com/i)).toBeInTheDocument();

@@ -179,9 +179,9 @@ npm test
 
 ### Architecture
 
-- `src/app`: application bootstrap, providers, app shell, router, guards, global styles
-- `src/shared`: cross-cutting API client, auth roles, dashboard contracts, theme tokens, routing metadata, reusable states, query-string utils
-- `src/modules`: route modules grouped by business area; stage 0 contains placeholders only
+- `src/app`: application bootstrap, providers, global shell, router, guards, top navigation and role-aware sidebar navigation
+- `src/shared`: cross-cutting API client, auth roles, dashboard contracts, dashboard filter/query helpers, transport-to-view-model mapping, reusable dashboard blocks, theme tokens and state components
+- `src/modules`: route modules grouped by business area; workspace now owns one reusable analytics layout plus mode pages for posts, events and processes
 
 ### Directory Structure
 
@@ -254,25 +254,59 @@ frontend/
 - `viewer`: workspace routes, details, and reports are visible as read-only; keyword graph and admin areas stay hidden in navigation and forbidden on direct entry.
 - Action-level foundation is centralized in `frontend/src/shared/routing/policy.ts` so future mutations can reuse the same role matrix instead of re-encoding permissions per screen.
 
+### Workspace Architecture
+
+- `AppShell` owns the application frame, top navigation, session chip and role-aware secondary navigation.
+- `AnalyticsWorkspaceLayout` owns the dashboard workspace header, mode switcher and the contract for mode-to-mode navigation.
+- Dashboard routes are nested under one workspace parent route:
+- `/dashboard/posts`
+- `/dashboard/events`
+- `/dashboard/processes`
+- Each mode page composes the same reusable building blocks: warnings banner, partial notice, generated-at display, summary cards, filter bar, split content area and table shell.
+- Route modules outside `/dashboard/*` remain isolated placeholders so workspace changes do not leak into admin/report/detail ownership.
+
 ### Route Strategy
 
 - `/login` is public.
 - Protected routes render inside one `AppShell`.
 - `/` redirects to `/dashboard/posts`.
-- Dashboard modes are explicit top-level routes: `/dashboard/posts`, `/dashboard/events`, `/dashboard/processes`.
-- Detail, reports, admin, monitor, jobs and keyword graph routes already exist as placeholders to stabilize ownership and RBAC early.
+- `/dashboard/*` now renders inside `AnalyticsWorkspaceLayout` instead of each mode owning its own shell.
+- Detail, reports, admin, monitor, jobs and keyword graph routes still exist as separate modules and continue to use the same RBAC source of truth.
 - `AuthGuard` protects the shell. `RoleGuard` returns a reusable forbidden state for unauthorized role access instead of silently hiding route issues.
 
-### Dashboard Data Foundation
+### Dashboard Shell
 
-- Transport DTO contracts live in `frontend/src/shared/dashboard/contracts.ts` and mirror backend `schemas.dashboard`.
-- Transport-to-UI mapping entry points live in `frontend/src/shared/dashboard/mappers.ts`; current stage keeps them as thin pass-through adapters so stage 2 can add view-model shaping without rewriting contracts.
-- Query key naming conventions live in `frontend/src/shared/dashboard/query-keys.ts`.
-- Shared ownership is explicit:
-- session/auth source of truth: `frontend/src/app/providers/SessionProvider.tsx`
-- RBAC/navigation/route policy source of truth: `frontend/src/shared/routing/policy.ts`
-- dashboard transport contracts and partial/warnings envelope: `frontend/src/shared/dashboard/contracts.ts`
-- URL query parsing/serialization: `frontend/src/shared/utils/queryParams.ts`
+- Transport DTO contracts live in `frontend/src/shared/dashboard/contracts.ts` and still mirror backend `schemas.dashboard`.
+- Transport DTOs and UI view models are separated: placeholder transport payloads are created from confirmed contract fields, then mapped into screen-oriented summary/table view models before rendering.
+- Dashboard shell foundation currently includes:
+- `DashboardWarningsBanner`
+- `PartialDataNotice`
+- `DashboardSummaryCards`
+- `DashboardFilterBar`
+- `DashboardTableShell`
+- `DashboardGeneratedAt`
+- `DashboardModeSwitcher`
+- `query-keys.ts` remains the location for future TanStack Query ownership once real API hooks replace placeholder snapshots.
+
+### Query Param Strategy
+
+- Dashboard filters are route-owned and serialize into the URL with backend-aligned parameter names such as `date_from`, `channel_ids`, `status`, `report_status`, `sort_by` and `sort_order`.
+- Unknown query params are ignored by dashboard parsing logic rather than reinterpreted as screen state.
+- Mode switching keeps only filters that are both shared in meaning and supported by the target mode.
+- Preserved across compatible modes: `date_from`, `date_to`, `limit`, `min_comments`, `sort_order`.
+- Preserved only between posts/events: `channel_ids`, `categories`.
+- Reset on mode switch because semantics differ or support is mode-specific: `sort_by`, `status`, `report_status`.
+- Reset action clears dashboard-owned query params for the current mode only.
+
+### Reusable Dashboard Composition
+
+- One mode page now follows one composition pattern:
+- system layer for `warnings[]` and `partial=true`
+- hero row with mode title and `generated_at`
+- summary cards from mapped view model
+- URL-driven filter bar
+- desktop-first split content area with primary table rail and reusable secondary panel rail
+- This keeps `partial=true` explicitly non-fatal and ensures `generated_at` remains visible even in degraded snapshots.
 
 ### Error Handling Policy
 
@@ -285,21 +319,28 @@ frontend/
 - `partial_data`: non-blocking warning state; dashboard stays usable and keeps `generated_at`, `warnings`, and `filters_applied` visible.
 - Shared taxonomy and transition policy live in `frontend/src/shared/errors/error-policy.ts`.
 
+### Implementation Status
+
+- Stage 2 workspace foundation is implemented: one analytics workspace layout, role-aware navigation, mode switcher, URL-owned dashboard filters, generated-at rendering and non-blocking partial/warnings layer.
+- Dashboard mode pages still use contract-safe placeholder transport snapshots instead of live `/api/dashboard/*` queries.
+- Desktop-first split layout foundation is in place for future table/detail/graph composition.
+
 ### Assumptions And Deferred Edges
 
 - No proactive token refresh scheduler or expiry countdown is implemented yet; current scope is refresh-on-401 only.
 - No final UX copy handoff exists for all data-block errors, so shared messages remain minimal safe defaults.
-- Action-level mutation guards are defined only as a foundation matrix; real mutation screens are intentionally deferred to stage 2 and later.
-- Analytics workspace layout, mode switcher behavior, URL filter ownership per dashboard mode, and dashboard hooks/UI integration remain intentionally unimplemented.
+- The repository frontend currently does not ship MUI, MUI X, React Hook Form, Zod or React Flow packages, so this stage uses framework-native foundations while keeping component boundaries ready for later migration.
+- Action-level mutation guards are defined only as a foundation matrix; real mutation screens and async job flows are intentionally deferred to later stages.
 
 ### Remaining Gaps Against Spec
 
 - No access-token expiry countdown or proactive refresh scheduling yet.
-- No real dashboard queries, filters, summary cards, tables, generated-at rendering or graph panels yet.
-- No DTO-to-view-model mapping layer for concrete dashboard payloads yet.
+- No real dashboard queries to `/api/dashboard/posts`, `/api/dashboard/events` or `/api/dashboard/processes` yet; current shell uses placeholder snapshots built from confirmed DTO fields.
+- No MUI/MUI X DataGrid integration yet; dashboard table is a reusable HTML shell only.
 - No async job flow, polling strategy or mutation invalidation yet.
-- No table specs, graph specs, detail panel rules, copy rules or API-to-UI mapping implementation from the handoff checklist yet.
-- No action-level RBAC matrix for mutations and toolbar controls yet.
+- No graph panels, details drawers, report badges, job indicators or mutation controls yet.
+- No finalized table specs, graph specs, detail panel rules, copy rules or API-to-UI mapping implementation from the handoff checklist yet.
+- No action-level RBAC enforcement for mutations and toolbar controls yet.
 - No final UI/UX handoff artifacts such as wireframes, hi-fi mocks, status matrix or interaction matrix in the repo yet.
 
 ## Pipeline Concurrency Settings

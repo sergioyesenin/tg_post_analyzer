@@ -1,11 +1,5 @@
-import { RoutePlaceholder } from '@shared/ui/placeholders/RoutePlaceholder';
+import { DashboardModePage } from '@modules/workspace/components/DashboardModePage';
 
 export function DashboardPostsPage() {
-  return (
-    <RoutePlaceholder
-      eyebrow="dashboard/posts"
-      title="Posts dashboard foundation"
-      description="Query parsing, dashboard envelope typing, reusable states and shell integration are ready for the posts module."
-    />
-  );
+  return <DashboardModePage mode="posts" />;
 }

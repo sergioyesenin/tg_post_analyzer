@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
+import {
+  getModeSwitchSearch,
+  parseDashboardFilters,
+  serializeDashboardFilters,
+} from '@shared/dashboard/filters';
 import { parseQueryParams, serializeQueryParams } from '@shared/utils/queryParams';
 
 describe('Query param utilities', () => {
@@ -22,5 +27,52 @@ describe('Query param utilities', () => {
         partial: true,
       }),
     ).toBe('mode=events&channel_ids=5&channel_ids=9&partial=true');
+  });
+});
+
+describe('Dashboard filter parsing and serialization', () => {
+  it('parses posts filters from URL and restores typed arrays', () => {
+    expect(
+      parseDashboardFilters(
+        'posts',
+        '?date_from=2026-03-01&date_to=2026-03-10&channel_ids=3&channel_ids=9&categories=media&report_status=ready&min_comments=12&sort_by=views&sort_order=asc',
+      ),
+    ).toEqual({
+      date_from: '2026-03-01',
+      date_to: '2026-03-10',
+      limit: 25,
+      channel_ids: [3, 9],
+      categories: ['media'],
+      min_comments: 12,
+      report_status: ['ready'],
+      sort_by: 'views',
+      sort_order: 'asc',
+    });
+  });
+
+  it('serializes only non-default dashboard filters into URL', () => {
+    expect(
+      serializeDashboardFilters('events', {
+        date_from: '2026-03-01',
+        date_to: null,
+        limit: 25,
+        status: ['active'],
+        channel_ids: [7],
+        categories: [],
+        min_comments: null,
+        sort_by: 'started_at',
+        sort_order: 'asc',
+      }),
+    ).toBe('date_from=2026-03-01&status=active&channel_ids=7&sort_order=asc');
+  });
+
+  it('keeps only target-supported shared filters when switching dashboard modes', () => {
+    expect(
+      getModeSwitchSearch(
+        'events',
+        'processes',
+        '?date_from=2026-03-01&channel_ids=7&status=active&sort_by=posts_count&sort_order=asc',
+      ),
+    ).toBe('?date_from=2026-03-01&sort_order=asc');
   });
 });

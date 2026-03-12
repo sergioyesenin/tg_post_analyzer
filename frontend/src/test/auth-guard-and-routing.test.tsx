@@ -111,7 +111,7 @@ describe('Auth guard and RBAC routing', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/Posts dashboard foundation/i)).toBeInTheDocument();
+      expect(screen.getByText(/Posts workspace/i)).toBeInTheDocument();
     });
   });
 });

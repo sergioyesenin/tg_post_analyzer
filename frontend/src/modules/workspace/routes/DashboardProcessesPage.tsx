@@ -1,11 +1,5 @@
-import { RoutePlaceholder } from '@shared/ui/placeholders/RoutePlaceholder';
+import { DashboardModePage } from '@modules/workspace/components/DashboardModePage';
 
 export function DashboardProcessesPage() {
-  return (
-    <RoutePlaceholder
-      eyebrow="dashboard/processes"
-      title="Processes dashboard foundation"
-      description="Process routing, shared dashboard contracts and warning handling are wired as stage 0 foundations."
-    />
-  );
+  return <DashboardModePage mode="processes" />;
 }

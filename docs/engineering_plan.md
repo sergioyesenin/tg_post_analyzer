@@ -618,3 +618,16 @@ component inventory;
 подготовлен handoff без двусмысленностей для frontend-разработчика.
 
 
+
+
+Remaining gaps
+нет реальных dashboard query hooks, DTO/view-model mapping и интеграции с /api/dashboard/*
+нет production auth flows: login form, refresh/logout UX, error taxonomy
+нет filter bar, summary cards, table specs, graph panels, detail screens и async job flow
+нет action-level RBAC matrix, copy rules, status matrix и UI/UX handoff artifacts из большого checklist
+Нет proactive refresh timer и expiry-aware UX, есть только lazy refresh on 401
+Нет cross-tab session sync
+Нет mutation-level RBAC, только route/navigation-level
+Нет полноценного login validation/copy matrix из handoff
+Logout без confirm/dialog pattern
+Нет real auth integration tests against live backend, только frontend-level mocks + client refresh test

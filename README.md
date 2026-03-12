@@ -208,11 +208,42 @@ frontend/
 ### Data Flow Principles
 
 - App bootstrap starts in `src/app/App.tsx` and composes providers in a strict order: theme, query client, session, router.
-- Session bootstrap uses `GET /api/auth/me` as the initial auth checkpoint. Until it resolves, protected routes stay in a loading state.
+- Session bootstrap uses persisted tokens plus `GET /api/auth/me` as the initial auth checkpoint. Until it resolves, protected routes stay in a loading state.
 - Shared API access goes through `src/shared/api/client.ts`. Transport access is centralized so headers, credentials and error policy stay consistent.
 - Dashboard pages are expected to consume `DashboardEnvelope<TSummary, TItem, TMeta, TFilters>` from `src/shared/types/dashboard.ts`.
 - `partial` and `warnings` are modeled as a first-class shared contract. They are not treated as hard errors.
 - URL query parsing/serialization is centralized in `src/shared/utils/queryParams.ts` so dashboard filters can remain route-driven.
+
+### Auth Architecture
+
+- Auth state is owned by `src/app/providers/SessionProvider.tsx`.
+- Tokens are persisted in local storage and restored on app bootstrap through `src/shared/auth/token-storage.ts`.
+- Auth HTTP calls are centralized in `src/shared/auth/auth-api.ts`.
+- `src/shared/api/client.ts` injects the current bearer token into protected requests and performs one transparent refresh attempt on `401`.
+- `/login` uses the session provider instead of talking to fetch directly. Login errors are normalized into explicit UI states: `idle`, `loading`, `invalid_credentials`, `service_unavailable`, `generic_error`.
+
+### Session Lifecycle
+
+1. App starts and session provider loads persisted tokens.
+2. If no tokens exist, the app becomes `guest` and protected routes redirect to `/login`.
+3. If tokens exist, provider calls `GET /api/auth/me`.
+4. If `/me` returns `401`, API client attempts `POST /api/auth/refresh` once, stores rotated tokens, then retries `/me`.
+5. If refresh succeeds, session is restored and the user stays in the requested route.
+6. If refresh fails, local tokens are cleared and the app falls back to `guest`.
+7. Login stores fresh tokens, fetches `/api/auth/me`, then promotes the session to `authenticated`.
+8. Logout tries `POST /api/auth/logout` with the current refresh token, but local cleanup still happens even if revoke fails.
+
+### RBAC Strategy
+
+- Guests are redirected from protected routes to `/login`.
+- Authenticated users hitting routes outside their role scope see a reusable forbidden state instead of a redirect.
+- Hidden access: navigation items outside the user role are omitted from AppShell navigation.
+- Forbidden access: direct route entry to protected but unauthorized sections such as `/channels` remains visible as a `403`-style UI state.
+- Redirected access: `/login` is public-only; authenticated users are redirected back to the requested route or to `/dashboard/posts`.
+- Current route policy:
+- `admin`: dashboard, details, reports, channels, users, settings, monitor, jobs, keyword graph
+- `analyst`: dashboard, details, reports, settings, keyword graph
+- `viewer`: dashboard, details, reports only
 
 ### Route Strategy
 
@@ -225,12 +256,12 @@ frontend/
 
 ### Remaining Gaps Against Spec
 
-- No production auth forms, refresh flow mutation handling or logout UX yet.
+- No access-token expiry countdown or proactive refresh scheduling yet.
 - No real dashboard queries, filters, summary cards, tables, generated-at rendering or graph panels yet.
 - No DTO-to-view-model mapping layer for concrete dashboard payloads yet.
 - No async job flow, polling strategy or mutation invalidation yet.
 - No table specs, graph specs, detail panel rules, copy rules or API-to-UI mapping implementation from the handoff checklist yet.
-- No RBAC visibility matrix for navigation/action-level behavior beyond route guards yet.
+- No action-level RBAC matrix for mutations and toolbar controls yet.
 - No final UI/UX handoff artifacts such as wireframes, hi-fi mocks, status matrix or interaction matrix in the repo yet.
 
 ## Pipeline Concurrency Settings

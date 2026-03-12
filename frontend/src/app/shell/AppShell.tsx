@@ -1,10 +1,16 @@
 import { NavLink, Outlet } from 'react-router-dom';
 
 import { useSession } from '@app/providers/SessionProvider';
-import { dashboardModes, primaryNavigation, secondaryNavigation } from '@shared/routing/navigation';
+import {
+  canRenderNavigationItem,
+  dashboardModes,
+  primaryNavigation,
+  secondaryNavigation,
+} from '@shared/routing/navigation';
 
 export function AppShell() {
-  const { user } = useSession();
+  const { logout, primaryRole, user } = useSession();
+  const roles = user?.roles ?? [];
 
   return (
     <div className="app-shell">
@@ -15,7 +21,7 @@ export function AppShell() {
         </div>
 
         <nav className="app-nav" aria-label="Primary">
-          {primaryNavigation.map((item) => (
+          {primaryNavigation.filter((item) => canRenderNavigationItem(item, roles)).map((item) => (
             <NavLink key={item.to} className="app-nav__link" to={item.to}>
               {item.label}
             </NavLink>
@@ -23,7 +29,7 @@ export function AppShell() {
         </nav>
 
         <nav className="app-nav app-nav--secondary" aria-label="Operations">
-          {secondaryNavigation.map((item) => (
+          {secondaryNavigation.filter((item) => canRenderNavigationItem(item, roles)).map((item) => (
             <NavLink key={item.to} className="app-nav__link" to={item.to}>
               {item.label}
             </NavLink>
@@ -36,7 +42,7 @@ export function AppShell() {
           <div>
             <span className="app-header__label">Dashboard modes</span>
             <div className="app-mode-switcher">
-              {dashboardModes.map((mode) => (
+              {dashboardModes.filter((mode) => canRenderNavigationItem(mode, roles)).map((mode) => (
                 <NavLink key={mode.to} className="app-mode-switcher__item" to={mode.to}>
                   {mode.label}
                 </NavLink>
@@ -45,8 +51,11 @@ export function AppShell() {
           </div>
 
           <div className="app-session-chip">
-            <span>{user?.email ?? 'unknown user'}</span>
-            <strong>{user?.role ?? 'guest'}</strong>
+            <span>{user?.email ?? user?.username ?? 'unknown user'}</span>
+            <strong>{primaryRole ?? 'guest'}</strong>
+            <button className="app-session-chip__action" onClick={() => void logout()} type="button">
+              Logout
+            </button>
           </div>
         </header>
 

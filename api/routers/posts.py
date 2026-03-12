@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -9,10 +11,25 @@ from db.models import Post, Channel, Comment
 from schemas.post import PostCardOut, PostDetailOut
 from schemas.comment import CommentOut
 from services.auth import AuthUser
-from services.pipeline_runtime import enqueue_comment_refresh_job, wait_for_job_result
+from services.pipeline_runtime import enqueue_comment_refresh_job
 from services.settings_store import get_setting
 
 router = APIRouter()
+
+
+def _job_accepted_response(*, job_id: int, job_type: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content=jsonable_encoder(
+            {
+                "status": "queued",
+                "job_id": job_id,
+                "job_type": job_type,
+                "status_url": f"/api/jobs/{job_id}",
+                "result_url": f"/api/jobs/{job_id}/result",
+            }
+        ),
+    )
 
 @router.get("/top", response_model=list[PostCardOut])
 async def top_posts(
@@ -94,8 +111,4 @@ async def update_comments(
     await session.commit()
     if job is None:
         raise HTTPException(status_code=500, detail="Failed to enqueue refresh_comments job")
-
-    result = await wait_for_job_result(job_id=job.id)
-    if result.get("status") == "timeout":
-        raise HTTPException(status_code=504, detail="Timed out waiting for comments refresh")
-    return result
+    return _job_accepted_response(job_id=job.id, job_type=job.type)

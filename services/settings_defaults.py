@@ -8,7 +8,7 @@ CANONICAL_SETTINGS_DEFAULTS: dict[str, dict] = {
         "lookback_days": 3,
         "poll_seconds": 240,
         "max_posts_per_channel": 30,
-        "channel_concurrency": 2,
+        "channel_concurrency": 1,
         "comment_first_delay_hours": 2,
         "comment_interval_hours": 2,
         "comment_window_hours": 24,

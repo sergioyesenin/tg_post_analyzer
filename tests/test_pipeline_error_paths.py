@@ -61,3 +61,78 @@ def test_legacy_split_locked_jobs_by_type_separates_collect_comments():
 
     assert [job.id for job in collect_jobs] == [1, 4]
     assert [job.id for job in other_jobs] == [2, 3]
+
+
+@pytest.mark.asyncio
+async def test_run_telegram_cycle_serializes_channel_ingest_even_when_setting_is_higher(monkeypatch):
+    channels = [
+        SimpleNamespace(id=1, username="one"),
+        SimpleNamespace(id=2, username="two"),
+        SimpleNamespace(id=3, username="three"),
+    ]
+    concurrent = {"current": 0, "max": 0}
+
+    async def _fake_get_all_settings(_session):
+        return {
+            "ingest": {
+                "lookback_days": 3,
+                "max_posts_per_channel": 10,
+                "comment_first_delay_hours": 2,
+                "comment_interval_hours": 2,
+                "comment_window_hours": 24,
+                "comment_schedule_jitter_seconds": 0,
+                "channel_concurrency": 4,
+            },
+            "jobs": {
+                "job_batch_size": 10,
+                "collect_comments_quota_per_run": 1,
+                "done_retention_days": 14,
+                "dead_letter_retention_days": 90,
+                "cleanup_batch_size": 1000,
+                "job_worker_concurrency": 2,
+            },
+            "retention": {
+                "retention_days": 30,
+                "archive_batch_size": 1000,
+            },
+        }
+
+    async def _fake_process_channel(_client, channel, **_kwargs):
+        concurrent["current"] += 1
+        concurrent["max"] = max(concurrent["max"], concurrent["current"])
+        await asyncio.sleep(0)
+        concurrent["current"] -= 1
+        return channel.id
+
+    monkeypatch.setattr(pipeline_runtime, "get_all_settings", _fake_get_all_settings)
+    monkeypatch.setattr(pipeline_runtime, "_get_active_channels", lambda: asyncio.sleep(0, result=channels))
+    monkeypatch.setattr(pipeline_runtime, "_process_channel", _fake_process_channel)
+    monkeypatch.setattr(pipeline_runtime, "run_telegram_jobs", lambda **_kwargs: asyncio.sleep(0, result=0))
+    monkeypatch.setattr(pipeline_runtime, "retention_scheduler_enabled", lambda _settings: True)
+
+    class _FakeSessionContext:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(pipeline_runtime, "AsyncSessionLocal", _FakeSessionContext)
+
+    result = await pipeline_runtime.run_telegram_cycle(
+        client=object(),
+        days=3,
+        max_posts_per_channel_arg=10,
+        comment_first_delay_hours_arg=2,
+        comment_interval_hours_arg=2,
+        comment_window_hours_arg=24,
+        job_batch_size_arg=10,
+        retention_days_arg=30,
+        archive_batch_size_arg=1000,
+        skip_rebuild_graphs=True,
+        worker_id="worker-1",
+    )
+
+    assert result.processed_posts == 6
+    assert result.executed_jobs == 0
+    assert concurrent["max"] == 1

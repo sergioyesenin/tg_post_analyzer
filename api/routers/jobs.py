@@ -1,13 +1,34 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Job, JobDeadLetter
 from deps import get_session, require_roles
 from services.auth import AuthUser, write_audit_log
-from services.jobs import JobType, enqueue_job
+from services.jobs import JobType, enqueue_job, get_job_result
 
 router = APIRouter()
+
+
+def _serialize_job(job: Job) -> dict:
+    return {
+        "id": job.id,
+        "type": job.type,
+        "status": job.status,
+        "priority": job.priority,
+        "run_at": job.run_at,
+        "retry_at": job.retry_at,
+        "attempts": job.attempts,
+        "max_attempts": job.max_attempts,
+        "locked_by": job.locked_by,
+        "locked_at": job.locked_at,
+        "heartbeat_at": job.heartbeat_at,
+        "last_error": job.last_error,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+        "result_url": f"/api/jobs/{job.id}/result",
+    }
 
 
 @router.get("/summary")
@@ -228,4 +249,43 @@ async def run_jobs_retention_job(
         "done_retention_days": done_retention_days,
         "dead_letter_retention_days": dead_letter_retention_days,
         "batch_limit": batch_limit,
+    }
+
+
+@router.get("/{job_id}")
+async def job_status(
+    job_id: int,
+    _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
+    session: AsyncSession = Depends(get_session),
+):
+    job = await session.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return jsonable_encoder(_serialize_job(job))
+
+
+@router.get("/{job_id}/result")
+async def job_result(
+    job_id: int,
+    _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
+    session: AsyncSession = Depends(get_session),
+):
+    job = await session.get(Job, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    result = get_job_result(job)
+    if job.status == "done":
+        return jsonable_encoder(result or {"status": "done", "job_id": job.id})
+    if job.status == "failed":
+        payload = dict(result or {})
+        payload.setdefault("status", "failed")
+        payload.setdefault("job_id", job.id)
+        if job.last_error:
+            payload.setdefault("error", job.last_error)
+        return jsonable_encoder(payload)
+    return {
+        "status": job.status,
+        "job_id": job.id,
+        "ready": False,
+        "result": None,
     }

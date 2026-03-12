@@ -305,27 +305,6 @@ async def enqueue_post_report_job(
     )
 
 
-async def wait_for_job_result(*, job_id: int, timeout_seconds: int = 180, poll_interval_seconds: float = 0.5) -> dict:
-    deadline = datetime.now(timezone.utc) + timedelta(seconds=max(1, timeout_seconds))
-    while datetime.now(timezone.utc) < deadline:
-        async with AsyncSessionLocal() as session:
-            job = await session.get(Job, job_id)
-            if job is None:
-                return {"status": "not_found", "job_id": job_id}
-            if job.status == "done":
-                result = get_job_result(job)
-                return result or {"status": "done", "job_id": job_id}
-            if job.status == "failed":
-                result = get_job_result(job) or {}
-                result.setdefault("status", "failed")
-                if job.last_error:
-                    result.setdefault("error", job.last_error)
-                result["job_id"] = job.id
-                return result
-        await asyncio.sleep(max(0.1, poll_interval_seconds))
-    return {"status": "timeout", "job_id": job_id}
-
-
 async def schedule_due_post_report_jobs(*, min_age_hours: int, limit: int) -> int:
     threshold = datetime.now(timezone.utc) - timedelta(hours=max(1, int(min_age_hours)))
     queued = 0
@@ -971,13 +950,13 @@ async def run_telegram_cycle(
         cli_value=None,
         fallback=get_default_setting("jobs", "cleanup_batch_size"),
     ))
-    channel_concurrency = _clamp_positive_int(
+    configured_channel_concurrency = _clamp_positive_int(
         _resolve_setting_value(
             settings_value=ingest_settings.get("channel_concurrency"),
             cli_value=None,
             fallback=get_default_setting("ingest", "channel_concurrency"),
         ),
-        default=2,
+        default=1,
         minimum=1,
         maximum=8,
     )
@@ -1006,44 +985,31 @@ async def run_telegram_cycle(
     total_processed_posts = 0
     if not channels:
         logger.warning("No active channels found.")
-    elif channel_concurrency <= 1 or len(channels) <= 1:
-        for channel in channels:
-            total_processed_posts += await _process_channel(
-                client,
-                channel,
-                since_utc=since_utc,
-                max_posts=max_posts_per_channel,
-                comment_first_delay_hours=comment_first_delay_hours,
-                comment_interval_hours=comment_interval_hours,
-                comment_window_hours=comment_window_hours,
-                comment_schedule_jitter_seconds=comment_schedule_jitter_seconds,
-            )
     else:
-        semaphore = asyncio.Semaphore(channel_concurrency)
-
-        async def _process_with_limit(channel: Channel) -> int:
-            async with semaphore:
-                try:
-                    return await _process_channel(
-                        client,
-                        channel,
-                        since_utc=since_utc,
-                        max_posts=max_posts_per_channel,
-                        comment_first_delay_hours=comment_first_delay_hours,
-                        comment_interval_hours=comment_interval_hours,
-                        comment_window_hours=comment_window_hours,
-                        comment_schedule_jitter_seconds=comment_schedule_jitter_seconds,
-                    )
-                except Exception as exc:
-                    logger.exception(
-                        "Channel processing failed marker=channel_unexpected channel_id=%s channel_username=%s err=%r",
-                        channel.id,
-                        channel.username,
-                        exc,
-                    )
-                    return 0
-
-        total_processed_posts = sum(await asyncio.gather(*[_process_with_limit(channel) for channel in channels]))
+        if configured_channel_concurrency > 1:
+            logger.warning(
+                "ingest.channel_concurrency=%s is ignored; channel ingest is serialized to protect a shared Telethon session",
+                configured_channel_concurrency,
+            )
+        for channel in channels:
+            try:
+                total_processed_posts += await _process_channel(
+                    client,
+                    channel,
+                    since_utc=since_utc,
+                    max_posts=max_posts_per_channel,
+                    comment_first_delay_hours=comment_first_delay_hours,
+                    comment_interval_hours=comment_interval_hours,
+                    comment_window_hours=comment_window_hours,
+                    comment_schedule_jitter_seconds=comment_schedule_jitter_seconds,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "Channel processing failed marker=channel_unexpected channel_id=%s channel_username=%s err=%r",
+                    channel.id,
+                    channel.username,
+                    exc,
+                )
 
     if not skip_rebuild_graphs and total_processed_posts > 0:
         await _rebuild_event_process_graphs(date_from=since_utc, date_to=datetime.now(timezone.utc))

@@ -34,6 +34,7 @@ class _FakeSession:
     def __init__(self, *, existing_post_ids: set[int], comments_by_post_id: dict[int, list[object]] | None = None):
         self._existing_post_ids = existing_post_ids
         self._comments_by_post_id = comments_by_post_id or {}
+        self.commit_calls = 0
 
     async def execute(self, stmt):
         entity = stmt.column_descriptions[0].get("entity")
@@ -50,8 +51,11 @@ class _FakeSession:
 
         raise AssertionError(f"Unexpected entity in statement: {entity}")
 
+    async def commit(self):
+        self.commit_calls += 1
 
-def _build_client(session: _FakeSession) -> TestClient:
+
+def _build_client(session: _FakeSession, *, roles: tuple[str, ...] = ("viewer",)) -> TestClient:
     app = FastAPI()
     app.include_router(posts.router, prefix="/api/posts")
 
@@ -59,7 +63,7 @@ def _build_client(session: _FakeSession) -> TestClient:
         yield session
 
     async def _fake_current_user():
-        return AuthUser(id=1, username="tester", is_active=True, roles=("viewer",))
+        return AuthUser(id=1, username="tester", is_active=True, roles=roles)
 
     app.dependency_overrides[posts.get_session] = _fake_get_session
     app.dependency_overrides[get_current_user] = _fake_current_user
@@ -114,3 +118,27 @@ def test_get_comments_keeps_success_response_shape_for_existing_post_with_commen
             "date": "2026-03-08T00:00:00Z",
         }
     ]
+
+
+def test_update_comments_returns_202_with_job_links(monkeypatch):
+    session = _FakeSession(existing_post_ids={42})
+    client = _build_client(session, roles=("analyst",))
+
+    async def _fake_enqueue(_session, *, post_id: int, source: str):
+        assert post_id == 42
+        assert source == "api"
+        return SimpleNamespace(id=501, type="refresh_comments")
+
+    monkeypatch.setattr(posts, "enqueue_comment_refresh_job", _fake_enqueue)
+
+    response = client.post("/api/posts/42/comments/update")
+
+    assert response.status_code == 202
+    assert response.json() == {
+        "status": "queued",
+        "job_id": 501,
+        "job_type": "refresh_comments",
+        "status_url": "/api/jobs/501",
+        "result_url": "/api/jobs/501/result",
+    }
+    assert session.commit_calls == 1

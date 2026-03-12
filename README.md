@@ -98,7 +98,7 @@ venv\Scripts\python -m pytest -q tests
 
 Use `/api/settings` to tune safe concurrency limits for `scripts/run_telegram_pipeline.py` and `scripts/run_ai_pipeline.py`:
 
-- `ingest.channel_concurrency` (default: `2`, range: `1..8`)
+- `ingest.channel_concurrency` is pinned to `1`
 - `jobs.job_worker_concurrency` (default: `2`, range: `1..16`)
 - `ingest.poll_seconds` controls Telegram pipeline poll interval
 - `ingest.lookback_days` controls Telegram ingest lookback window
@@ -107,6 +107,7 @@ Use `/api/settings` to tune safe concurrency limits for `scripts/run_telegram_pi
 
 Notes:
 
+- Channel ingest is serialized intentionally because one Telegram worker shares one Telethon session.
 - `collect_comments` and `refresh_comments` jobs remain sequential inside one Telegram worker to respect Telegram FloodWait limits.
 - Telegram-side linking and AI report jobs run in separate pipelines and no longer compete in one worker loop.
 - Runtime settings are resolved in this order: `settings table -> explicit CLI value, if settings key is absent -> canonical default`.

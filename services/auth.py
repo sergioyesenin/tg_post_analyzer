@@ -168,16 +168,15 @@ async def rotate_refresh_token(
         await session.execute(
             select(AuthRefreshToken)
             .where(AuthRefreshToken.token_hash == token_hash)
-            .where(AuthRefreshToken.revoked_at.is_(None))
-            .where(AuthRefreshToken.expires_at > now)
+            .with_for_update()
         )
     ).scalar_one_or_none()
-    if token_row is None:
+    if token_row is None or token_row.revoked_at is not None or token_row.expires_at <= now:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
 
     user = await session.get(User, token_row.user_id)
     if user is None or not user.is_active:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
     roles = tuple(sorted(await get_user_roles(session, user.id)))
     auth_user = AuthUser(
         id=user.id,
@@ -186,16 +185,18 @@ async def rotate_refresh_token(
         roles=roles,
     )
 
-    new_refresh_token = await issue_refresh_token(session, user_id=user.id)
-    replacement_row = (
-        await session.execute(
-            select(AuthRefreshToken)
-            .where(AuthRefreshToken.token_hash == _hash_refresh_token(new_refresh_token))
-        )
-    ).scalar_one()
     token_row.revoked_at = now
-    token_row.replaced_by_token_id = replacement_row.id
+    new_refresh_token = secrets.token_urlsafe(48)
+    replacement_row = AuthRefreshToken(
+        user_id=user.id,
+        token_hash=_hash_refresh_token(new_refresh_token),
+        expires_at=now + timedelta(days=settings.AUTH_REFRESH_TTL_DAYS),
+        revoked_at=None,
+        replaced_by_token_id=None,
+    )
+    session.add(replacement_row)
     await session.flush()
+    token_row.replaced_by_token_id = replacement_row.id
     return auth_user, new_refresh_token
 
 
@@ -207,7 +208,9 @@ async def revoke_refresh_token(
     token_hash = _hash_refresh_token(refresh_token)
     token_row = (
         await session.execute(
-            select(AuthRefreshToken).where(AuthRefreshToken.token_hash == token_hash)
+            select(AuthRefreshToken)
+            .where(AuthRefreshToken.token_hash == token_hash)
+            .with_for_update()
         )
     ).scalar_one_or_none()
     if token_row is None:

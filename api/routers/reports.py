@@ -4,8 +4,9 @@ import csv
 import io
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import Select, and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,7 +27,6 @@ from services.pipeline_runtime import (
     enqueue_event_report_job,
     enqueue_post_report_job,
     enqueue_process_report_job,
-    wait_for_job_result,
 )
 from services.settings_store import get_all_settings, report_config_from_settings
 
@@ -34,6 +34,21 @@ router = APIRouter()
 report_project = TgReportProject(
     llm_model="ollama/llama3:8b-instruct-q4_K_M",
 )
+
+
+def _job_accepted_response(*, job_id: int, job_type: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content=jsonable_encoder(
+            {
+                "status": "queued",
+                "job_id": job_id,
+                "job_type": job_type,
+                "status_url": f"/api/jobs/{job_id}",
+                "result_url": f"/api/jobs/{job_id}/result",
+            }
+        ),
+    )
 
 
 def _parse_int_list(raw: str | None) -> list[int]:
@@ -122,13 +137,7 @@ async def update_report(
     await session.commit()
     if job is None:
         raise HTTPException(status_code=500, detail="Failed to enqueue build_post_report job")
-    result = await wait_for_job_result(job_id=job.id)
-    if result.get("status") == "timeout":
-        raise HTTPException(status_code=504, detail="Timed out waiting for post report")
-    if result.get("status") == "skipped_min_comments":
-        return result
-    report = (await session.execute(select(Report).where(Report.post_id == post_id))).scalar_one()
-    return report
+    return _job_accepted_response(job_id=job.id, job_type=job.type)
 
 
 @router.get("/posts/list")
@@ -436,10 +445,7 @@ async def update_event_report(
     await session.commit()
     if job is None:
         raise HTTPException(status_code=500, detail="Failed to enqueue build_event_report job")
-    result = await wait_for_job_result(job_id=job.id)
-    if result.get("status") == "timeout":
-        raise HTTPException(status_code=504, detail="Timed out waiting for event report")
-    return result
+    return _job_accepted_response(job_id=job.id, job_type=job.type)
 
 
 @router.post("/processes/{process_id}/update")
@@ -455,7 +461,4 @@ async def update_process_report(
     await session.commit()
     if job is None:
         raise HTTPException(status_code=500, detail="Failed to enqueue build_process_report job")
-    result = await wait_for_job_result(job_id=job.id)
-    if result.get("status") == "timeout":
-        raise HTTPException(status_code=504, detail="Timed out waiting for process report")
-    return result
+    return _job_accepted_response(job_id=job.id, job_type=job.type)

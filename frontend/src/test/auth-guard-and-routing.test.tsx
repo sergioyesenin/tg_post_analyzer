@@ -1,7 +1,9 @@
 import { screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { apiClient } from '@shared/api/client';
 import { AuthApiError } from '@shared/auth/auth-errors';
+import { createPostsDashboardResponse } from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
 
 function createAuthApiMock(overrides: Record<string, unknown> = {}) {
@@ -17,6 +19,7 @@ function createAuthApiMock(overrides: Record<string, unknown> = {}) {
 describe('Auth guard and RBAC routing', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(apiClient, 'get').mockResolvedValue(createPostsDashboardResponse());
   });
 
   it('redirects guest users from protected routes to /login', async () => {

@@ -1,7 +1,9 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { apiClient } from '@shared/api/client';
+import { createPostsDashboardResponse } from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
 
 function createAuthenticatedUser(roles: string[]) {
@@ -39,6 +41,11 @@ function renderWorkspace(initialEntry: string, roles: string[] = ['analyst']) {
 }
 
 describe('Dashboard workspace shell', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.spyOn(apiClient, 'get').mockResolvedValue(createPostsDashboardResponse());
+  });
+
   it('renders generated_at on dashboard screens', async () => {
     renderWorkspace('/dashboard/posts');
 

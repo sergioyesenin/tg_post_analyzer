@@ -14,6 +14,7 @@ import { AnalyticsWorkspaceLayout } from '@modules/workspace/layouts/AnalyticsWo
 import { DashboardEventsPage } from '@modules/workspace/routes/DashboardEventsPage';
 import { DashboardPostsPage } from '@modules/workspace/routes/DashboardPostsPage';
 import { DashboardProcessesPage } from '@modules/workspace/routes/DashboardProcessesPage';
+import { PostDetailsPlaceholderPage } from '@modules/workspace/routes/PostDetailsPlaceholderPage';
 import type { AuthApiContract } from '@shared/auth/auth-api';
 import type { TokenStorage } from '@shared/auth/token-storage';
 
@@ -58,6 +59,7 @@ export function renderAuthHarness({ authApi, storage, initialEntry }: RenderAuth
                   <Route path="events" element={<DashboardEventsPage />} />
                   <Route path="processes" element={<DashboardProcessesPage />} />
                 </Route>
+                <Route path="posts/:postId" element={<PostDetailsPlaceholderPage />} />
                 <Route
                   path="channels"
                   element={

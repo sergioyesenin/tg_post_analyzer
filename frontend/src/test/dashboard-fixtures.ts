@@ -1,0 +1,72 @@
+import type { PostsDashboardResponse } from '@shared/dashboard/contracts';
+
+export function createPostsDashboardResponse(
+  overrides: Partial<PostsDashboardResponse> = {},
+): PostsDashboardResponse {
+  return {
+    mode: 'posts',
+    generated_at: '2026-03-13T08:45:00Z',
+    partial: false,
+    warnings: [],
+    filters_applied: {
+      date_from: '',
+      date_to: '',
+      limit: 25,
+      channel_ids: [],
+      categories: [],
+      min_comments: null,
+      report_status: [],
+      sort_by: 'date',
+      sort_order: 'desc',
+    },
+    summary: {
+      posts_count: 2,
+      total_comments: 537,
+      avg_involvement: 0.48,
+      channels_count: 2,
+      reports_ready: 1,
+      reports_missing: 0,
+      reports_pending: 1,
+      reports_failed: 0,
+    },
+    items: [
+      {
+        post_id: 4012,
+        channel_id: 77,
+        channel_username: 'signal_watch',
+        channel_title: 'Signal Watch',
+        channel_category: 'media',
+        date: '2026-03-12T10:10:00Z',
+        text_preview: 'Top post preview for posts dashboard rendering.',
+        comments_count: 328,
+        views: 14300,
+        involvement: 0.62,
+        report_status: 'ready',
+        has_report: true,
+        comments_refresh_available: true,
+        links_count: 12,
+      },
+      {
+        post_id: 3975,
+        channel_id: 91,
+        channel_username: 'briefing_room',
+        channel_title: 'Briefing Room',
+        channel_category: 'official',
+        date: '2026-03-11T18:55:00Z',
+        text_preview: 'Secondary row validates dense table layout.',
+        comments_count: 209,
+        views: 9800,
+        involvement: 0.38,
+        report_status: 'pending',
+        has_report: false,
+        comments_refresh_available: true,
+        links_count: 7,
+      },
+    ],
+    meta: {
+      sort: { by: 'date', order: 'desc' },
+      supported_sorts: ['comments_count', 'date', 'views', 'involvement'],
+    },
+    ...overrides,
+  };
+}

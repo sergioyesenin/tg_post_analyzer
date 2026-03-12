@@ -1,12 +1,15 @@
+import type { ReactNode } from 'react';
+
 export type DashboardTableColumn = {
   id: string;
   label: string;
+  align?: 'left' | 'right';
 };
 
 export type DashboardTableRow = {
   id: string;
   href?: string;
-  cells: Record<string, string>;
+  cells: Record<string, ReactNode>;
 };
 
 type DashboardTableShellProps = {
@@ -42,7 +45,9 @@ export function DashboardTableShell({ title, description, columns, rows }: Dashb
             {rows.map((row) => (
               <tr key={row.id}>
                 {columns.map((column) => (
-                  <td key={column.id}>{row.cells[column.id] ?? '—'}</td>
+                  <td key={column.id} data-column-id={column.id}>
+                    {row.cells[column.id] ?? '—'}
+                  </td>
                 ))}
               </tr>
             ))}

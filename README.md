@@ -277,7 +277,7 @@ frontend/
 ### Dashboard Shell
 
 - Transport DTO contracts live in `frontend/src/shared/dashboard/contracts.ts` and still mirror backend `schemas.dashboard`.
-- Transport DTOs and UI view models are separated: placeholder transport payloads are created from confirmed contract fields, then mapped into screen-oriented summary/table view models before rendering.
+- Transport DTOs and UI view models are separated: `dashboard/posts` now maps live `GET /api/dashboard/posts` DTOs into screen-oriented summary/table row models before rendering.
 - Dashboard shell foundation currently includes:
 - `DashboardWarningsBanner`
 - `PartialDataNotice`
@@ -286,7 +286,35 @@ frontend/
 - `DashboardTableShell`
 - `DashboardGeneratedAt`
 - `DashboardModeSwitcher`
-- `query-keys.ts` remains the location for future TanStack Query ownership once real API hooks replace placeholder snapshots.
+- `ReportStatusBadge`
+- `query-keys.ts` owns TanStack Query key conventions for dashboard resources.
+
+### dashboard/posts
+
+- `/dashboard/posts` is the first live dashboard module and uses `GET /api/dashboard/posts` as its primary source of truth.
+- Supported filter params in the route and request layer:
+- `date_from`
+- `date_to`
+- `limit`
+- `channel_ids`
+- `categories`
+- `min_comments`
+- `report_status`
+- `sort_by`
+- `sort_order`
+- Supported posts sorts:
+- `comments_count`
+- `date`
+- `views`
+- `involvement`
+- The screen renders:
+- KPI summary cards from `summary`
+- dense table rows from `items`
+- `report_status` badges
+- `generated_at`
+- `warnings[]`
+- `partial=true` as a usable degraded state
+- detail entry points to `/posts/:postId`
 
 ### Query Param Strategy
 
@@ -297,6 +325,7 @@ frontend/
 - Preserved only between posts/events: `channel_ids`, `categories`.
 - Reset on mode switch because semantics differ or support is mode-specific: `sort_by`, `status`, `report_status`.
 - Reset action clears dashboard-owned query params for the current mode only.
+- `dashboard/posts` request hooks reuse the same serialized query string for both the URL and the TanStack Query cache key.
 
 ### Reusable Dashboard Composition
 
@@ -307,6 +336,44 @@ frontend/
 - URL-driven filter bar
 - desktop-first split content area with primary table rail and reusable secondary panel rail
 - This keeps `partial=true` explicitly non-fatal and ensures `generated_at` remains visible even in degraded snapshots.
+
+### dashboard/posts Data Mapping
+
+- Transport fetching lives in `frontend/src/modules/workspace/posts/api.ts`.
+- Query ownership lives in `frontend/src/modules/workspace/posts/hooks.ts`.
+- DTO-to-UI mapping lives in `frontend/src/modules/workspace/posts/mappers.tsx`.
+- Mapping rules currently include:
+- date formatting from ISO to UTC display string
+- nullable `views`, `involvement`, `links_count` fallback handling
+- channel label composition from title/username/category
+- `report_status` normalization through `ReportStatusBadge`
+- row-level detail entry points for open post, comments panel and report panel
+- viewer-safe row shaping that hides mutation entry-point links
+
+### dashboard/posts Table Schema
+
+- Typed table schema is defined once in `postsDashboardColumns`.
+- Current columns:
+- `date`
+- `channel`
+- `preview`
+- `comments`
+- `views`
+- `involvement`
+- `links`
+- `report_status`
+- `actions`
+- `actions` always includes `Open post`.
+- `actions` additionally includes `Comments` and `Report` detail entry points only for `admin` and `analyst`.
+
+### dashboard/posts State Handling
+
+- `loading`: route shell and filter bar stay mounted while snapshot data is loading.
+- `empty`: request succeeded, summary renders, table is replaced by an empty state.
+- `error`: request failure renders a blocking posts-dashboard error state.
+- `forbidden`: backend `403` renders a blocking forbidden state for the posts snapshot.
+- `partial`: warnings banner plus partial notice render without replacing the table.
+- `viewer`: read-only notice renders and mutation entry points stay hidden while detail navigation remains available.
 
 ### Error Handling Policy
 
@@ -322,7 +389,8 @@ frontend/
 ### Implementation Status
 
 - Stage 2 workspace foundation is implemented: one analytics workspace layout, role-aware navigation, mode switcher, URL-owned dashboard filters, generated-at rendering and non-blocking partial/warnings layer.
-- Dashboard mode pages still use contract-safe placeholder transport snapshots instead of live `/api/dashboard/*` queries.
+- Stage 3 posts dashboard is implemented against live `GET /api/dashboard/posts`.
+- Events and processes dashboards still use contract-safe placeholder transport snapshots.
 - Desktop-first split layout foundation is in place for future table/detail/graph composition.
 
 ### Assumptions And Deferred Edges
@@ -335,10 +403,11 @@ frontend/
 ### Remaining Gaps Against Spec
 
 - No access-token expiry countdown or proactive refresh scheduling yet.
-- No real dashboard queries to `/api/dashboard/posts`, `/api/dashboard/events` or `/api/dashboard/processes` yet; current shell uses placeholder snapshots built from confirmed DTO fields.
+- `dashboard/events` and `dashboard/processes` still do not use live `/api/dashboard/*` queries.
 - No MUI/MUI X DataGrid integration yet; dashboard table is a reusable HTML shell only.
 - No async job flow, polling strategy or mutation invalidation yet.
-- No graph panels, details drawers, report badges, job indicators or mutation controls yet.
+- No graph panels, details drawers, job indicators or mutation controls yet.
+- Post detail screen, comments block, links block and report block remain placeholders; dashboard currently exposes only navigation entry points to them.
 - No finalized table specs, graph specs, detail panel rules, copy rules or API-to-UI mapping implementation from the handoff checklist yet.
 - No action-level RBAC enforcement for mutations and toolbar controls yet.
 - No final UI/UX handoff artifacts such as wireframes, hi-fi mocks, status matrix or interaction matrix in the repo yet.

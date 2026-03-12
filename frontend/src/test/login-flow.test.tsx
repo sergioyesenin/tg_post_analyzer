@@ -2,8 +2,10 @@ import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { apiClient } from '@shared/api/client';
 import { AuthApiError } from '@shared/auth/auth-errors';
 import type { SessionTokens } from '@shared/auth/session-types';
+import { createPostsDashboardResponse } from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
 
 function createAuthApiMock() {
@@ -20,6 +22,7 @@ type AuthApiMock = ReturnType<typeof createAuthApiMock>;
 describe('Login flow', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(apiClient, 'get').mockResolvedValue(createPostsDashboardResponse());
   });
 
   it('logs in successfully and redirects into the workspace', async () => {

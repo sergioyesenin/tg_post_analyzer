@@ -1,5 +1,5 @@
-import { DashboardModePage } from '@modules/workspace/components/DashboardModePage';
+import { PostsDashboardScreen } from '@modules/workspace/posts/PostsDashboardScreen';
 
 export function DashboardPostsPage() {
-  return <DashboardModePage mode="posts" />;
+  return <PostsDashboardScreen />;
 }

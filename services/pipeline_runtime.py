@@ -382,6 +382,17 @@ def _collect_comments_job_priority(*, post: Post, scan_index: int) -> int:
     return max(5, min(90, priority))
 
 
+def split_jobs_for_telegram_worker(jobs: list[Job]) -> tuple[list[Job], list[Job]]:
+    comment_jobs: list[Job] = []
+    other_jobs: list[Job] = []
+    for job in jobs:
+        if job.type in {JobType.COLLECT_COMMENTS, JobType.REFRESH_COMMENTS}:
+            comment_jobs.append(job)
+        else:
+            other_jobs.append(job)
+    return comment_jobs, other_jobs
+
+
 async def _schedule_post_jobs(
     session: AsyncSession,
     *,
@@ -778,8 +789,7 @@ async def run_telegram_jobs(
     if cc_sleep_max_ms < cc_sleep_min_ms:
         cc_sleep_max_ms = cc_sleep_min_ms
 
-    comment_jobs = [job for job in jobs if job.type in {JobType.COLLECT_COMMENTS, JobType.REFRESH_COMMENTS}]
-    other_jobs = [job for job in jobs if job.type not in {JobType.COLLECT_COMMENTS, JobType.REFRESH_COMMENTS}]
+    comment_jobs, other_jobs = split_jobs_for_telegram_worker(jobs)
 
     for job in comment_jobs:
         result = await _run_comment_job(

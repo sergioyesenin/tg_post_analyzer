@@ -9,7 +9,6 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from client import client
 from config import settings
 from db.models import Comment, Job, JobDeadLetter, Post
 from services.jobs import JobType
@@ -24,6 +23,10 @@ except Exception:  # pragma: no cover - optional dependency
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _window_start(*, now: datetime, hours: int) -> datetime:
+    return now - timedelta(hours=max(1, int(hours)))
 
 
 def _scheduled_run_bounds(*, now: datetime, hour: int, minute: int, tz_name: str) -> tuple[datetime, datetime]:
@@ -80,6 +83,42 @@ def system_snapshot() -> dict:
             "process_rss_bytes": None,
         }
     return payload
+
+
+async def runtime_process_snapshot(session: AsyncSession, *, runtime_name: str) -> dict:
+    now = _utcnow()
+    heartbeat_payload = await get_runtime_heartbeat(session, runtime_name=runtime_name)
+    heartbeat_at_raw = None if heartbeat_payload is None else heartbeat_payload.get("heartbeat_at")
+    heartbeat_at = None
+    if isinstance(heartbeat_at_raw, str):
+        try:
+            heartbeat_at = datetime.fromisoformat(heartbeat_at_raw)
+        except ValueError:
+            heartbeat_at = None
+
+    heartbeat_age_seconds = None
+    if heartbeat_at is not None:
+        heartbeat_age_seconds = max(0.0, (now - heartbeat_at).total_seconds())
+
+    process_state = "missing"
+    if heartbeat_payload is not None:
+        process_state = str(heartbeat_payload.get("status") or "unknown")
+        if process_state == "running" and heartbeat_age_seconds is not None and heartbeat_age_seconds > HEARTBEAT_TIMEOUT_SECONDS:
+            process_state = "stale"
+
+    status = "ok" if process_state == "running" else f"process_{process_state}"
+    return {
+        "runtime": runtime_name,
+        "ok": status == "ok",
+        "status": status,
+        "process": {
+            "status": process_state,
+            "last_heartbeat_at": heartbeat_at.isoformat() if heartbeat_at else None,
+            "heartbeat_age_seconds": heartbeat_age_seconds,
+            "heartbeat_timeout_seconds": HEARTBEAT_TIMEOUT_SECONDS,
+            "pid": None if heartbeat_payload is None else ((heartbeat_payload.get("details") or {}).get("pid")),
+        },
+    }
 
 
 async def jobs_snapshot(session: AsyncSession) -> dict:
@@ -164,9 +203,10 @@ async def database_snapshot(session: AsyncSession) -> dict:
     }
 
 
-async def pipeline_snapshot(session: AsyncSession, *, retention_days: int = 30) -> dict:
+async def pipeline_snapshot(session: AsyncSession, *, retention_days: int = 30, window_hours: int = 1) -> dict:
     now = _utcnow()
     hour_ago = now - timedelta(hours=1)
+    window_since = _window_start(now=now, hours=window_hours)
     cutoff = now - timedelta(days=max(1, int(retention_days)))
 
     last_ingested_at = await session.scalar(select(func.max(Post.created_at)))
@@ -201,6 +241,7 @@ async def pipeline_snapshot(session: AsyncSession, *, retention_days: int = 30) 
             select(func.count())
             .select_from(Job)
             .where(Job.type == "collect_comments")
+            .where(Job.updated_at >= window_since)
             .where(Job.last_error.is_not(None))
         )
         or 0
@@ -210,6 +251,7 @@ async def pipeline_snapshot(session: AsyncSession, *, retention_days: int = 30) 
             select(func.count())
             .select_from(Job)
             .where(Job.type == "collect_comments")
+            .where(Job.updated_at >= window_since)
             .where(Job.last_error.like("collect_comments:flood_wait:%"))
         )
         or 0
@@ -219,6 +261,7 @@ async def pipeline_snapshot(session: AsyncSession, *, retention_days: int = 30) 
             select(func.count())
             .select_from(Job)
             .where(Job.type == "collect_comments")
+            .where(Job.updated_at >= window_since)
             .where(
                 Job.last_error.in_(
                     [
@@ -233,6 +276,8 @@ async def pipeline_snapshot(session: AsyncSession, *, retention_days: int = 30) 
     )
     flood_rate = (cc_flood / cc_total_with_error) if cc_total_with_error > 0 else 0.0
     rpc_rate = (cc_rpc / cc_total_with_error) if cc_total_with_error > 0 else 0.0
+    telegram_runtime = await runtime_process_snapshot(session, runtime_name="telegram_pipeline")
+    ai_runtime = await runtime_process_snapshot(session, runtime_name="ai_pipeline")
 
     oldest_unarchived_post_date = await session.scalar(
         select(func.min(Post.date)).where(Post.date < cutoff)
@@ -258,6 +303,7 @@ async def pipeline_snapshot(session: AsyncSession, *, retention_days: int = 30) 
             "post_freshness_lag_seconds": post_freshness_lag_seconds,
         },
         "collect_comments": {
+            "window_since": window_since.isoformat(),
             "error_pool_size": cc_total_with_error,
             "flood_count": cc_flood,
             "rpc_count": cc_rpc,
@@ -275,6 +321,10 @@ async def pipeline_snapshot(session: AsyncSession, *, retention_days: int = 30) 
             "archive_lag_seconds": archive_lag_seconds,
             "last_archive_job_at": last_archive_job_at.isoformat() if last_archive_job_at else None,
             "archive_job_lag_seconds": archive_job_lag_seconds,
+        },
+        "runtime": {
+            "telegram_pipeline": telegram_runtime,
+            "ai_pipeline": ai_runtime,
         },
     }
 
@@ -369,11 +419,14 @@ async def health_snapshot(session: AsyncSession, *, effective_settings: dict | N
         db_error = repr(exc)
 
     db_latency_ms = round((time.perf_counter() - started) * 1000.0, 2)
-    tg_connected = bool(client.is_connected())
+    telegram_runtime = await runtime_process_snapshot(session, runtime_name="telegram_pipeline")
+    ai_runtime = await runtime_process_snapshot(session, runtime_name="ai_pipeline")
     scheduler = None
     if effective_settings is not None:
         scheduler = await scheduler_snapshot(session, effective_settings=effective_settings)
     status = "ok" if db_ok else "degraded"
+    if not telegram_runtime.get("ok") or not ai_runtime.get("ok"):
+        status = "degraded"
     if scheduler is not None and scheduler.get("status") not in {"ok", "disabled"}:
         status = "degraded"
     dependencies = {
@@ -383,8 +436,15 @@ async def health_snapshot(session: AsyncSession, *, effective_settings: dict | N
             "error": db_error,
         },
         "telegram_client": {
-            "ok": tg_connected,
-            "connected": tg_connected,
+            "ok": telegram_runtime.get("ok"),
+            "connected": telegram_runtime.get("process", {}).get("status") == "running",
+            "status": telegram_runtime.get("status"),
+            "last_heartbeat_at": telegram_runtime.get("process", {}).get("last_heartbeat_at"),
+        },
+        "ai_pipeline": {
+            "ok": ai_runtime.get("ok"),
+            "status": ai_runtime.get("status"),
+            "last_heartbeat_at": ai_runtime.get("process", {}).get("last_heartbeat_at"),
         },
     }
     if scheduler is not None:
@@ -444,7 +504,12 @@ def evaluate_alerts(
     pending_lag_seconds = jobs.get("pending_lag_seconds")
     retry_lag_seconds = jobs.get("retry_lag_seconds")
     db_latency_ms = ((health.get("dependencies") or {}).get("database") or {}).get("latency_ms")
-    tg_connected = ((health.get("dependencies") or {}).get("telegram_client") or {}).get("connected")
+    tg_dependency = ((health.get("dependencies") or {}).get("telegram_client") or {})
+    tg_connected = tg_dependency.get("connected")
+    tg_status = tg_dependency.get("status")
+    ai_dependency = ((health.get("dependencies") or {}).get("ai_pipeline") or {})
+    ai_ok = ai_dependency.get("ok")
+    ai_status = ai_dependency.get("status")
     dead_letter_count = jobs.get("dead_letter_count")
     scheduler_dependency = ((health.get("dependencies") or {}).get("scheduler") or {})
     scheduler_ok = scheduler_dependency.get("ok")
@@ -545,10 +610,18 @@ def evaluate_alerts(
     if thresholds.get("telegram_disconnected_is_warn", True) and tg_connected is False:
         _add_alert(
             "warning",
-            "telegram.connected",
-            tg_connected,
-            True,
-            "Telegram client is disconnected.",
+            "telegram_pipeline.status",
+            tg_status,
+            "ok",
+            "Telegram pipeline process is not healthy.",
+        )
+    if ai_ok is False:
+        _add_alert(
+            "warning",
+            "ai_pipeline.status",
+            ai_status,
+            "ok",
+            "AI pipeline process is not healthy.",
         )
     if scheduler_enabled and scheduler_ok is False:
         _add_alert(

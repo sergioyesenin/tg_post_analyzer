@@ -134,7 +134,6 @@ def test_health_snapshot_includes_scheduler_dependency(monkeypatch):
     session = _FakeSession([now, now], execute_result=object())
 
     monkeypatch.setattr(monitoring, "_utcnow", lambda: now)
-    monkeypatch.setattr(monitoring.client, "is_connected", lambda: True)
     monkeypatch.setattr(monitoring.time, "perf_counter", lambda: 1.0)
     monkeypatch.setattr(monitoring.settings, "tz", "Europe/Minsk")
     monkeypatch.setattr(
@@ -157,6 +156,17 @@ def test_health_snapshot_includes_scheduler_dependency(monkeypatch):
     )
 
     assert payload["status"] == "ok"
+    assert payload["dependencies"]["telegram_client"] == {
+        "ok": True,
+        "connected": True,
+        "status": "ok",
+        "last_heartbeat_at": "2026-03-11T12:00:00+00:00",
+    }
+    assert payload["dependencies"]["ai_pipeline"] == {
+        "ok": True,
+        "status": "ok",
+        "last_heartbeat_at": "2026-03-11T12:00:00+00:00",
+    }
     assert payload["dependencies"]["scheduler"] == {
         "ok": True,
         "enabled": True,
@@ -174,7 +184,6 @@ def test_health_snapshot_degrades_when_scheduler_process_is_missing(monkeypatch)
     session = _FakeSession([now, now], execute_result=object())
 
     monkeypatch.setattr(monitoring, "_utcnow", lambda: now)
-    monkeypatch.setattr(monitoring.client, "is_connected", lambda: True)
     monkeypatch.setattr(monitoring.time, "perf_counter", lambda: 1.0)
     monkeypatch.setattr(monitoring.settings, "tz", "Europe/Minsk")
     monkeypatch.setattr(
@@ -194,6 +203,8 @@ def test_health_snapshot_degrades_when_scheduler_process_is_missing(monkeypatch)
     )
 
     assert payload["status"] == "degraded"
+    assert payload["dependencies"]["telegram_client"]["status"] == "process_missing"
+    assert payload["dependencies"]["ai_pipeline"]["status"] == "process_missing"
     assert payload["dependencies"]["scheduler"]["status"] == "process_missing"
     assert payload["dependencies"]["scheduler"]["ok"] is False
 
@@ -203,7 +214,8 @@ def test_evaluate_alerts_warns_when_scheduler_enabled_but_not_ok():
         health={
             "dependencies": {
                 "database": {"latency_ms": 10},
-                "telegram_client": {"connected": True},
+                "telegram_client": {"connected": True, "status": "ok"},
+                "ai_pipeline": {"ok": True, "status": "ok"},
                 "scheduler": {"enabled": True, "ok": False, "status": "process_stale"},
             }
         },
@@ -216,3 +228,43 @@ def test_evaluate_alerts_warns_when_scheduler_enabled_but_not_ok():
     assert payload["status"] == "warning"
     assert payload["alerts_count"] == 1
     assert payload["alerts"][0]["metric"] == "scheduler.status"
+
+
+def test_pipeline_snapshot_uses_recent_window_for_collect_comments_rates(monkeypatch):
+    now = datetime(2026, 3, 11, 12, 0, tzinfo=timezone.utc)
+    session = _FakeSession(
+        [
+            now,
+            now,
+            12,
+            10,
+            4,
+            1,
+            1,
+            None,
+            None,
+        ]
+    )
+
+    monkeypatch.setattr(monitoring, "_utcnow", lambda: now)
+    monkeypatch.setattr(
+        monitoring,
+        "get_runtime_heartbeat",
+        lambda _session, runtime_name: asyncio.sleep(
+            0,
+            result={"status": "running", "heartbeat_at": now.isoformat(), "details": {"pid": 5}},
+        ),
+    )
+
+    payload = asyncio.run(monitoring.pipeline_snapshot(session, retention_days=30, window_hours=2))
+
+    assert payload["collect_comments"] == {
+        "window_since": "2026-03-11T10:00:00+00:00",
+        "error_pool_size": 4,
+        "flood_count": 1,
+        "rpc_count": 1,
+        "flood_rate": 0.25,
+        "rpc_rate": 0.25,
+    }
+    assert payload["runtime"]["telegram_pipeline"]["status"] == "ok"
+    assert payload["runtime"]["ai_pipeline"]["status"] == "ok"

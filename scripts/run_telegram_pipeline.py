@@ -5,6 +5,7 @@ import asyncio
 import logging
 import sqlite3
 import sys
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,6 +25,7 @@ from services.pipeline_runtime import (
     sleep_until_next_telegram_cycle,
     with_session_lock_retry,
 )
+from services.runtime_heartbeat import HEARTBEAT_INTERVAL_SECONDS, persist_runtime_heartbeat
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -52,7 +54,15 @@ async def main_async(args: argparse.Namespace) -> None:
     )
     worker_id = build_worker_id("tg-pipeline")
     await with_session_lock_retry(lambda: client.start(), op_name="client.start")
+    heartbeat_task = asyncio.create_task(
+        _heartbeat_loop(worker_id=worker_id, jobs_provider=lambda: sorted(TELEGRAM_JOB_TYPES))
+    )
     try:
+        await persist_runtime_heartbeat(
+            runtime_name="telegram_pipeline",
+            status="running",
+            details={"worker_id": worker_id, "job_types": sorted(TELEGRAM_JOB_TYPES), "pid": os.getpid()},
+        )
         while True:
             cycle_started_at = datetime.now(timezone.utc)
             backlog_before = await collect_backlog_snapshot(allowed_types=TELEGRAM_JOB_TYPES)
@@ -86,6 +96,16 @@ async def main_async(args: argparse.Namespace) -> None:
                 target_seconds=max(1, int(poll_seconds - elapsed)),
             )
     finally:
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
+        await persist_runtime_heartbeat(
+            runtime_name="telegram_pipeline",
+            status="stopped",
+            details={"worker_id": worker_id, "job_types": sorted(TELEGRAM_JOB_TYPES), "pid": os.getpid()},
+        )
         try:
             await with_session_lock_retry(lambda: client.disconnect(), op_name="client.disconnect")
         except sqlite3.OperationalError as exc:
@@ -93,6 +113,16 @@ async def main_async(args: argparse.Namespace) -> None:
                 logging.warning("Telethon session is locked during disconnect, ignored: %r", exc)
             else:
                 raise
+
+
+async def _heartbeat_loop(*, worker_id: str, jobs_provider) -> None:
+    while True:
+        await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+        await persist_runtime_heartbeat(
+            runtime_name="telegram_pipeline",
+            status="running",
+            details={"worker_id": worker_id, "job_types": jobs_provider(), "pid": os.getpid()},
+        )
 
 
 def main() -> None:

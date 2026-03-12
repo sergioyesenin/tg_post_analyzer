@@ -9,6 +9,26 @@ from services.ingest import upsert_report
 
 
 SKIPPED_MIN_COMMENTS_PREFIX = "STATUS: SKIPPED_MIN_COMMENTS"
+REPORT_GENERATION_FAILED_CONTENT = "STATUS: FAILED\nREASON: report_generation_failed"
+REPORT_STATUS_DRAFT = "draft"
+REPORT_STATUS_READY = "ready"
+REPORT_STATUS_FAILED = "failed"
+
+
+def _serialize_report_payload(payload: dict) -> str:
+    return str(payload)
+
+
+def report_status_from_payload(payload: dict | None, *, fallback: str = REPORT_STATUS_READY) -> str:
+    if not isinstance(payload, dict):
+        return fallback
+    status = payload.get("status")
+    if isinstance(status, str) and status:
+        return status
+    payload_type = payload.get("type")
+    if payload_type in {"event_report_draft_v1", "process_report_draft_v1"}:
+        return REPORT_STATUS_DRAFT
+    return fallback
 
 
 async def build_post_report(
@@ -61,7 +81,7 @@ async def build_post_report(
         )
 
     channel_label = f"@{channel.username}" if channel.username else f"channel:{channel.id}"
-    status = "ready"
+    status = REPORT_STATUS_READY
     try:
         content = await report_project.generate_report(
             channel=channel_label,
@@ -74,8 +94,11 @@ async def build_post_report(
             config=report_config,
         )
     except Exception as exc:
-        status = "failed"
-        content = f"STATUS: FAILED\nREASON: {exc!r}"
+        status = REPORT_STATUS_FAILED
+        content = REPORT_GENERATION_FAILED_CONTENT
+        technical_error = f"{type(exc).__name__}: {exc}"
+    else:
+        technical_error = None
 
     if isinstance(content, str) and content.startswith(SKIPPED_MIN_COMMENTS_PREFIX):
         return {
@@ -90,7 +113,10 @@ async def build_post_report(
         status=status,
         content=content,
     )
-    return {"status": status, "post_id": post.id, "report_id": report.id}
+    result = {"status": status, "post_id": post.id, "report_id": report.id}
+    if technical_error is not None:
+        result["technical_error"] = technical_error
+    return result
 
 
 async def build_event_report_draft(
@@ -112,6 +138,7 @@ async def build_event_report_draft(
     ).scalars().all()
     payload = {
         "type": "event_report_draft_v1",
+        "status": REPORT_STATUS_DRAFT,
         "event_id": event_id,
         "event_title": event.title,
         "posts_count": len(rows),
@@ -126,10 +153,10 @@ async def build_event_report_draft(
         )
     ).scalar_one_or_none()
     next_version = int(last_version or 0) + 1
-    report = EventReport(event_id=event_id, report_text=str(payload), report_json=payload, version=next_version)
+    report = EventReport(event_id=event_id, report_text=_serialize_report_payload(payload), report_json=payload, version=next_version)
     session.add(report)
     await session.flush()
-    return {"status": "ready", "event_id": event_id, "report_id": report.id}
+    return {"status": REPORT_STATUS_DRAFT, "event_id": event_id, "report_id": report.id}
 
 
 async def build_process_report_draft(
@@ -150,6 +177,7 @@ async def build_process_report_draft(
     ).all()
     payload = {
         "type": "process_report_draft_v1",
+        "status": REPORT_STATUS_DRAFT,
         "process_id": process_id,
         "process_title": process.title,
         "events_count": len(rows),
@@ -173,10 +201,10 @@ async def build_process_report_draft(
     next_version = int(last_version or 0) + 1
     report = ProcessReport(
         process_id=process_id,
-        report_text=str(payload),
+        report_text=_serialize_report_payload(payload),
         report_json=payload,
         version=next_version,
     )
     session.add(report)
     await session.flush()
-    return {"status": "ready", "process_id": process_id, "report_id": report.id}
+    return {"status": REPORT_STATUS_DRAFT, "process_id": process_id, "report_id": report.id}

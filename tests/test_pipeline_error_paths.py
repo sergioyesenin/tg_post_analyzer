@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from scripts import pipeline
 from services import pipeline_runtime
+from services.jobs import JobType
 
 
 def test_with_session_lock_retry_retries_locked_session(monkeypatch: pytest.MonkeyPatch):
@@ -49,18 +49,18 @@ def test_clamp_positive_int_respects_bounds_and_fallback():
     assert pipeline_runtime._clamp_positive_int(None, default=3, minimum=1, maximum=8) == 3
 
 
-def test_legacy_split_locked_jobs_by_type_separates_collect_comments():
+def test_split_jobs_for_telegram_worker_separates_comment_jobs():
     jobs = [
-        SimpleNamespace(id=1, type=pipeline.JobType.COLLECT_COMMENTS),
-        SimpleNamespace(id=2, type=pipeline.JobType.BUILD_POST_REPORT),
-        SimpleNamespace(id=3, type=pipeline.JobType.ARCHIVE_RETENTION),
-        SimpleNamespace(id=4, type=pipeline.JobType.COLLECT_COMMENTS),
+        SimpleNamespace(id=1, type=JobType.COLLECT_COMMENTS),
+        SimpleNamespace(id=2, type=JobType.REFRESH_COMMENTS),
+        SimpleNamespace(id=3, type=JobType.BUILD_POST_REPORT),
+        SimpleNamespace(id=4, type=JobType.ARCHIVE_RETENTION),
     ]
 
-    collect_jobs, other_jobs = pipeline._split_locked_jobs_by_type(jobs)
+    comment_jobs, other_jobs = pipeline_runtime.split_jobs_for_telegram_worker(jobs)
 
-    assert [job.id for job in collect_jobs] == [1, 4]
-    assert [job.id for job in other_jobs] == [2, 3]
+    assert [job.id for job in comment_jobs] == [1, 2]
+    assert [job.id for job in other_jobs] == [3, 4]
 
 
 @pytest.mark.asyncio

@@ -28,12 +28,17 @@ from services.pipeline_runtime import (
     enqueue_post_report_job,
     enqueue_process_report_job,
 )
+from services.reporting import build_post_report, report_status_from_payload
 from services.settings_store import get_all_settings, report_config_from_settings
 
 router = APIRouter()
 report_project = TgReportProject(
     llm_model="ollama/llama3:8b-instruct-q4_K_M",
 )
+
+
+def _event_process_report_status(report) -> str:
+    return report_status_from_payload(getattr(report, "report_json", None))
 
 
 def _job_accepted_response(*, job_id: int, job_type: str) -> JSONResponse:
@@ -253,6 +258,7 @@ async def list_event_reports(
             "report_id": report.id,
             "event_id": event.id,
             "event_title": event.title,
+            "status": _event_process_report_status(report),
             "version": report.version,
             "created_at": report.created_at,
         }
@@ -287,6 +293,7 @@ async def export_event_reports(
             "report_id": report.id,
             "event_id": event.id,
             "event_title": event.title,
+            "status": _event_process_report_status(report),
             "version": report.version,
             "report_text": report.report_text,
             "created_at": report.created_at.isoformat() if report.created_at else None,
@@ -298,7 +305,7 @@ async def export_event_reports(
     return _csv_response(
         filename="event_reports.csv",
         rows=items,
-        fieldnames=["report_id", "event_id", "event_title", "version", "report_text", "created_at"],
+        fieldnames=["report_id", "event_id", "event_title", "status", "version", "report_text", "created_at"],
     )
 
 
@@ -329,6 +336,7 @@ async def list_process_reports(
             "report_id": report.id,
             "process_id": process.id,
             "process_title": process.title,
+            "status": _event_process_report_status(report),
             "version": report.version,
             "created_at": report.created_at,
         }
@@ -363,6 +371,7 @@ async def export_process_reports(
             "report_id": report.id,
             "process_id": process.id,
             "process_title": process.title,
+            "status": _event_process_report_status(report),
             "version": report.version,
             "report_text": report.report_text,
             "created_at": report.created_at.isoformat() if report.created_at else None,
@@ -374,7 +383,7 @@ async def export_process_reports(
     return _csv_response(
         filename="process_reports.csv",
         rows=items,
-        fieldnames=["report_id", "process_id", "process_title", "version", "report_text", "created_at"],
+        fieldnames=["report_id", "process_id", "process_title", "status", "version", "report_text", "created_at"],
     )
 
 

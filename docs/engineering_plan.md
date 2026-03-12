@@ -301,11 +301,5 @@ requirements.txt, импортируемые модули, README.
 какие фичи считаются обязательными для production.
 
 
-
-
-TASK-009
-TASK-011
-TASK-012
-
 TASK-014
 TASK-015

@@ -95,3 +95,44 @@ def test_update_process_report_returns_202_with_job_links(monkeypatch):
     assert response.status_code == 202
     assert response.json()["job_id"] == 103
     assert response.json()["job_type"] == "build_process_report"
+
+
+def test_generate_post_reports_by_filter_returns_202_batch_job(monkeypatch):
+    session = _FakeSession({})
+    client = _build_client(session)
+
+    async def _fake_enqueue(_session, *, filters: dict, source: str):
+        assert source == "api"
+        assert filters == {
+            "channel_ids": [1, 3],
+            "categories": ["regional", "incident"],
+            "date_from": None,
+            "date_to": None,
+            "min_comments": 5,
+            "limit": 25,
+        }
+        return SimpleNamespace(id=104, type="build_post_report_batch")
+
+    monkeypatch.setattr(reports, "enqueue_post_report_batch_job", _fake_enqueue)
+
+    response = client.post(
+        "/api/reports/posts/generate-by-filter?channel_ids=1,3&categories=regional,incident&min_comments=5&limit=25"
+    )
+
+    assert response.status_code == 202
+    assert response.json() == {
+        "status": "queued",
+        "job_id": 104,
+        "job_type": "build_post_report_batch",
+        "status_url": "/api/jobs/104",
+        "result_url": "/api/jobs/104/result",
+        "batch": {
+            "limit": 25,
+            "channel_ids": [1, 3],
+            "categories": ["regional", "incident"],
+            "date_from": None,
+            "date_to": None,
+            "min_comments": 5,
+        },
+    }
+    assert session.commit_calls == 1

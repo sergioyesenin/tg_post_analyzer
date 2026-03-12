@@ -26,10 +26,10 @@ from services.auth import AuthUser
 from services.pipeline_runtime import (
     enqueue_event_report_job,
     enqueue_post_report_job,
+    enqueue_post_report_batch_job,
     enqueue_process_report_job,
 )
-from services.reporting import build_post_report, report_status_from_payload
-from services.settings_store import get_all_settings, report_config_from_settings
+from services.reporting import report_status_from_payload
 
 router = APIRouter()
 report_project = TgReportProject(
@@ -54,6 +54,25 @@ def _job_accepted_response(*, job_id: int, job_type: str) -> JSONResponse:
             }
         ),
     )
+
+
+def _batch_job_accepted_response(*, job_id: int, job_type: str, filters: dict) -> JSONResponse:
+    payload = {
+        "status": "queued",
+        "job_id": job_id,
+        "job_type": job_type,
+        "status_url": f"/api/jobs/{job_id}",
+        "result_url": f"/api/jobs/{job_id}/result",
+        "batch": {
+            "limit": filters.get("limit"),
+            "channel_ids": filters.get("channel_ids", []),
+            "categories": filters.get("categories", []),
+            "date_from": filters.get("date_from"),
+            "date_to": filters.get("date_to"),
+            "min_comments": filters.get("min_comments"),
+        },
+    }
+    return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=jsonable_encoder(payload))
 
 
 def _parse_int_list(raw: str | None) -> list[int]:
@@ -394,51 +413,27 @@ async def generate_post_reports_by_filter(
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     min_comments: int | None = Query(default=None, ge=0),
-    limit: int = Query(default=100, ge=1, le=2000),
+    limit: int = Query(default=100, ge=1, le=500),
     _: AuthUser = Depends(require_roles("admin", "analyst")),
     session: AsyncSession = Depends(get_session),
 ):
-    parsed_channel_ids = _parse_int_list(channel_ids)
-    parsed_categories = _parse_str_list(categories)
-    stmt = (
-        select(Post.id)
-        .join(Channel, Channel.id == Post.channel_id)
-        .order_by(Post.date.desc(), Post.id.desc())
+    filters = {
+        "channel_ids": _parse_int_list(channel_ids),
+        "categories": _parse_str_list(categories),
+        "date_from": date_from.isoformat() if date_from else None,
+        "date_to": date_to.isoformat() if date_to else None,
+        "min_comments": min_comments,
+        "limit": limit,
+    }
+    job = await enqueue_post_report_batch_job(
+        session,
+        filters=filters,
+        source="api",
     )
-    conditions = []
-    if parsed_channel_ids:
-        conditions.append(Post.channel_id.in_(parsed_channel_ids))
-    if parsed_categories:
-        conditions.append(Channel.category.in_(parsed_categories))
-    if date_from is not None:
-        conditions.append(Post.date >= date_from)
-    if date_to is not None:
-        conditions.append(Post.date <= date_to)
-    if min_comments is not None:
-        conditions.append(Post.comments_count >= min_comments)
-    if conditions:
-        stmt = stmt.where(and_(*conditions))
-    post_ids = [row[0] for row in (await session.execute(stmt.limit(limit))).all()]
-    if not post_ids:
-        return {"status": "ok", "updated": 0, "post_ids": []}
-
-    effective_settings = await get_all_settings(session)
-    report_config = report_config_from_settings(effective_settings)
-    updated = 0
-    failed: list[dict] = []
-    for post_id in post_ids:
-        result = await build_post_report(
-            session,
-            post_id=post_id,
-            report_project=report_project,
-            report_config=report_config,
-        )
-        if result.get("status") in {"ready", "failed"}:
-            updated += 1
-        else:
-            failed.append({"post_id": post_id, "status": result.get("status")})
     await session.commit()
-    return {"status": "ok", "updated": updated, "failed": failed, "post_ids": post_ids}
+    if job is None:
+        raise HTTPException(status_code=500, detail="Failed to enqueue build_post_report_batch job")
+    return _batch_job_accepted_response(job_id=job.id, job_type=job.type, filters=filters)
 
 
 @router.post("/events/{event_id}/update")

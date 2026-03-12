@@ -86,9 +86,34 @@ Run daemon for at least 2-3 cycles and verify:
 - flood source is present when flood happens
 - comment jobs complete with mostly `status=ok` / `status=no_discussion`
 
+## Dependency Profiles
+
+Install only the base API + Telegram + scheduler runtime:
+
+```bash
+venv\Scripts\python -m pip install -r requirements-base.txt
+```
+
+Install AI/report-generation extras on top of base:
+
+```bash
+venv\Scripts\python -m pip install -r requirements-ai.txt
+```
+
+Install dev/test tooling on top of base:
+
+```bash
+venv\Scripts\python -m pip install -r requirements-dev.txt
+```
+
+Compatibility note:
+- `requirements.txt` remains the full umbrella install and includes all three profiles.
+- Minimal production path for API + Telegram pipeline + scheduler is `requirements-base.txt`.
+- AI report generation, keyword graph NLP, PDF/Excel utilities and related tooling live in `requirements-ai.txt`.
+
 ## Tests
 
-Install dependencies and run the baseline quality gate with one command:
+Run the baseline quality gate after installing `requirements-dev.txt`:
 
 ```bash
 venv\Scripts\python -m pytest -q tests

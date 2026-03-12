@@ -54,6 +54,7 @@ logger = logging.getLogger(__name__)
 PRIORITY_API_REPORT = 1
 PRIORITY_API_COMMENT_REFRESH = 1
 PRIORITY_API_POST_REPORT = 1
+PRIORITY_API_POST_REPORT_BATCH = 5
 PRIORITY_BUILD_POST_REPORT = 40
 PRIORITY_ARCHIVE_RETENTION = 95
 PRIORITY_JOBS_RETENTION = 96
@@ -68,6 +69,7 @@ TELEGRAM_JOB_TYPES = {
 
 AI_JOB_TYPES = {
     JobType.BUILD_POST_REPORT,
+    JobType.BUILD_POST_REPORT_BATCH,
     JobType.BUILD_EVENT_REPORT,
     JobType.BUILD_PROCESS_REPORT,
 }
@@ -293,6 +295,7 @@ async def enqueue_post_report_job(
     post_id: int,
     priority: int = PRIORITY_API_POST_REPORT,
     source: str = "api",
+    dedupe_key: str | None = None,
 ) -> Job | None:
     return await enqueue_job(
         session,
@@ -301,6 +304,24 @@ async def enqueue_post_report_job(
         run_at=datetime.now(timezone.utc),
         priority=priority,
         max_attempts=5,
+        dedupe_key=dedupe_key,
+    )
+
+
+async def enqueue_post_report_batch_job(
+    session: AsyncSession,
+    *,
+    filters: dict,
+    priority: int = PRIORITY_API_POST_REPORT_BATCH,
+    source: str = "api",
+) -> Job | None:
+    return await enqueue_job(
+        session,
+        job_type=JobType.BUILD_POST_REPORT_BATCH,
+        payload={"filters": filters, "source": source},
+        run_at=datetime.now(timezone.utc),
+        priority=priority,
+        max_attempts=3,
         dedupe_key=None,
     )
 
@@ -334,6 +355,64 @@ async def schedule_due_post_report_jobs(*, min_age_hours: int, limit: int) -> in
                 queued += 1
         await session.commit()
     return queued
+
+
+async def dispatch_post_report_batch(
+    session: AsyncSession,
+    *,
+    filters: dict,
+) -> dict:
+    channel_ids = [int(value) for value in (filters.get("channel_ids") or [])]
+    categories = [str(value) for value in (filters.get("categories") or []) if str(value).strip()]
+    date_from = filters.get("date_from")
+    date_to = filters.get("date_to")
+    min_comments = filters.get("min_comments")
+    limit = max(1, min(500, int(filters.get("limit") or 100)))
+
+    stmt = (
+        select(Post.id)
+        .join(Channel, Channel.id == Post.channel_id)
+        .order_by(Post.date.desc(), Post.id.desc())
+    )
+    conditions = []
+    if channel_ids:
+        conditions.append(Post.channel_id.in_(channel_ids))
+    if categories:
+        conditions.append(Channel.category.in_(categories))
+    if date_from is not None:
+        conditions.append(Post.date >= datetime.fromisoformat(str(date_from)))
+    if date_to is not None:
+        conditions.append(Post.date <= datetime.fromisoformat(str(date_to)))
+    if min_comments is not None:
+        conditions.append(Post.comments_count >= int(min_comments))
+    if conditions:
+        stmt = stmt.where(and_(*conditions))
+
+    post_ids = [int(row[0]) for row in (await session.execute(stmt.limit(limit))).all()]
+    queued_job_ids: list[int] = []
+    skipped_post_ids: list[int] = []
+    for post_id in post_ids:
+        job = await enqueue_post_report_job(
+            session,
+            post_id=post_id,
+            priority=PRIORITY_BUILD_POST_REPORT,
+            source="batch",
+            dedupe_key=f"build_post_report:{post_id}",
+        )
+        if job is None:
+            skipped_post_ids.append(post_id)
+            continue
+        queued_job_ids.append(int(job.id))
+
+    return {
+        "status": "queued",
+        "matched_posts": len(post_ids),
+        "queued_jobs": len(queued_job_ids),
+        "skipped_existing": len(skipped_post_ids),
+        "post_ids": post_ids,
+        "job_ids": queued_job_ids,
+        "filters": filters,
+    }
 
 
 async def _get_active_channels() -> list[Channel]:
@@ -854,6 +933,11 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
                             post_id=int(payload.get("post_id")),
                             report_project=report_project,
                             report_config=report_config,
+                        )
+                    elif db_job.type == JobType.BUILD_POST_REPORT_BATCH:
+                        result = await dispatch_post_report_batch(
+                            session,
+                            filters=dict(payload.get("filters") or {}),
                         )
                     elif db_job.type == JobType.BUILD_EVENT_REPORT:
                         result = await build_event_report_draft(session, event_id=int(payload.get("event_id")))

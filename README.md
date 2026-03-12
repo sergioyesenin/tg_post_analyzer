@@ -156,6 +156,83 @@ Processes dashboard filters:
 - optional: `date_from`, `date_to`, `limit`, `status`, `min_comments`, `sort_by`, `sort_order`
 - supported `sort_by`: `started_at`, `comments_count`, `involvement`, `events_count`
 
+## Frontend Workspace
+
+Stage 0 frontend bootstrap lives in `frontend/` and is intentionally isolated from the legacy static `web/` prototype.
+
+Run commands:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Tests:
+
+```bash
+cd frontend
+npm test
+```
+
+### Architecture
+
+- `src/app`: application bootstrap, providers, app shell, router, guards, global styles
+- `src/shared`: cross-cutting API client, auth roles, dashboard contracts, theme tokens, routing metadata, reusable states, query-string utils
+- `src/modules`: route modules grouped by business area; stage 0 contains placeholders only
+
+### Directory Structure
+
+```text
+frontend/
+  src/
+    app/
+      providers/
+      router/
+      shell/
+      styles/
+    shared/
+      api/
+      auth/
+      routing/
+      theme/
+      types/
+      ui/
+      utils/
+    modules/
+      auth/
+      workspace/
+      platform/
+```
+
+### Data Flow Principles
+
+- App bootstrap starts in `src/app/App.tsx` and composes providers in a strict order: theme, query client, session, router.
+- Session bootstrap uses `GET /api/auth/me` as the initial auth checkpoint. Until it resolves, protected routes stay in a loading state.
+- Shared API access goes through `src/shared/api/client.ts`. Transport access is centralized so headers, credentials and error policy stay consistent.
+- Dashboard pages are expected to consume `DashboardEnvelope<TSummary, TItem, TMeta, TFilters>` from `src/shared/types/dashboard.ts`.
+- `partial` and `warnings` are modeled as a first-class shared contract. They are not treated as hard errors.
+- URL query parsing/serialization is centralized in `src/shared/utils/queryParams.ts` so dashboard filters can remain route-driven.
+
+### Route Strategy
+
+- `/login` is public.
+- Protected routes render inside one `AppShell`.
+- `/` redirects to `/dashboard/posts`.
+- Dashboard modes are explicit top-level routes: `/dashboard/posts`, `/dashboard/events`, `/dashboard/processes`.
+- Detail, reports, admin, monitor, jobs and keyword graph routes already exist as placeholders to stabilize ownership and RBAC early.
+- `AuthGuard` protects the shell. `RoleGuard` returns a reusable forbidden state for unauthorized role access instead of silently hiding route issues.
+
+### Remaining Gaps Against Spec
+
+- No production auth forms, refresh flow mutation handling or logout UX yet.
+- No real dashboard queries, filters, summary cards, tables, generated-at rendering or graph panels yet.
+- No DTO-to-view-model mapping layer for concrete dashboard payloads yet.
+- No async job flow, polling strategy or mutation invalidation yet.
+- No table specs, graph specs, detail panel rules, copy rules or API-to-UI mapping implementation from the handoff checklist yet.
+- No RBAC visibility matrix for navigation/action-level behavior beyond route guards yet.
+- No final UI/UX handoff artifacts such as wireframes, hi-fi mocks, status matrix or interaction matrix in the repo yet.
+
 ## Pipeline Concurrency Settings
 
 Use `/api/settings` to tune safe concurrency limits for `scripts/run_telegram_pipeline.py` and `scripts/run_ai_pipeline.py`:

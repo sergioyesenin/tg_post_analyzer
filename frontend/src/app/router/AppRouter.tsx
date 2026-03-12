@@ -1,0 +1,136 @@
+import { RouterProvider, createBrowserRouter, createMemoryRouter } from 'react-router-dom';
+
+import { AppShell } from '@app/shell/AppShell';
+import { AuthGuard } from '@app/router/guards/AuthGuard';
+import { RoleGuard } from '@app/router/guards/RoleGuard';
+import { LoginPage } from '@modules/auth/routes/LoginPage';
+import { ChannelsPlaceholderPage } from '@modules/platform/routes/ChannelsPlaceholderPage';
+import { JobsPlaceholderPage } from '@modules/platform/routes/JobsPlaceholderPage';
+import { KeywordGraphPlaceholderPage } from '@modules/platform/routes/KeywordGraphPlaceholderPage';
+import { MonitorPlaceholderPage } from '@modules/platform/routes/MonitorPlaceholderPage';
+import { ReportsPlaceholderPage } from '@modules/platform/routes/ReportsPlaceholderPage';
+import { SettingsPlaceholderPage } from '@modules/platform/routes/SettingsPlaceholderPage';
+import { UsersPlaceholderPage } from '@modules/platform/routes/UsersPlaceholderPage';
+import { DashboardEventsPage } from '@modules/workspace/routes/DashboardEventsPage';
+import { DashboardPostsPage } from '@modules/workspace/routes/DashboardPostsPage';
+import { DashboardProcessesPage } from '@modules/workspace/routes/DashboardProcessesPage';
+import { EventDetailsPlaceholderPage } from '@modules/workspace/routes/EventDetailsPlaceholderPage';
+import { PostDetailsPlaceholderPage } from '@modules/workspace/routes/PostDetailsPlaceholderPage';
+import { ProcessDetailsPlaceholderPage } from '@modules/workspace/routes/ProcessDetailsPlaceholderPage';
+import { RootRedirect } from '@shared/routing/RootRedirect';
+import { NotFoundPage } from '@shared/ui/states/NotFoundPage';
+
+const routes = [
+  {
+    path: '/login',
+    element: <LoginPage />,
+  },
+  {
+    path: '/',
+    element: (
+      <AuthGuard>
+        <AppShell />
+      </AuthGuard>
+    ),
+    children: [
+      {
+        index: true,
+        element: <RootRedirect />,
+      },
+      {
+        path: 'dashboard/posts',
+        element: <DashboardPostsPage />,
+      },
+      {
+        path: 'dashboard/events',
+        element: <DashboardEventsPage />,
+      },
+      {
+        path: 'dashboard/processes',
+        element: <DashboardProcessesPage />,
+      },
+      {
+        path: 'posts/:postId',
+        element: <PostDetailsPlaceholderPage />,
+      },
+      {
+        path: 'events/:eventId',
+        element: <EventDetailsPlaceholderPage />,
+      },
+      {
+        path: 'processes/:processId',
+        element: <ProcessDetailsPlaceholderPage />,
+      },
+      {
+        path: 'reports/:reportType',
+        element: <ReportsPlaceholderPage />,
+      },
+      {
+        path: 'settings',
+        element: (
+          <RoleGuard allowedRoles={['admin', 'analyst']}>
+            <SettingsPlaceholderPage />
+          </RoleGuard>
+        ),
+      },
+      {
+        path: 'channels',
+        element: (
+          <RoleGuard allowedRoles={['admin']}>
+            <ChannelsPlaceholderPage />
+          </RoleGuard>
+        ),
+      },
+      {
+        path: 'users',
+        element: (
+          <RoleGuard allowedRoles={['admin']}>
+            <UsersPlaceholderPage />
+          </RoleGuard>
+        ),
+      },
+      {
+        path: 'monitor',
+        element: (
+          <RoleGuard allowedRoles={['admin']}>
+            <MonitorPlaceholderPage />
+          </RoleGuard>
+        ),
+      },
+      {
+        path: 'jobs',
+        element: (
+          <RoleGuard allowedRoles={['admin']}>
+            <JobsPlaceholderPage />
+          </RoleGuard>
+        ),
+      },
+      {
+        path: 'keyword-graph',
+        element: (
+          <RoleGuard allowedRoles={['admin', 'analyst']}>
+            <KeywordGraphPlaceholderPage />
+          </RoleGuard>
+        ),
+      },
+      {
+        path: '*',
+        element: <NotFoundPage />,
+      },
+    ],
+  },
+];
+
+function createAppRouter() {
+  if (import.meta.env.MODE === 'test') {
+    return createMemoryRouter(routes, {
+      initialEntries: [window.location.pathname + window.location.search],
+    });
+  }
+
+  return createBrowserRouter(routes);
+}
+
+export function AppRouter() {
+  return <RouterProvider router={createAppRouter()} />;
+}

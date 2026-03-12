@@ -3,7 +3,13 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError, apiClient } from '@shared/api/client';
-import { createPostsDashboardResponse } from '@test/dashboard-fixtures';
+import {
+  createCommentsResponse,
+  createLinksResponse,
+  createPostDetailResponse,
+  createPostsDashboardResponse,
+  createReportResponse,
+} from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
 
 function createAuthApiMock(roles: string[] = ['analyst']) {
@@ -65,7 +71,8 @@ describe('Posts dashboard', () => {
     });
 
     expect(screen.getByText('537')).toBeInTheDocument();
-    expect(screen.getByText(/Signal Watch · media/i)).toBeInTheDocument();
+    expect(screen.getByText(/Signal Watch/i)).toBeInTheDocument();
+    expect(screen.getByText(/media/i)).toBeInTheDocument();
     expect(screen.getByText(/Top post preview for posts dashboard rendering/i)).toBeInTheDocument();
     expect(screen.getByText('Ready')).toBeInTheDocument();
     expect(screen.getByText('Pending')).toBeInTheDocument();
@@ -151,7 +158,29 @@ describe('Posts dashboard', () => {
 
   it('navigates to post detail entry point from table actions', async () => {
     const user = userEvent.setup();
-    vi.spyOn(apiClient, 'get').mockResolvedValue(createPostsDashboardResponse());
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path.startsWith('/api/dashboard/posts')) {
+        return createPostsDashboardResponse();
+      }
+
+      if (path === '/api/posts/4012') {
+        return createPostDetailResponse({ id: 4012 });
+      }
+
+      if (path === '/api/posts/4012/comments') {
+        return createCommentsResponse();
+      }
+
+      if (path === '/api/reports/post/4012') {
+        return createReportResponse({ post_id: 4012 });
+      }
+
+      if (path === '/api/posts/4012/links') {
+        return createLinksResponse();
+      }
+
+      throw new Error(`Unhandled GET path in test: ${path}`);
+    });
 
     renderPostsDashboard();
 
@@ -162,7 +191,7 @@ describe('Posts dashboard', () => {
     await user.click(screen.getAllByRole('link', { name: 'Open post' })[0]);
 
     await waitFor(() => {
-      expect(screen.getByText(/Post details placeholder/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Post #4012/i })).toBeInTheDocument();
     });
   });
 

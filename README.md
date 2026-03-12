@@ -278,6 +278,7 @@ frontend/
 
 - Transport DTO contracts live in `frontend/src/shared/dashboard/contracts.ts` and still mirror backend `schemas.dashboard`.
 - Transport DTOs and UI view models are separated: `dashboard/posts` now maps live `GET /api/dashboard/posts` DTOs into screen-oriented summary/table row models before rendering.
+- Post detail uses the same separation rule: `frontend/src/modules/workspace/post-detail/contracts.ts` mirrors backend payloads, while `mappers.ts` reshapes them into block-level view models.
 - Dashboard shell foundation currently includes:
 - `DashboardWarningsBanner`
 - `PartialDataNotice`
@@ -375,6 +376,40 @@ frontend/
 - `partial`: warnings banner plus partial notice render without replacing the table.
 - `viewer`: read-only notice renders and mutation entry points stay hidden while detail navigation remains available.
 
+### Post Detail
+
+- `/posts/:postId` is now implemented as the detail entry point for `dashboard/posts`.
+- The screen loads four independent read models:
+- `GET /api/posts/{id}`
+- `GET /api/posts/{id}/comments`
+- `GET /api/reports/post/{id}`
+- `GET /api/posts/{id}/links`
+- Layout is desktop-first and split into:
+- main rail with post header, comments block and links block
+- side rail with report block and async action feedback
+- Comments rendering keeps thread-related transport fields (`parent_*`, `thread_root_tg_message_id`, `depth`) in the mapped view model so thread mode can be added without replacing the component contract.
+- Viewer access remains read-only: detail data stays visible, while mutation actions are hidden.
+- Analyst and admin users see action entry points for comment refresh and report generation/update.
+
+### Post Detail Async Job Flow
+
+- `POST /api/posts/{id}/comments/update` and `POST /api/reports/post/{id}/update` enqueue async jobs and return `job_id`.
+- Frontend async handling is centralized in `frontend/src/shared/jobs/hooks.ts` via `useAsyncJobAction`.
+- Flow:
+- mutation enqueue request
+- poll `GET /api/jobs/{id}` until terminal status
+- read `GET /api/jobs/{id}/result`
+- invalidate relevant TanStack Query resources
+- re-render final post/comments/report data
+- Async state is rendered inline through reusable indicators rather than replacing detail content.
+- Success and failure job results are both surfaced to the user; failure remains non-destructive to already loaded detail data.
+
+### Post Detail Composition
+
+- `PostDetailsPage` owns route-level blocking states for the main post query only.
+- `CommentsBlock`, `LinksBlock`, and `ReportBlock` load independently and keep their own loading/error/empty handling.
+- This prevents one secondary block from collapsing the entire screen and keeps the detail route usable under partial backend degradation.
+
 ### Error Handling Policy
 
 - `invalid_credentials`: blocking inline error on `/login`.
@@ -390,6 +425,7 @@ frontend/
 
 - Stage 2 workspace foundation is implemented: one analytics workspace layout, role-aware navigation, mode switcher, URL-owned dashboard filters, generated-at rendering and non-blocking partial/warnings layer.
 - Stage 3 posts dashboard is implemented against live `GET /api/dashboard/posts`.
+- Stage 4 post detail is implemented against live post/comments/report/links endpoints with role-aware async mutation flows and jobs polling.
 - Events and processes dashboards still use contract-safe placeholder transport snapshots.
 - Desktop-first split layout foundation is in place for future table/detail/graph composition.
 
@@ -398,18 +434,16 @@ frontend/
 - No proactive token refresh scheduler or expiry countdown is implemented yet; current scope is refresh-on-401 only.
 - No final UX copy handoff exists for all data-block errors, so shared messages remain minimal safe defaults.
 - The repository frontend currently does not ship MUI, MUI X, React Hook Form, Zod or React Flow packages, so this stage uses framework-native foundations while keeping component boundaries ready for later migration.
-- Action-level mutation guards are defined only as a foundation matrix; real mutation screens and async job flows are intentionally deferred to later stages.
+- Detail mutation support currently covers only post comment refresh and post report generation/update.
 
 ### Remaining Gaps Against Spec
 
 - No access-token expiry countdown or proactive refresh scheduling yet.
 - `dashboard/events` and `dashboard/processes` still do not use live `/api/dashboard/*` queries.
 - No MUI/MUI X DataGrid integration yet; dashboard table is a reusable HTML shell only.
-- No async job flow, polling strategy or mutation invalidation yet.
-- No graph panels, details drawers, job indicators or mutation controls yet.
-- Post detail screen, comments block, links block and report block remain placeholders; dashboard currently exposes only navigation entry points to them.
+- No graph panels, details drawers, or broader mutation controls beyond post detail async actions yet.
 - No finalized table specs, graph specs, detail panel rules, copy rules or API-to-UI mapping implementation from the handoff checklist yet.
-- No action-level RBAC enforcement for mutations and toolbar controls yet.
+- Action-level RBAC is implemented for current post detail mutations, but not yet rolled out across future dashboard/event/process actions.
 - No final UI/UX handoff artifacts such as wireframes, hi-fi mocks, status matrix or interaction matrix in the repo yet.
 
 ## Pipeline Concurrency Settings

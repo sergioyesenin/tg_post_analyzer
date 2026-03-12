@@ -16,7 +16,7 @@ import { DashboardEventsPage } from '@modules/workspace/routes/DashboardEventsPa
 import { DashboardPostsPage } from '@modules/workspace/routes/DashboardPostsPage';
 import { DashboardProcessesPage } from '@modules/workspace/routes/DashboardProcessesPage';
 import { EventDetailsPlaceholderPage } from '@modules/workspace/routes/EventDetailsPlaceholderPage';
-import { PostDetailsPlaceholderPage } from '@modules/workspace/routes/PostDetailsPlaceholderPage';
+import { PostDetailsPage } from '@modules/workspace/post-detail/PostDetailsPage';
 import { ProcessDetailsPlaceholderPage } from '@modules/workspace/routes/ProcessDetailsPlaceholderPage';
 import { getRoutePolicy } from '@shared/routing/policy';
 import { RootRedirect } from '@shared/routing/RootRedirect';
@@ -59,7 +59,7 @@ const routes = [
       },
       {
         path: 'posts/:postId',
-        element: <PostDetailsPlaceholderPage />,
+        element: <PostDetailsPage />,
       },
       {
         path: 'events/:eventId',

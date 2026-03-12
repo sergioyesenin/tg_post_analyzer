@@ -41,6 +41,8 @@ type ActionPolicy = {
   capabilityByRole: Partial<Record<UserRole, RouteCapability>>;
 };
 
+export type ActionPolicyId = (typeof actionPolicies)[number]['id'];
+
 export const routePolicies: readonly RoutePolicy[] = [
   {
     id: 'login',
@@ -319,4 +321,28 @@ export function getRouteCapability(routeId: RoutePolicyId, role: UserRole | null
   }
 
   return getRoutePolicy(routeId).capabilities?.[role] ?? null;
+}
+
+export function canPerformAction(actionId: string, roles: readonly UserRole[]) {
+  const policy = actionPolicies.find((item) => item.id === actionId);
+
+  if (!policy) {
+    throw new Error(`Unknown action policy: ${actionId}`);
+  }
+
+  return policy.allowedRoles.some((role) => roles.includes(role));
+}
+
+export function getActionCapability(actionId: string, role: UserRole | null) {
+  if (!role) {
+    return null;
+  }
+
+  const policy = actionPolicies.find((item) => item.id === actionId);
+
+  if (!policy) {
+    throw new Error(`Unknown action policy: ${actionId}`);
+  }
+
+  return policy.capabilityByRole[role] ?? null;
 }

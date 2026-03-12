@@ -10,11 +10,11 @@ import { AppShell } from '@app/shell/AppShell';
 import { LoginPage } from '@modules/auth/routes/LoginPage';
 import { ChannelsPlaceholderPage } from '@modules/platform/routes/ChannelsPlaceholderPage';
 import { KeywordGraphPlaceholderPage } from '@modules/platform/routes/KeywordGraphPlaceholderPage';
+import { PostDetailsPage } from '@modules/workspace/post-detail/PostDetailsPage';
 import { AnalyticsWorkspaceLayout } from '@modules/workspace/layouts/AnalyticsWorkspaceLayout';
 import { DashboardEventsPage } from '@modules/workspace/routes/DashboardEventsPage';
 import { DashboardPostsPage } from '@modules/workspace/routes/DashboardPostsPage';
 import { DashboardProcessesPage } from '@modules/workspace/routes/DashboardProcessesPage';
-import { PostDetailsPlaceholderPage } from '@modules/workspace/routes/PostDetailsPlaceholderPage';
 import type { AuthApiContract } from '@shared/auth/auth-api';
 import type { TokenStorage } from '@shared/auth/token-storage';
 
@@ -59,7 +59,7 @@ export function renderAuthHarness({ authApi, storage, initialEntry }: RenderAuth
                   <Route path="events" element={<DashboardEventsPage />} />
                   <Route path="processes" element={<DashboardProcessesPage />} />
                 </Route>
-                <Route path="posts/:postId" element={<PostDetailsPlaceholderPage />} />
+                <Route path="posts/:postId" element={<PostDetailsPage />} />
                 <Route
                   path="channels"
                   element={

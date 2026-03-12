@@ -45,6 +45,14 @@ export class ApiClient {
     return this.request<T>(path, { ...init, method: 'GET' });
   }
 
+  async post<T>(path: string, body?: unknown, init?: RequestOptions) {
+    return this.request<T>(path, {
+      ...init,
+      method: 'POST',
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  }
+
   async request<T>(path: string, init: RequestOptions = {}) {
     const response = await this.execute(path, init);
 

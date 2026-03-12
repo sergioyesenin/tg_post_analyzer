@@ -1,8 +1,8 @@
 import { RouterProvider, createBrowserRouter, createMemoryRouter } from 'react-router-dom';
 
-import { AppShell } from '@app/shell/AppShell';
 import { AuthGuard } from '@app/router/guards/AuthGuard';
 import { RoleGuard } from '@app/router/guards/RoleGuard';
+import { AppShell } from '@app/shell/AppShell';
 import { LoginPage } from '@modules/auth/routes/LoginPage';
 import { ChannelsPlaceholderPage } from '@modules/platform/routes/ChannelsPlaceholderPage';
 import { JobsPlaceholderPage } from '@modules/platform/routes/JobsPlaceholderPage';
@@ -17,12 +17,13 @@ import { DashboardProcessesPage } from '@modules/workspace/routes/DashboardProce
 import { EventDetailsPlaceholderPage } from '@modules/workspace/routes/EventDetailsPlaceholderPage';
 import { PostDetailsPlaceholderPage } from '@modules/workspace/routes/PostDetailsPlaceholderPage';
 import { ProcessDetailsPlaceholderPage } from '@modules/workspace/routes/ProcessDetailsPlaceholderPage';
+import { getRoutePolicy } from '@shared/routing/policy';
 import { RootRedirect } from '@shared/routing/RootRedirect';
 import { NotFoundPage } from '@shared/ui/states/NotFoundPage';
 
 const routes = [
   {
-    path: '/login',
+    path: getRoutePolicy('login').path,
     element: <LoginPage />,
   },
   {
@@ -68,7 +69,7 @@ const routes = [
       {
         path: 'settings',
         element: (
-          <RoleGuard allowedRoles={['admin', 'analyst']}>
+          <RoleGuard routeId="settings">
             <SettingsPlaceholderPage />
           </RoleGuard>
         ),
@@ -76,7 +77,7 @@ const routes = [
       {
         path: 'channels',
         element: (
-          <RoleGuard allowedRoles={['admin']}>
+          <RoleGuard routeId="channels">
             <ChannelsPlaceholderPage />
           </RoleGuard>
         ),
@@ -84,7 +85,7 @@ const routes = [
       {
         path: 'users',
         element: (
-          <RoleGuard allowedRoles={['admin']}>
+          <RoleGuard routeId="users">
             <UsersPlaceholderPage />
           </RoleGuard>
         ),
@@ -92,7 +93,7 @@ const routes = [
       {
         path: 'monitor',
         element: (
-          <RoleGuard allowedRoles={['admin']}>
+          <RoleGuard routeId="monitor">
             <MonitorPlaceholderPage />
           </RoleGuard>
         ),
@@ -100,7 +101,7 @@ const routes = [
       {
         path: 'jobs',
         element: (
-          <RoleGuard allowedRoles={['admin']}>
+          <RoleGuard routeId="jobs">
             <JobsPlaceholderPage />
           </RoleGuard>
         ),
@@ -108,7 +109,7 @@ const routes = [
       {
         path: 'keyword-graph',
         element: (
-          <RoleGuard allowedRoles={['admin', 'analyst']}>
+          <RoleGuard routeId="keywordGraph">
             <KeywordGraphPlaceholderPage />
           </RoleGuard>
         ),

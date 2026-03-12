@@ -26,7 +26,7 @@ describe('Auth guard and RBAC routing', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /Авторизация в аналитическом контуре/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: /Sign in to the analytics workspace/i })).toBeInTheDocument();
     });
   });
 
@@ -56,8 +56,9 @@ describe('Auth guard and RBAC routing', () => {
       expect(screen.getByText(/Route is restricted/i)).toBeInTheDocument();
     });
 
-    expect(screen.queryByText(/Channels/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/Keyword graph/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Channels/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Keyword graph/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Hidden navigation and direct route access use the same policy source/i)).toBeInTheDocument();
   });
 
   it('allows analyst to open analyst-level routes', async () => {

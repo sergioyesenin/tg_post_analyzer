@@ -3,6 +3,7 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 
 import { useSession } from '@app/providers/SessionProvider';
 import { getLoginErrorMessage, resolveLoginState } from '@shared/auth/auth-errors';
+import { defaultAuthenticatedRoute } from '@shared/routing/policy';
 import type { LoginState } from '@shared/auth/session-types';
 
 export function LoginPage() {
@@ -19,7 +20,7 @@ export function LoginPage() {
     'from' in location.state &&
     typeof location.state.from === 'string'
       ? location.state.from
-      : '/dashboard/posts';
+      : defaultAuthenticatedRoute;
 
   if (status === 'authenticated') {
     return <Navigate replace to={redirectTarget} />;
@@ -50,9 +51,9 @@ export function LoginPage() {
       <section className="login-panel">
         <div className="login-panel__intro">
           <span className="state-card__eyebrow">local auth</span>
-          <h1 className="login-panel__title">Авторизация в аналитическом контуре</h1>
+          <h1 className="login-panel__title">Sign in to the analytics workspace</h1>
           <p className="login-panel__description">
-            Вход открывает доступ к рабочему пространству мониторинга, отчетам и role-based маршрутам.
+            Sign in to access the shared workspace, reports, and role-based routes.
           </p>
         </div>
 
@@ -74,7 +75,7 @@ export function LoginPage() {
               autoComplete="current-password"
               name="password"
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="••••••••"
+              placeholder="********"
               type="password"
               value={password}
             />
@@ -83,13 +84,13 @@ export function LoginPage() {
           {errorState ? <div className="login-form__error">{getLoginErrorMessage(errorState)}</div> : null}
 
           <button className="login-form__submit" disabled={loginState === 'loading'} type="submit">
-            {loginState === 'loading' ? 'Выполняется вход…' : 'Войти'}
+            {loginState === 'loading' ? 'Signing in...' : 'Sign in'}
           </button>
 
           <div className="login-form__meta">
-            {redirectTarget !== '/dashboard/posts'
-              ? `После входа будет открыт маршрут: ${redirectTarget}`
-              : 'После входа откроется основное рабочее пространство.'}
+            {redirectTarget !== defaultAuthenticatedRoute
+              ? `After sign-in you will be redirected to ${redirectTarget}.`
+              : 'After sign-in the default workspace route will open.'}
           </div>
         </form>
       </section>

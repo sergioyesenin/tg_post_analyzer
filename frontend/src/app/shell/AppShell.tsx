@@ -1,16 +1,18 @@
 import { NavLink, Outlet } from 'react-router-dom';
 
 import { useSession } from '@app/providers/SessionProvider';
-import {
-  canRenderNavigationItem,
-  dashboardModes,
-  primaryNavigation,
-  secondaryNavigation,
-} from '@shared/routing/navigation';
+import { getNavigationItems, getRouteCapability } from '@shared/routing/policy';
 
 export function AppShell() {
   const { logout, primaryRole, user } = useSession();
   const roles = user?.roles ?? [];
+  const dashboardModes = getNavigationItems('dashboard', roles);
+  const primaryNavigation = [
+    { id: 'workspace', to: '/dashboard/posts', label: 'Workspace' },
+    ...getNavigationItems('primary', roles),
+  ];
+  const secondaryNavigation = getNavigationItems('secondary', roles);
+  const capabilityLabel = getRouteCapability('workspace.posts', primaryRole);
 
   return (
     <div className="app-shell">
@@ -21,7 +23,7 @@ export function AppShell() {
         </div>
 
         <nav className="app-nav" aria-label="Primary">
-          {primaryNavigation.filter((item) => canRenderNavigationItem(item, roles)).map((item) => (
+          {primaryNavigation.map((item) => (
             <NavLink key={item.to} className="app-nav__link" to={item.to}>
               {item.label}
             </NavLink>
@@ -29,7 +31,7 @@ export function AppShell() {
         </nav>
 
         <nav className="app-nav app-nav--secondary" aria-label="Operations">
-          {secondaryNavigation.filter((item) => canRenderNavigationItem(item, roles)).map((item) => (
+          {secondaryNavigation.map((item) => (
             <NavLink key={item.to} className="app-nav__link" to={item.to}>
               {item.label}
             </NavLink>
@@ -42,7 +44,7 @@ export function AppShell() {
           <div>
             <span className="app-header__label">Dashboard modes</span>
             <div className="app-mode-switcher">
-              {dashboardModes.filter((mode) => canRenderNavigationItem(mode, roles)).map((mode) => (
+              {dashboardModes.map((mode) => (
                 <NavLink key={mode.to} className="app-mode-switcher__item" to={mode.to}>
                   {mode.label}
                 </NavLink>
@@ -53,6 +55,7 @@ export function AppShell() {
           <div className="app-session-chip">
             <span>{user?.email ?? user?.username ?? 'unknown user'}</span>
             <strong>{primaryRole ?? 'guest'}</strong>
+            <span>{capabilityLabel ?? 'no-access'}</span>
             <button className="app-session-chip__action" onClick={() => void logout()} type="button">
               Logout
             </button>

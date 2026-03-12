@@ -4,9 +4,9 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClientProvider } from '@app/providers/QueryClientProvider';
 import { SessionProvider } from '@app/providers/SessionProvider';
 import { ThemeProvider } from '@app/providers/ThemeProvider';
-import { AppShell } from '@app/shell/AppShell';
 import { AuthGuard } from '@app/router/guards/AuthGuard';
 import { RoleGuard } from '@app/router/guards/RoleGuard';
+import { AppShell } from '@app/shell/AppShell';
 import { LoginPage } from '@modules/auth/routes/LoginPage';
 import { ChannelsPlaceholderPage } from '@modules/platform/routes/ChannelsPlaceholderPage';
 import { KeywordGraphPlaceholderPage } from '@modules/platform/routes/KeywordGraphPlaceholderPage';
@@ -54,7 +54,7 @@ export function renderAuthHarness({ authApi, storage, initialEntry }: RenderAuth
                 <Route
                   path="channels"
                   element={
-                    <RoleGuard allowedRoles={['admin']}>
+                    <RoleGuard routeId="channels">
                       <ChannelsPlaceholderPage />
                     </RoleGuard>
                   }
@@ -62,7 +62,7 @@ export function renderAuthHarness({ authApi, storage, initialEntry }: RenderAuth
                 <Route
                   path="keyword-graph"
                   element={
-                    <RoleGuard allowedRoles={['admin', 'analyst']}>
+                    <RoleGuard routeId="keywordGraph">
                       <KeywordGraphPlaceholderPage />
                     </RoleGuard>
                   }

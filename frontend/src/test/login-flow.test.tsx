@@ -53,7 +53,7 @@ describe('Login flow', () => {
 
     await user.type(screen.getByLabelText(/Username/i), 'analyst');
     await user.type(screen.getByLabelText(/Password/i), 'AnalystPass123!');
-    await user.click(screen.getByRole('button', { name: /Войти/i }));
+    await user.click(screen.getByRole('button', { name: /Sign in/i }));
 
     await waitFor(() => {
       expect(screen.getByText(/Posts dashboard foundation/i)).toBeInTheDocument();
@@ -75,10 +75,10 @@ describe('Login flow', () => {
 
     await user.type(screen.getByLabelText(/Username/i), 'bad-user');
     await user.type(screen.getByLabelText(/Password/i), 'bad-password');
-    await user.click(screen.getByRole('button', { name: /Войти/i }));
+    await user.click(screen.getByRole('button', { name: /Sign in/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Неверные учетные данные/i)).toBeInTheDocument();
+      expect(screen.getByText(/Invalid credentials/i)).toBeInTheDocument();
     });
   });
 
@@ -95,10 +95,10 @@ describe('Login flow', () => {
 
     await user.type(screen.getByLabelText(/Username/i), 'admin');
     await user.type(screen.getByLabelText(/Password/i), 'AdminPass123!');
-    await user.click(screen.getByRole('button', { name: /Войти/i }));
+    await user.click(screen.getByRole('button', { name: /Sign in/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Локальная авторизация сейчас недоступна/i)).toBeInTheDocument();
+      expect(screen.getByText(/Authentication service is unavailable/i)).toBeInTheDocument();
     });
   });
 });

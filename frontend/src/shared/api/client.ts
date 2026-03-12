@@ -33,7 +33,8 @@ export class ApiClient {
 
   constructor(options: ApiClientOptions = {}) {
     this.baseUrl = options.baseUrl ?? import.meta.env.VITE_API_BASE_URL ?? '';
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl =
+      options.fetchImpl ?? (typeof window !== 'undefined' ? window.fetch.bind(window) : fetch);
   }
 
   configureAuth(config: ApiClientAuthConfig) {

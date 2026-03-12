@@ -132,6 +132,10 @@ export class AuthApi implements AuthApiContract {
       return new AuthApiError(error.message, error.status);
     }
 
+    if (error instanceof Error) {
+      return new AuthApiError(`Unexpected auth error: ${error.message}`, 500);
+    }
+
     return new AuthApiError('Unexpected auth error', 500);
   }
 }

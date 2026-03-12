@@ -1,6 +1,7 @@
 import type { PropsWithChildren } from 'react';
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 
+import { apiClient } from '@shared/api/client';
 import { authApi, type AuthApiContract } from '@shared/auth/auth-api';
 import { getPrimaryRole, hasRequiredRole, normalizeRoles } from '@shared/auth/roles';
 import type {
@@ -10,7 +11,7 @@ import type {
   SessionUser,
 } from '@shared/auth/session-types';
 import { tokenStorage, type TokenStorage } from '@shared/auth/token-storage';
-import { apiClient } from '@shared/api/client';
+import { classifyErrorKind } from '@shared/errors/error-policy';
 
 type SessionContextValue = {
   status: SessionStatus;
@@ -72,7 +73,8 @@ export function SessionProvider({
         storeTokens(refreshedTokens);
         return refreshedTokens.accessToken;
       })
-      .catch(() => {
+      .catch((error) => {
+        classifyErrorKind(error, 'refresh');
         clearSession();
         return null;
       })
@@ -89,7 +91,7 @@ export function SessionProvider({
       refreshAccessToken,
       onUnauthorized: clearSession,
     });
-  });
+  }, [authApiInstance, storage]);
 
   const bootstrap = async () => {
     setStatus('bootstrapping');
@@ -123,12 +125,14 @@ export function SessionProvider({
     storeTokens(nextTokens);
 
     const currentUser = await authApiInstance.me();
-    setUser({
+    const normalizedUser = {
       ...currentUser,
       roles: normalizeRoles(currentUser.roles),
-    });
+    };
+
+    setUser(normalizedUser);
     setStatus('authenticated');
-    return currentUser;
+    return normalizedUser;
   };
 
   const logout = async () => {

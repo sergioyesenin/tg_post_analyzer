@@ -168,6 +168,8 @@ npm install
 npm run dev
 ```
 
+If frontend runs on Vite dev server and backend runs separately, set `frontend/.env` from `frontend/.env.example` or rely on the built-in Vite proxy to `http://localhost:8000`.
+
 Tests:
 
 ```bash
@@ -245,6 +247,13 @@ frontend/
 - `analyst`: dashboard, details, reports, settings, keyword graph
 - `viewer`: dashboard, details, reports only
 
+### RBAC Matrix
+
+- `admin`: workspace routes are visible and writable; admin areas are visible; settings/channels/users/jobs actions are writable; monitor is visible as read-only.
+- `analyst`: workspace routes are visible and writable; keyword graph is visible; settings route is visible as read-only; admin-only areas stay hidden in navigation and forbidden on direct entry.
+- `viewer`: workspace routes, details, and reports are visible as read-only; keyword graph and admin areas stay hidden in navigation and forbidden on direct entry.
+- Action-level foundation is centralized in `frontend/src/shared/routing/policy.ts` so future mutations can reuse the same role matrix instead of re-encoding permissions per screen.
+
 ### Route Strategy
 
 - `/login` is public.
@@ -253,6 +262,35 @@ frontend/
 - Dashboard modes are explicit top-level routes: `/dashboard/posts`, `/dashboard/events`, `/dashboard/processes`.
 - Detail, reports, admin, monitor, jobs and keyword graph routes already exist as placeholders to stabilize ownership and RBAC early.
 - `AuthGuard` protects the shell. `RoleGuard` returns a reusable forbidden state for unauthorized role access instead of silently hiding route issues.
+
+### Dashboard Data Foundation
+
+- Transport DTO contracts live in `frontend/src/shared/dashboard/contracts.ts` and mirror backend `schemas.dashboard`.
+- Transport-to-UI mapping entry points live in `frontend/src/shared/dashboard/mappers.ts`; current stage keeps them as thin pass-through adapters so stage 2 can add view-model shaping without rewriting contracts.
+- Query key naming conventions live in `frontend/src/shared/dashboard/query-keys.ts`.
+- Shared ownership is explicit:
+- session/auth source of truth: `frontend/src/app/providers/SessionProvider.tsx`
+- RBAC/navigation/route policy source of truth: `frontend/src/shared/routing/policy.ts`
+- dashboard transport contracts and partial/warnings envelope: `frontend/src/shared/dashboard/contracts.ts`
+- URL query parsing/serialization: `frontend/src/shared/utils/queryParams.ts`
+
+### Error Handling Policy
+
+- `invalid_credentials`: blocking inline error on `/login`.
+- `service_unavailable`: blocking inline error on auth/data entry points until backend recovers.
+- `refresh_failed`: blocking redirect to `/login` with local session cleanup.
+- `unauthorized`: blocking redirect to `/login` for guests or expired sessions.
+- `forbidden`: blocking forbidden state for authenticated users outside route scope.
+- `generic request failure`: blocking inline/block-level error state.
+- `partial_data`: non-blocking warning state; dashboard stays usable and keeps `generated_at`, `warnings`, and `filters_applied` visible.
+- Shared taxonomy and transition policy live in `frontend/src/shared/errors/error-policy.ts`.
+
+### Assumptions And Deferred Edges
+
+- No proactive token refresh scheduler or expiry countdown is implemented yet; current scope is refresh-on-401 only.
+- No final UX copy handoff exists for all data-block errors, so shared messages remain minimal safe defaults.
+- Action-level mutation guards are defined only as a foundation matrix; real mutation screens are intentionally deferred to stage 2 and later.
+- Analytics workspace layout, mode switcher behavior, URL filter ownership per dashboard mode, and dashboard hooks/UI integration remain intentionally unimplemented.
 
 ### Remaining Gaps Against Spec
 

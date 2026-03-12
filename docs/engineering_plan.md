@@ -1,305 +1,620 @@
-﻿# Engineering Remediation Plan
+﻿1. Обновленное задание для frontend-разработчика
+1.1 Цель
+Необходимо реализовать frontend для аналитической системы мониторинга Telegram-каналов на основе уже существующего backend API.
 
-Полная развернутая версия плана находится в предыдущем сообщении чата. Ниже — сохраненная структурированная версия в markdown.
+Frontend должен предоставлять единое аналитическое рабочее пространство с 3 переключаемыми режимами дашборда:
 
-## 1. Краткое резюме
-- Всего задач: 15
-- Critical: 4
-- High: 7
-- Medium: 4
-- Low: 0
+Posts
+Events
+Processes
+Ключевое изменение относительно предыдущей версии требований:
+теперь backend предоставляет агрегирующие dashboard endpoint’ы, поэтому каждый режим дашборда должен строиться в первую очередь на них, а не на клиентской сборке из большого числа разрозненных запросов.
 
-Самые опасные проблемы:
-1. Конфликты конфигурации и запуск в несуществующую точку входа API.
-2. Небезопасный дефолт AUTH_JWT_SECRET без fail-fast.
-3. Дублирование ingestion-пайплайнов.
-4. Критически слабое тестовое покрытие.
-5. Конфликт семантики reply-link (background vs update).
+1.2 Основной backend-контракт для dashboard режимов
+[Подтверждено backend]
 
-## 2. Список задач (кратко)
-- TASK-001 (Critical, Architecture): унификация env-контракта и startup validation.
-- TASK-002 (High, Maintainability): единый API entrypoint и актуализация README.
-- TASK-003 (Critical, Security): запрет небезопасного JWT secret.
-- TASK-004 (High, Security): убрать hardcoded DB credentials из docker-compose.
-- TASK-005 (Critical, Architecture): консолидация ingestion в единый core.
-- TASK-006 (High, Product Logic): единая семантика reply-link.
-- TASK-007 (High, Bug Fix): корректный 404/200 в comments endpoint.
-- TASK-008 (High, Maintainability): убрать broad except и silent failures.
-- TASK-009 (High, Maintainability): единый source of truth для defaults settings.
-- TASK-010 (Critical, Testing): базовый тестовый контур и quality gate.
-- TASK-011 (High, Performance): снять O(n^2) узкое место keyword graph.
-- TASK-012 (Medium, Performance): убрать N+1 в list_users.
-- TASK-013 (Medium, Infrastructure): разделить зависимости на base/dev/optional.
-- TASK-014 (Medium, Product Logic): корректные статусы draft/ready отчетов.
-- TASK-015 (High, Scalability): controlled concurrency + transaction tuning pipeline.
+Использовать как primary source:
 
-## 3. Dependency Graph
-- TASK-001 -> TASK-002 -> TASK-005
-- TASK-001 -> TASK-003 -> TASK-010
-- TASK-001 -> TASK-004
-- TASK-005 -> TASK-006 -> TASK-014
-- TASK-005 -> TASK-008 -> TASK-015
-- TASK-005 -> TASK-011
-- TASK-010 -> TASK-007
-- TASK-010 -> TASK-009 -> TASK-015
-- TASK-010 -> TASK-011 / TASK-012 / TASK-013 / TASK-014
+GET /api/dashboard/posts
+GET /api/dashboard/events
+GET /api/dashboard/events/{event_id}/graph
+GET /api/dashboard/processes
+GET /api/dashboard/processes/{process_id}/graph
+Все dashboard endpoint’ы доступны ролям:
 
-## 4. Рекомендуемый порядок выполнения
-### Этап 1. Блокирующие архитектурные исправления
-TASK-001, TASK-002, TASK-005
+admin
+analyst
+viewer
+Все dashboard response содержат:
 
-### Этап 2. Критические исправления надежности и безопасности
-TASK-003, TASK-004, TASK-010
+mode
+generated_at
+partial
+warnings
+filters_applied
+summary
+items
+meta
+Следствие для frontend:
 
-### Этап 3. Исправление хрупких мест и техдолга
-TASK-006, TASK-007, TASK-008, TASK-009
+нужно поддержать стандартную обработку partial=true;
+нужно отображать warnings[];
+дашборд должен уметь работать как с полным, так и с частично обогащенным snapshot.
+1.3 Роли и доступ
+[Подтверждено backend]
 
-### Этап 4. Качество и поддерживаемость
-TASK-012, TASK-013, TASK-014
+admin
+Доступ:
 
-### Этап 5. Оптимизация и вторичные улучшения
-TASK-011, TASK-015
+все dashboard режимы;
+post/event/process details;
+reports catalogs;
+channels management;
+users;
+settings;
+monitor;
+jobs;
+keyword graph.
+analyst
+Доступ:
 
-## 5. Quick Wins
-- TASK-002: исправить точку входа и документацию.
-- TASK-007: локальный bug fix endpoint.
-- TASK-003: жесткий fail-fast для JWT secret.
-- TASK-009: устранить рассинхрон defaults.
-- TASK-012: убрать N+1 в list_users.
+все 3 режима dashboard;
+карточки постов, событий, процессов;
+reports catalogs;
+запуск генерации отчетов;
+запуск обновления комментариев;
+keyword graph;
+read-only effective settings.
+viewer
+Доступ:
 
-## 6. Архитектурные блокеры
-- TASK-001
-- TASK-005
-- TASK-010
-- TASK-006
+read-only dashboard режимы;
+detail screens;
+existing reports;
+без mutations;
+без keyword graph.
+1.4 Экранная структура приложения
+1.4.1 /login
+Назначение:
 
-## 7. Критический путь
-- TASK-001 -> TASK-002 -> TASK-005 -> TASK-010 -> TASK-008 -> TASK-015
+вход по local auth.
+API:
 
-## 8. Что можно делать параллельно
-- TASK-003 и TASK-004 (после TASK-001)
-- TASK-007 и TASK-009 (после TASK-010)
-- TASK-012 и TASK-013 (после TASK-010)
-- TASK-011 и TASK-015 (после зависимостей)
+POST /api/auth/login
+POST /api/auth/refresh
+POST /api/auth/logout
+GET /api/auth/me
+Состояния:
 
-## 9. Самые рискованные места плана
-1. TASK-005: большой рефакторинг с риском скрытых регрессий.
-2. TASK-015: concurrency + Telegram rate limits.
-3. TASK-011: риск деградации качества графа.
-4. TASK-006: влияние на исторические данные и downstream-аналитику.
-5. TASK-010: рост объема refactoring для тестопригодности.
+idle
+loading
+invalid credentials
+service unavailable
+generic error
+1.4.2 /dashboard/posts
+Назначение:
 
-## 10. Готовые задачи для новых чатов с Codex
-TASK-001 — Атомарная и безопасная ротация refresh token
-Контекст:
-в services/auth.py refresh token можно конкурентно использовать несколько раз.
-Нужно сделать:
-переписать rotation на атомарный flow с row locking и тестом на concurrent refresh.
-Ограничения:
-не ломать login/refresh/logout, не раскрывать внутренние детали ошибок.
-Ожидаемый результат:
-один refresh token успешно используется только один раз.
-Перед началом проверь:
-services/auth.py, api/routers/auth.py, модель AuthRefreshToken, auth-тесты.
-Если данных недостаточно, запроси:
-допустимость миграции схемы и target DB behavior для locking.
+основной режим анализа топ-постов.
+Основной API:
 
-TASK-002 — Унификация runtime-контура Telegram pipeline
-Контекст:
-в проекте несколько конкурирующих pipeline/runtime-path, включая legacy scripts/pipeline.py.
-Нужно сделать:
-оставить один канонический runtime core и убрать/депрекейтнуть дубли.
-Ограничения:
-не ломать официальный запуск и jobs/ingest flow.
-Ожидаемый результат:
-один production runtime, остальные пути либо thin wrapper, либо удалены.
-Перед началом проверь:
-services/pipeline_runtime.py, scripts/run_telegram_pipeline.py, scripts/pipeline.py, main.py, README.
-Если данных недостаточно, запроси:
-какие entrypoint’ы реально используются в эксплуатации.
+GET /api/dashboard/posts
+Дополнительный API:
 
-TASK-003 — Единая модель Telegram client/session lifecycle
-Контекст:
-client создается и живет по разным правилам в API, pipeline и скриптах.
-Нужно сделать:
-ввести единый client factory/lifecycle contract и привести потребителей к нему.
-Ограничения:
-сохранить session-lock safety и не сломать worker flow.
-Ожидаемый результат:
-единая модель Telethon client/session lifecycle.
-Перед началом проверь:
-client/telegram.py, client/config.py, services/pipeline_runtime.py, api/routers/channels.py, services/TGqueries.py.
-Если данных недостаточно, запроси:
-какие процессы реально живут параллельно.
+GET /api/posts/{post_id}
+GET /api/posts/{post_id}/comments
+POST /api/posts/{post_id}/comments/update
+GET /api/reports/post/{post_id}
+POST /api/reports/post/{post_id}/update
+GET /api/posts/{post_id}/links
+GET /api/jobs/{job_id}
+GET /api/jobs/{job_id}/result
+Фильтры:
 
-TASK-004 — Исправление ложного channel_concurrency
-Контекст:
-channel_concurrency заявлен, но весь ingest_channel сериализован общим lock.
-Нужно сделать:
-сузить lock до реально конфликтующих операций или убрать фиктивный параллелизм.
-Ограничения:
-не сломать FloodWait-safe поведение и работу Telethon session.
-Ожидаемый результат:
-параллелизм либо реально работает, либо честно удален из контракта.
-Перед началом проверь:
-services/pipeline_runtime.py, services/ingestion_core.py, README.
-Если данных недостаточно, запроси:
-какие Telethon операции безопасно выполнять параллельно.
+date_from
+date_to
+limit
+channel_ids
+categories
+min_comments
+report_status
+sort_by
+sort_order
+Поддерживаемые сортировки:
 
-TASK-005 — Устранение блокирующего ожидания jobs в API
-Контекст:
-API ждет background jobs через polling БД и держит долгие HTTP-запросы.
-Нужно сделать:
-перевести endpoints на 202 + job_id и отдельный status/result API.
-Ограничения:
-сохранить доступность результата операции для клиента.
-Ожидаемый результат:
-API быстро отвечает, тяжелая работа идет через jobs.
-Перед началом проверь:
-api/routers/posts.py, api/routers/reports.py, services/pipeline_runtime.py, services/jobs.py.
-Если данных недостаточно, запроси:
-какие клиенты уже завязаны на sync-response контракт.
+comments_count
+date
+views
+involvement
+Экран должен содержать:
 
-TASK-006 — Исправление семантики draft event/process reports
-Контекст:
-draft reports сохраняются и возвращаются как ready.
-Нужно сделать:
-ввести отдельный draft-статус и согласовать API/модели/экспорт.
-Ограничения:
-не сломать чтение старых данных без плана миграции.
-Ожидаемый результат:
-статусы отчетов честно отражают их состояние.
-Перед началом проверь:
-services/reporting.py, api/routers/reports.py, report-модели и схемы.
-Если данных недостаточно, запроси:
-продуктовую state machine отчетов.
+filter bar;
+KPI summary из summary;
+таблицу/список постов из items;
+индикацию report_status;
+переход в detail view;
+отображение warnings, если partial=true.
+1.4.3 /dashboard/events
+Назначение:
 
-TASK-007 — Устранение утечки внутренних ошибок в содержимое отчетов
-Контекст:
-исключения сериализуются в content отчета и могут уходить наружу.
-Нужно сделать:
-убрать repr(exception) из content, оставить техническую ошибку отдельно.
-Ограничения:
-не потерять диагностируемость.
-Ожидаемый результат:
-пользовательский контент не содержит внутренних ошибок.
-Перед началом проверь:
-services/reporting.py, api/routers/reports.py, job-result flow.
-Если данных недостаточно, запроси:
-где допустимо хранить технические ошибки отчетов.
+режим анализа событий.
+Основной API:
 
-TASK-008 — Приведение runtime-настроек к одному фактическому контракту
-Контекст:
-README, defaults и runtime расходятся по реальному поведению настроек.
-Нужно сделать:
-синхронизировать поведение, defaults и документацию; убрать мертвые/ложные настройки.
-Ограничения:
-сохранить управляемость и по возможности обратную совместимость.
-Ожидаемый результат:
-одна настройка = одно поведение.
-Перед началом проверь:
-config.py, client/config.py, services/settings_defaults.py, services/pipeline_runtime.py, README.
-Если данных недостаточно, запроси:
-какие настройки официально поддерживаются.
+GET /api/dashboard/events
+Graph API:
 
-TASK-009 — Укрепление auth API и RBAC-пути после security-fix
-Контекст:
-текущие auth-тесты в основном smoke и не ловят реальные race/DB-сценарии.
-Нужно сделать:
-добавить integration-тесты на login/refresh/logout/RBAC и revoked/expired/concurrent cases.
-Ограничения:
-без внешних сервисов, с упором на реальную логику.
-Ожидаемый результат:
-auth-контур защищен реалистичными тестами.
-Перед началом проверь:
-services/auth.py, api/routers/auth.py, текущие auth-тесты.
-Если данных недостаточно, запроси:
-какая тестовая БД допустима.
+GET /api/dashboard/events/{event_id}/graph
+Дополнительный API:
 
-TASK-010 — Перенос тестов с legacy pipeline на канонический runtime
-Контекст:
-часть pipeline-тестов направлена на scripts/pipeline.py, а не на production runtime.
-Нужно сделать:
-переписать/перенести тесты на services/pipeline_runtime.py.
-Ограничения:
-не потерять покрытие error-path.
-Ожидаемый результат:
-тесты защищают реальный runtime.
-Перед началом проверь:
-tests/test_pipeline_error_paths.py, scripts/pipeline.py, services/pipeline_runtime.py.
-Если данных недостаточно, запроси:
-нужно ли сохранять legacy runtime хотя бы как compatibility-layer.
+POST /api/reports/events/{event_id}/update
+GET /api/jobs/{job_id}/result
+Фильтры:
 
-TASK-011 — Рационализация и синхронизация documentation/runtime defaults
-Контекст:
-README местами описывает неактуальное или ложное поведение.
-Нужно сделать:
-обновить README и examples после архитектурной стабилизации.
-Ограничения:
-не документировать deprecated path как основной.
-Ожидаемый результат:
-документация совпадает с кодом.
-Перед началом проверь:
-README, services/settings_defaults.py, services/pipeline_runtime.py, client/config.py.
-Если данных недостаточно, запроси:
-какой runtime считается официальным после рефакторинга.
+date_from
+date_to
+limit
+status
+channel_ids
+categories
+min_comments
+sort_by
+sort_order
+Поддерживаемые сортировки:
 
-TASK-012 — Оптимизация /api/auth/users и устранение N+1 по ролям
-Контекст:
-на каждого пользователя отдельно читаются роли.
-Нужно сделать:
-сделать bulk-загрузку пользователей с ролями и добавить тест.
-Ограничения:
-не менять response schema.
-Ожидаемый результат:
-endpoint не делает N+1 запросов.
-Перед началом проверь:
-api/routers/auth.py, services/auth.py, auth-схемы.
-Если данных недостаточно, запроси:
-допустим ли join+aggregation вместо чистого ORM-пути.
+started_at
+comments_count
+involvement
+posts_count
+Экран должен содержать:
 
-TASK-013 — Стабилизация observability и исправление ложных метрик мониторинга
-Контекст:
-monitoring частично смотрит не на тот runtime и считает rates по всей истории.
-Нужно сделать:
-привести monitoring к реальному worker/API runtime и window-based metrics.
-Ограничения:
-по возможности не ломать формат monitoring API.
-Ожидаемый результат:
-метрики и alerts операционно полезны.
-Перед началом проверь:
-services/monitoring.py, api/routers/monitor.py, runtime model процессов.
-Если данных недостаточно, запроси:
-как именно разворачиваются API и worker-процессы.
+список/таблицу событий;
+KPI summary;
+область графа;
+панель деталей выбранного события;
+список связанных постов;
+статус event report;
+action для запуска/обновления draft report;
+обработку partial/warnings.
+1.4.4 /dashboard/processes
+Назначение:
 
-TASK-014 — Сокращение inline-тяжелых операций в report API и перевод batch-flow в jobs
-Контекст:
-массовая генерация отчетов выполняется прямо в HTTP handler.
-Нужно сделать:
-перевести batch generation на job-driven flow с лимитами и статусом batch-run.
-Ограничения:
-не допустить job storm и долгих HTTP-запросов.
-Ожидаемый результат:
-batch flow полностью идет через jobs.
-Перед началом проверь:
-api/routers/reports.py, services/pipeline_runtime.py, services/jobs.py.
-Если данных недостаточно, запроси:
-какой batch status contract нужен продуктово.
+режим анализа процессов.
+Основной API:
 
-TASK-015 — Разделение dependency-профилей и минимизация базовой установки
-Контекст:
-один requirements.txt смешивает base/dev/ML/ops/platform-specific зависимости.
-Нужно сделать:
-разделить зависимости на профили и облегчить базовую установку.
-Ограничения:
-не ломать реально используемые production-фичи.
-Ожидаемый результат:
-минимальный install path для базового API/pipeline.
-Перед началом проверь:
-requirements.txt, импортируемые модули, README.
-Если данных недостаточно, запроси:
-какие фичи считаются обязательными для production.
+GET /api/dashboard/processes
+Graph API:
+
+GET /api/dashboard/processes/{process_id}/graph
+Дополнительный API:
+
+POST /api/reports/processes/{process_id}/update
+GET /api/jobs/{job_id}/result
+Фильтры:
+
+date_from
+date_to
+limit
+status
+min_comments
+sort_by
+sort_order
+Поддерживаемые сортировки:
+
+started_at
+comments_count
+involvement
+events_count
+Экран должен содержать:
+
+список процессов;
+KPI summary;
+граф;
+панель деталей процесса;
+список связанных событий;
+переходы к event/post context;
+статус process report;
+обработку partial/warnings.
+1.4.5 Detail screens
+/posts/:postId
+API:
+
+GET /api/posts/{id}
+GET /api/posts/{id}/comments
+GET /api/reports/post/{id}
+GET /api/posts/{id}/links
+Действия:
+
+refresh comments
+generate/update report
+/events/:eventId
+API:
+
+GET /api/events/{id}
+при необходимости graph payload уже брать из dashboard graph endpoint
+/processes/:processId
+API:
+
+GET /api/processes/{id}
+graph payload брать из dashboard graph endpoint
+1.4.6 Reports
+/reports/posts
+/reports/events
+/reports/processes
+API:
+
+GET /api/reports/posts/list
+GET /api/reports/posts/export
+GET /api/reports/events/list
+GET /api/reports/events/export
+GET /api/reports/processes/list
+GET /api/reports/processes/export
+POST /api/reports/posts/generate-by-filter
+1.4.7 Admin screens
+/channels
+GET /api/channels/
+POST /api/channels/add
+PATCH /api/channels/{id}
+PUT /api/channels/{id}/active
+DELETE /api/channels/{id}
+/users
+GET /api/auth/users
+POST /api/auth/users
+PUT /api/auth/users/{id}/roles
+PUT /api/auth/users/{id}/active
+/settings
+GET /api/settings/effective
+GET /api/settings/
+PUT /api/settings/{key}
+/monitor
+GET /api/monitor/full
+при необходимости specialized tabs через health/jobs/pipeline/scheduler/alerts
+/jobs
+GET /api/jobs/summary
+GET /api/jobs/pending
+GET /api/jobs/dead-letter
+retry actions
+1.4.8 /keyword-graph
+Использовать как отдельный advanced-инструмент поиска и анализа по ключевым словам.
+
+API:
+
+POST /api/keyword/search/posts
+POST /api/keyword/graph/build
+POST /api/keyword/graph/report
+1.5 Требования к frontend data layer
+Нужно строить frontend так, чтобы dashboard режимы были основаны на schemas.dashboard как на основном контракте.
+
+Обязательные frontend модели
+PostsDashboardResponse
+EventsDashboardResponse
+ProcessesDashboardResponse
+EventGraphResponse
+ProcessGraphResponse
+Дополнительно
+transport DTO и UI view model разделять;
+поддержать единый тип для warnings;
+поддержать единый тип для partial dashboard state.
+1.6 Бизнес-правила UI
+[Подтверждено backend + обязательны к реализации]
+
+все dashboard screens должны отображать generated_at;
+при partial=true экран не считается ошибочным, а считается частично доступным;
+warnings[] отображаются в виде системного предупреждающего блока;
+event/process report status может быть draft;
+dashboard filters должны сериализоваться в URL;
+graph screen должен открываться без дополнительных цепочек из 5-10 запросов;
+viewer не должен видеть mutation actions;
+comments thread fields backend уже хранит, поэтому компонент комментариев нужно проектировать с запасом на thread mode;
+reactions/media в scope не включать;
+поиск по постам как отдельная аналитическая функция строится через keyword graph API.
+1.7 Рекомендуемая техническая реализация
+Стек:
+
+React
+TypeScript
+Vite
+React Router
+TanStack Query
+MUI + MUI X DataGrid
+React Hook Form
+Zod
+graph layer: React Flow или Cytoscape.js
+Архитектура:
+
+один AnalyticsWorkspaceLayout
+mode switcher: Posts / Events / Processes
+каждый режим как отдельный dashboard module
+details, reports, admin, settings, monitor как отдельные route modules
+1.8 Reusable UI-компоненты
+Нужно предусмотреть:
+
+DashboardModeSwitcher
+DashboardWarningsBanner
+DashboardSummaryCards
+DashboardFilterBar
+DashboardTable
+GraphPanel
+DetailsDrawer
+ReportStatusBadge
+JobStatusInline
+PartialDataNotice
+EmptyState
+ErrorState
+ForbiddenState
+1.9 Async operations
+Все async actions реализовать через единый job flow:
+
+mutation endpoint;
+получение job_id;
+polling GET /api/jobs/{id}/result;
+invalidation relevant queries;
+отображение финального результата.
+Это обязательно для:
+
+refresh comments;
+post report generation;
+event report generation;
+process report generation;
+batch report generation.
+1.10 Testing
+Минимально покрыть:
+
+auth guard и refresh flow;
+role-based routing;
+dashboard query parsing;
+partial/warnings rendering;
+async job flow;
+empty/error/loading states;
+graph screen state transitions.
+1.11 Definition of Done
+Frontend-задача считается выполненной, если:
+
+реализован единый shell приложения;
+реализованы 3 режима дашборда на основе /api/dashboard/*;
+реализованы event/process graph views;
+partial data и warnings корректно отображаются;
+RBAC соблюден;
+detail и async flows работают;
+admin screens работают в подтвержденном backend scope;
+keyword graph интегрирован как отдельный инструмент;
+UI не опирается на неподтвержденные backend-возможности.
 
 
-TASK-014
-TASK-015
+## 2. задание для UI-дизайнера
+2.1 Цель дизайна
+Необходимо спроектировать внутренний аналитический web-интерфейс для системы мониторинга Telegram-каналов.
+
+Ключевой сценарий продукта:
+пользователь работает в едином аналитическом workspace и переключается между 3 режимами:
+
+Posts
+Events
+Processes
+Теперь backend уже предоставляет агрегированные dashboard endpoint’ы, поэтому экраны можно проектировать как полноценные mode-based аналитические панели, а не как хрупкую композицию большого числа независимых источников данных.
+
+2.2 Характер интерфейса
+Интерфейс должен быть:
+
+строгим;
+профессиональным;
+аналитическим;
+data-heavy;
+минималистичным;
+ориентированным на длительную работу с таблицами, фильтрами, статусами и графами.
+Приоритеты:
+
+читаемость данных;
+ясная иерархия;
+быстрый переход от summary к detail;
+понятные статусы;
+удобная работа с графом.
+2.3 Общие принципы дизайна
+Нужно проектировать desktop-first интерфейс.
+
+Основной паттерн:
+
+единый workspace layout;
+в верхней части mode switcher;
+внутри режима:
+filter bar,
+summary/KPI,
+основной список,
+граф или detail area,
+action zone.
+Обязательно предусмотреть состояния:
+
+loading
+empty
+error
+forbidden
+partial data
+warnings from backend
+Так как dashboard API возвращает partial и warnings, дизайнер должен отдельно продумать:
+
+как выглядит экран, если данные загружены не полностью;
+как выглядит системное предупреждение, не блокирующее работу пользователя.
+2.4 Экраны для проработки
+1. Login
+Нужно спроектировать:
+
+форму входа;
+ошибки логина;
+loading state.
+2. Main Analytics Workspace
+Общий layout для всего аналитического интерфейса:
+
+top navigation;
+role-aware navigation;
+mode switcher Posts / Events / Processes;
+общая структура фильтров и области данных.
+3. Dashboard Mode: Posts
+Экран должен включать:
+
+filters;
+KPI summary;
+список/таблицу постов;
+статус отчета;
+quick actions;
+переход в карточку поста;
+системные warnings и partial state.
+4. Dashboard Mode: Events
+Экран должен включать:
+
+filters;
+KPI summary;
+список событий;
+graph area;
+detail panel выбранного события;
+связанные посты;
+статус draft report;
+warnings / partial state.
+5. Dashboard Mode: Processes
+Экран должен включать:
+
+filters;
+KPI summary;
+список процессов;
+graph area;
+detail panel процесса;
+связанные события;
+статус draft report;
+warnings / partial state.
+6. Post Detail
+header поста;
+текст;
+комментарии;
+links;
+report panel;
+async action states.
+7. Reports Catalogs
+posts reports
+events reports
+processes reports
+8. Channels Management
+9. Users
+10. Settings
+11. Monitor
+12. Keyword Graph
+2.5 Что дизайнер должен выдать по каждому экрану
+Для каждого экрана требуется:
+
+цель экрана;
+состав блоков;
+порядок блоков;
+иерархия информации;
+desktop layout;
+поведение интерактивных элементов;
+состояние фильтров;
+состояние таблиц;
+состояние графа;
+loading/empty/error/forbidden/partial states;
+responsive notes.
+2.6 Особые требования для 3 режимов дашборда
+Режим Posts
+Нужно продумать:
+
+плотную таблицу/список постов;
+как показывать report_status;
+как визуально отделить preview, метрики и действия;
+как показывать warnings, не ломая обзорность.
+Режим Events
+Нужно продумать:
+
+комбинацию list + graph + detail;
+как пользователь выбирает событие;
+как показывается root context события;
+как отображаются связанные посты;
+как показывать draft статус отчета.
+Режим Processes
+Нужно продумать:
+
+как показывать процесс как сущность более высокого уровня;
+как отличать process view от event view;
+как показывать вложенные события и их связь;
+как строится графическая иерархия.
+2.7 Отдельно продумать паттерны
+1. Mode switcher
+Нужно определить:
+
+tab style или segmented control;
+как показывать активный режим;
+как выглядит переключение между режимами.
+2. Warnings / Partial Data
+Так как backend отдает:
+
+partial: boolean
+warnings: []
+нужно продумать:
+
+предупреждающий banner;
+его место на экране;
+как он выглядит, если warnings несколько;
+как пользователь понимает, что экран usable, но не полностью обогащен.
+3. Status system
+Нужно единообразно оформить статусы:
+
+report: missing, pending, draft, ready, failed
+jobs: pending, running, done, failed
+monitor: ok, warning, critical, degraded
+4. Graph interaction patterns
+Для событий и процессов нужно описать:
+
+node selection;
+edge highlighting;
+legend;
+zoom / pan controls;
+toolbar;
+empty graph state;
+no edges state.
+5. Detail panel
+Нужно определить:
+
+right drawer или embedded side panel;
+какие блоки всегда видны;
+какие через tabs;
+как показываются comments/report/links.
+2.8 Общие требования к стилю
+Нужно:
+
+не делать интерфейс “маркетинговым”;
+не перегружать декоративностью;
+использовать визуальный язык enterprise analytics;
+делать акцент на таблицы, карточки summary, статусы и граф;
+сохранить высокую плотность данных без визуального хаоса.
+Тема:
+
+светлая тема обязательна;
+темная тема может быть предусмотрена как optional future extension.
+2.9 Что отдельно не включать в текущий дизайн scope
+На текущем этапе не нужно проектировать как обязательные функциональные зоны:
+
+AD/LDAP flows;
+push notifications;
+reactions analytics;
+media links;
+расширенный business monitoring beyond current backend;
+финальные rich event/process reports, если их контент еще не согласован.
+2.10 Итоговые артефакты от дизайнера
+Дизайнер должен подготовить:
+
+перечень всех экранов;
+референсы по каждому экрану;
+подробное текстовое описание экранов;
+layout rules;
+typography / spacing / grid rules;
+status rules;
+table rules;
+graph rules;
+detail panel rules;
+component inventory;
+список спорных мест, которые нужно согласовать до handoff.
+2.11 Definition of Done для дизайн-задачи
+Задача считается выполненной, если:
+
+спроектирован единый workspace;
+проработаны 3 dashboard режима;
+продуман UX для partial/warnings;
+проработаны graph screens для events/processes;
+описаны states и interaction rules;
+подготовлен handoff без двусмысленностей для frontend-разработчика.
+
+

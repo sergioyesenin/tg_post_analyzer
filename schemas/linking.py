@@ -45,6 +45,8 @@ class EventSummaryOut(BaseModel):
     ended_at: datetime | None = None
     confidence: float | None = None
     created_by: str | None = None
+    comments_count: int = 0
+    involvement: float | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -62,6 +64,8 @@ class ProcessSummaryOut(BaseModel):
     ended_at: datetime | None = None
     confidence: float | None = None
     created_by: str | None = None
+    comments_count: int = 0
+    involvement: float | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

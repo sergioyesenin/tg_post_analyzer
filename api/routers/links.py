@@ -8,6 +8,7 @@ from db.models import Event, EventPost, Post, PostLink
 from deps import get_session, require_roles
 from schemas.linking import EventDetailOut, EventSummaryOut, LinkRunResponse, PostLinksResponse
 from services.auth import AuthUser
+from services.linking_metrics import load_event_metrics
 from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
 
 router = APIRouter()
@@ -57,7 +58,13 @@ async def list_events(
         .limit(limit)
     )
     events = (await session.execute(stmt)).scalars().all()
-    return [EventSummaryOut.model_validate(event) for event in events]
+    metrics_by_event_id = await load_event_metrics(session, [event.id for event in events])
+    return [
+        EventSummaryOut.model_validate(event).model_copy(
+            update=metrics_by_event_id.get(event.id, {"comments_count": 0, "involvement": None})
+        )
+        for event in events
+    ]
 
 
 @router.get("/events/{event_id}", response_model=EventDetailOut)
@@ -71,4 +78,10 @@ async def get_event(
         raise HTTPException(status_code=404, detail="Event not found")
     post_ids_stmt = select(EventPost.post_id).where(EventPost.event_id == event_id)
     post_ids = [row[0] for row in (await session.execute(post_ids_stmt)).all()]
-    return EventDetailOut(event=EventSummaryOut.model_validate(event), post_ids=post_ids)
+    metrics_by_event_id = await load_event_metrics(session, [event_id])
+    return EventDetailOut(
+        event=EventSummaryOut.model_validate(event).model_copy(
+            update=metrics_by_event_id.get(event_id, {"comments_count": 0, "involvement": None})
+        ),
+        post_ids=post_ids,
+    )

@@ -119,6 +119,43 @@ Run the baseline quality gate after installing `requirements-dev.txt`:
 venv\Scripts\python -m pytest -q tests
 ```
 
+## Dashboard API
+
+Dashboard aggregators expose one snapshot response per screen mode so frontend can render each mode with 1-2 requests instead of stitching many small calls.
+
+Available endpoints:
+
+- `GET /api/dashboard/posts`
+- `GET /api/dashboard/events`
+- `GET /api/dashboard/events/{event_id}/graph`
+- `GET /api/dashboard/processes`
+- `GET /api/dashboard/processes/{process_id}/graph`
+
+Access:
+
+- `admin`, `analyst`, `viewer` can read dashboard endpoints
+
+Shared response contract:
+
+- top-level payload includes `mode`, `generated_at`, `partial`, `warnings`, `filters_applied`, `summary`, `items`, `meta`
+- if optional enrichment cannot be loaded, endpoint should return `partial=true` with `warnings` instead of failing the whole screen
+
+Posts dashboard filters:
+
+- required: `date_from`, `date_to`
+- optional: `limit`, `channel_ids`, `categories`, `min_comments`, `report_status`, `sort_by`, `sort_order`
+- supported `sort_by`: `comments_count`, `date`, `views`, `involvement`
+
+Events dashboard filters:
+
+- optional: `date_from`, `date_to`, `limit`, `status`, `channel_ids`, `categories`, `min_comments`, `sort_by`, `sort_order`
+- supported `sort_by`: `started_at`, `comments_count`, `involvement`, `posts_count`
+
+Processes dashboard filters:
+
+- optional: `date_from`, `date_to`, `limit`, `status`, `min_comments`, `sort_by`, `sort_order`
+- supported `sort_by`: `started_at`, `comments_count`, `involvement`, `events_count`
+
 ## Pipeline Concurrency Settings
 
 Use `/api/settings` to tune safe concurrency limits for `scripts/run_telegram_pipeline.py` and `scripts/run_ai_pipeline.py`:

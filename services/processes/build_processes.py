@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime
 
 from sqlalchemy import and_, delete, select
@@ -18,13 +19,83 @@ from db.models import (
     VerificationStatus,
 )
 
-POST_LINK_TO_PROCESS_RELATION = {
-    PostLinkType.CAUSE: ProcessRelationType.CAUSE,
-    PostLinkType.CONSEQUENCE: ProcessRelationType.EFFECT,
-    PostLinkType.UPDATE: ProcessRelationType.UPDATE,
-    PostLinkType.CONTRADICTION: ProcessRelationType.CONTRADICTION,
-    PostLinkType.RELATED: ProcessRelationType.RELATED,
-}
+
+class _UnionFind:
+    def __init__(self) -> None:
+        self.parent: dict[int, int] = {}
+
+    def find(self, x: int) -> int:
+        self.parent.setdefault(x, x)
+        if self.parent[x] != x:
+            self.parent[x] = self.find(self.parent[x])
+        return self.parent[x]
+
+    def union(self, a: int, b: int) -> None:
+        pa = self.find(a)
+        pb = self.find(b)
+        if pa != pb:
+            self.parent[pb] = pa
+
+    def components(self) -> list[list[int]]:
+        out: dict[int, list[int]] = {}
+        for node in self.parent:
+            root = self.find(node)
+            out.setdefault(root, []).append(node)
+        return list(out.values())
+
+
+def _build_update_components(
+    *,
+    event_ids: set[int],
+    post_to_event_ids: dict[int, set[int]],
+    links: list[PostLink],
+) -> tuple[list[list[int]], dict[int, dict]]:
+    uf = _UnionFind()
+    event_membership_payload: dict[int, dict] = {}
+
+    for link in links:
+        src_event_ids = post_to_event_ids.get(link.src_post_id, set())
+        dst_event_ids = post_to_event_ids.get(link.dst_post_id, set())
+        if not src_event_ids or not dst_event_ids:
+            continue
+
+        candidate_pairs = {
+            (src_event_id, dst_event_id)
+            for src_event_id in src_event_ids
+            for dst_event_id in dst_event_ids
+            if src_event_id in event_ids and dst_event_id in event_ids and src_event_id != dst_event_id
+        }
+        if not candidate_pairs:
+            continue
+
+        for src_event_id, dst_event_id in candidate_pairs:
+            uf.find(src_event_id)
+            uf.find(dst_event_id)
+            uf.union(src_event_id, dst_event_id)
+
+            current_score = float(link.score) if link.score is not None else 0.0
+            for event_id in (src_event_id, dst_event_id):
+                prev = event_membership_payload.get(event_id)
+                prev_score = float(prev.get("score")) if prev and prev.get("score") is not None else -1.0
+                if prev is None or current_score > prev_score:
+                    event_membership_payload[event_id] = {
+                        "direction": LinkDirection.NONE,
+                        "evidence_json": link.evidence_json,
+                        "score": link.score,
+                        "model_version": link.model_version,
+                        "pipeline_version": link.pipeline_version,
+                    }
+
+    components = [component for component in uf.components() if len(component) >= 2]
+    return components, event_membership_payload
+
+
+def _choose_process_title(events: list[Event], *, date_from: datetime, date_to: datetime) -> str:
+    if not events:
+        return f"Process {date_from.date().isoformat()}..{date_to.date().isoformat()}"
+    first_event = sorted(events, key=lambda e: ((e.started_at or e.created_at), e.id))[0]
+    first_paragraph = (first_event.title or "").split("\n", 1)[0].strip()
+    return first_paragraph[:140] or f"Process {date_from.date().isoformat()}..{date_to.date().isoformat()}"
 
 
 async def rebuild_processes(
@@ -39,99 +110,90 @@ async def rebuild_processes(
     if not events:
         return 0
 
-    event_ids = {event.id for event in events}
-    post_to_event_stmt = select(EventPost.post_id, EventPost.event_id).where(EventPost.event_id.in_(event_ids))
-    post_to_event = {post_id: event_id for post_id, event_id in (await session.execute(post_to_event_stmt)).all()}
+    event_by_id = {event.id: event for event in events}
+    event_ids = set(event_by_id.keys())
 
-    process_ids_stmt = select(Process.id).where(and_(Process.started_at >= date_from, Process.started_at <= date_to))
-    process_ids = [row[0] for row in (await session.execute(process_ids_stmt)).all()]
+    process_ids_stmt = (
+        select(Process.id)
+        .where(and_(Process.started_at >= date_from, Process.started_at <= date_to))
+    )
+    process_ids = {row[0] for row in (await session.execute(process_ids_stmt)).all()}
+    linked_process_ids_stmt = (
+        select(ProcessEvent.process_id)
+        .distinct()
+        .where(ProcessEvent.event_id.in_(event_ids))
+    )
+    process_ids.update(row[0] for row in (await session.execute(linked_process_ids_stmt)).all())
     if process_ids:
         await session.execute(delete(ProcessEvent).where(ProcessEvent.process_id.in_(process_ids)))
         await session.execute(delete(Process).where(Process.id.in_(process_ids)))
+
+    post_to_event_rows = (
+        await session.execute(
+            select(EventPost.post_id, EventPost.event_id).where(EventPost.event_id.in_(event_ids))
+        )
+    ).all()
+    post_to_event_ids: dict[int, set[int]] = defaultdict(set)
+    for post_id, event_id in post_to_event_rows:
+        post_to_event_ids[post_id].add(event_id)
 
     links_stmt = (
         select(PostLink)
         .where(
             and_(
                 PostLink.status == VerificationStatus.VERIFIED,
-                PostLink.link_type.in_(list(POST_LINK_TO_PROCESS_RELATION.keys())),
+                PostLink.link_type == PostLinkType.UPDATE,
             )
         )
         .order_by(PostLink.id.asc())
     )
     links = (await session.execute(links_stmt)).scalars().all()
 
-    # Keep only best edge candidate per destination event for this process.
-    event_edge_payload: dict[int, dict] = {}
-    for link in links:
-        src_event_id = post_to_event.get(link.src_post_id)
-        dst_event_id = post_to_event.get(link.dst_post_id)
-        if not src_event_id or not dst_event_id or src_event_id == dst_event_id:
-            continue
-        relation = POST_LINK_TO_PROCESS_RELATION.get(link.link_type)
-        if relation is None:
-            continue
-
-        direction = link.direction if isinstance(link.direction, LinkDirection) else LinkDirection.NONE
-        prev = event_edge_payload.get(dst_event_id)
-        prev_score = float(prev.get("score")) if prev and prev.get("score") is not None else -1.0
-        current_score = float(link.score) if link.score is not None else 0.0
-        if prev is None or current_score > prev_score:
-            event_edge_payload[dst_event_id] = {
-                "relation_type": relation,
-                "direction": direction,
-                "evidence_json": link.evidence_json,
-                "score": link.score,
-                "model_version": link.model_version,
-                "pipeline_version": link.pipeline_version,
-            }
-
-    if not event_edge_payload:
-        # No validated cross-event relations => no process should be created.
+    components, event_membership_payload = _build_update_components(
+        event_ids=event_ids,
+        post_to_event_ids=dict(post_to_event_ids),
+        links=links,
+    )
+    if not components:
         return 0
 
-    started_candidates = [event.started_at for event in events if event.started_at is not None]
-    ended_candidates = [event.ended_at for event in events if event.ended_at is not None]
-    process_events_scope = [event for event in events if event.id in event_edge_payload]
-    if process_events_scope:
-        first_event = sorted(
-            process_events_scope,
-            key=lambda e: ((e.started_at or e.created_at), e.id),
-        )[0]
-        first_paragraph = (first_event.title or "").split("\n", 1)[0].strip()
-        title = first_paragraph[:140] or f"Процесс {date_from.date().isoformat()}..{date_to.date().isoformat()}"
-    else:
-        title = f"Процесс {date_from.date().isoformat()}..{date_to.date().isoformat()}"
+    created_memberships = 0
+    for component in components:
+        component_events = [event_by_id[event_id] for event_id in component if event_id in event_by_id]
+        if len(component_events) < 2:
+            continue
 
-    process = Process(
-        title=title,
-        started_at=min(started_candidates) if started_candidates else None,
-        ended_at=max(ended_candidates) if ended_candidates else None,
-        confidence=0.75,
-        status=VerificationStatus.VERIFIED,
-        created_by=created_by,
-    )
-    session.add(process)
-    await session.flush()
-
-    created_edges = 0
-    for event_id, payload in event_edge_payload.items():
-        stmt = (
-            insert(ProcessEvent)
-            .values(
-                process_id=process.id,
-                event_id=event_id,
-                relation_type=payload["relation_type"],
-                direction=payload["direction"],
-                evidence_json=payload["evidence_json"],
-                score=payload["score"],
-                status=VerificationStatus.VERIFIED,
-                model_version=payload["model_version"],
-                pipeline_version=payload["pipeline_version"],
-            )
-            .on_conflict_do_nothing()
+        started_candidates = [event.started_at for event in component_events if event.started_at is not None]
+        ended_candidates = [event.ended_at for event in component_events if event.ended_at is not None]
+        process = Process(
+            title=_choose_process_title(component_events, date_from=date_from, date_to=date_to),
+            started_at=min(started_candidates) if started_candidates else None,
+            ended_at=max(ended_candidates) if ended_candidates else None,
+            confidence=0.75,
+            status=VerificationStatus.VERIFIED,
+            created_by=created_by,
         )
-        await session.execute(stmt)
-        created_edges += 1
+        session.add(process)
+        await session.flush()
 
-    return created_edges
+        for event in sorted(component_events, key=lambda item: ((item.started_at or item.created_at), item.id)):
+            payload = event_membership_payload.get(event.id, {})
+            stmt = (
+                insert(ProcessEvent)
+                .values(
+                    process_id=process.id,
+                    event_id=event.id,
+                    relation_type=ProcessRelationType.UPDATE,
+                    direction=payload.get("direction", LinkDirection.NONE),
+                    evidence_json=payload.get("evidence_json"),
+                    score=payload.get("score"),
+                    status=VerificationStatus.VERIFIED,
+                    model_version=payload.get("model_version"),
+                    pipeline_version=payload.get("pipeline_version"),
+                )
+                .on_conflict_do_nothing()
+            )
+            await session.execute(stmt)
+            created_memberships += 1
+
+    return created_memberships

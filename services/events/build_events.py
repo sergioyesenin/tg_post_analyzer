@@ -95,7 +95,11 @@ async def rebuild_events(
         uf.union(link.src_post_id, link.dst_post_id)
     components = list(uf.components().values())
 
-    event_ids_stmt = select(Event.id).where(and_(Event.started_at >= date_from, Event.started_at <= date_to))
+    event_ids_stmt = (
+        select(EventPost.event_id)
+        .distinct()
+        .where(EventPost.post_id.in_(post_ids))
+    )
     event_ids = [row[0] for row in (await session.execute(event_ids_stmt)).all()]
     if event_ids:
         await session.execute(delete(EventPost).where(EventPost.event_id.in_(event_ids)))

@@ -19,6 +19,7 @@ from schemas.linking import (
 )
 from services.auth import AuthUser, write_audit_log
 from services.events.build_events import rebuild_events
+from services.linking_metrics import load_event_metrics, load_process_metrics
 from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
 from services.processes.build_processes import rebuild_processes
 
@@ -114,7 +115,13 @@ async def get_event(
         raise HTTPException(status_code=404, detail="Event not found")
     post_ids_stmt = select(EventPost.post_id).where(EventPost.event_id == event_id)
     post_ids = [row[0] for row in (await session.execute(post_ids_stmt)).all()]
-    return EventDetailOut(event=EventSummaryOut.model_validate(event), post_ids=post_ids)
+    metrics_by_event_id = await load_event_metrics(session, [event_id])
+    return EventDetailOut(
+        event=EventSummaryOut.model_validate(event).model_copy(
+            update=metrics_by_event_id.get(event_id, {"comments_count": 0, "involvement": None})
+        ),
+        post_ids=post_ids,
+    )
 
 
 @router.get("/processes/{process_id}", response_model=ProcessDetailOut)
@@ -132,8 +139,11 @@ async def get_process(
         .order_by(ProcessEvent.created_at.desc())
     )
     events = (await session.execute(events_stmt)).scalars().all()
+    metrics_by_process_id = await load_process_metrics(session, [process_id])
     return ProcessDetailOut(
-        process=ProcessSummaryOut.model_validate(process),
+        process=ProcessSummaryOut.model_validate(process).model_copy(
+            update=metrics_by_process_id.get(process_id, {"comments_count": 0, "involvement": None})
+        ),
         events=[
             ProcessEventOut(
                 event_id=item.event_id,

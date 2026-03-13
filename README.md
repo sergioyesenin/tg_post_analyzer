@@ -263,7 +263,7 @@ frontend/
 - `/dashboard/events`
 - `/dashboard/processes`
 - Each mode page composes the same reusable building blocks: warnings banner, partial notice, generated-at display, summary cards, filter bar, split content area and table shell.
-- Reports, admin, monitor, jobs and keyword graph routes remain isolated placeholders; workspace detail routes now use live modules that still honor the same shared RBAC and async-state foundations.
+- Reports, admin, monitor, jobs, and keyword graph routes remain isolated route modules outside the main dashboard modes; workspace detail routes still honor the same shared RBAC and async-state foundations.
 
 ### Route Strategy
 
@@ -271,7 +271,7 @@ frontend/
 - Protected routes render inside one `AppShell`.
 - `/` redirects to `/dashboard/posts`.
 - `/dashboard/*` now renders inside `AnalyticsWorkspaceLayout` instead of each mode owning its own shell.
-- Post and event detail routes now use live route modules; reports, admin, monitor, jobs and keyword graph routes still remain isolated and continue to use the same RBAC source of truth.
+- Post and event detail routes now use live route modules; reports, admin, monitor, jobs, and keyword graph remain isolated route modules and continue to use the same RBAC source of truth.
 - `AuthGuard` protects the shell. `RoleGuard` returns a reusable forbidden state for unauthorized role access instead of silently hiding route issues.
 
 ### Dashboard Shell
@@ -280,6 +280,7 @@ frontend/
 - Transport DTOs and UI view models are separated: `dashboard/posts` now maps live `GET /api/dashboard/posts` DTOs into screen-oriented summary/table row models before rendering.
 - Post detail uses the same separation rule: `frontend/src/modules/workspace/post-detail/contracts.ts` mirrors backend payloads, while `mappers.ts` reshapes them into block-level view models.
 - Dashboard shell foundation currently includes:
+- `DashboardSystemAlerts`
 - `DashboardWarningsBanner`
 - `PartialDataNotice`
 - `DashboardSummaryCards`
@@ -288,7 +289,34 @@ frontend/
 - `DashboardGeneratedAt`
 - `DashboardModeSwitcher`
 - `ReportStatusBadge`
+- `ReadOnlyNotice`
 - `query-keys.ts` owns TanStack Query key conventions for dashboard resources.
+
+### Shared Component System
+
+- Shared reusable components now live primarily under `frontend/src/shared/dashboard`, `frontend/src/shared/ui`, and `frontend/src/shared/utils`.
+- Reusable cross-cutting pieces:
+- state cards: `LoadingState`, `EmptyState`, `ErrorState`, `ForbiddenState`
+- dashboard system layer: `DashboardSystemAlerts`, `DashboardWarningsBanner`, `PartialDataNotice`, `DashboardGeneratedAt`
+- table shell: `DashboardTableShell`
+- shared notices and async feedback: `ReadOnlyNotice`, `AsyncActionIndicator`
+- status system: `StatusBadge`, `ReportStatusBadge`, `JobStatusInline`, `MonitorStatusBadge`
+- formatter helpers: `frontend/src/shared/utils/formatters.ts`
+- Module-local components remain route- or domain-specific:
+- post detail blocks such as comments, links, and report sections
+- event/process graph legends and detail panels
+- keyword graph analytical workspace components
+- reports/admin/platform action rails and editors
+
+### State Handling Conventions
+
+- Route-level blocking states use the same shared primitives: `LoadingState`, `ErrorState`, `ForbiddenState`, and `EmptyState`.
+- Dashboard warnings and `partial=true` are rendered together through `DashboardSystemAlerts`; partial snapshots remain explicitly usable, not failed.
+- `generated_at` stays visible on all dashboard routes even when warnings or partial data are present.
+- Read-only role messaging uses `ReadOnlyNotice` instead of per-screen ad hoc banners.
+- Manual graph refresh now uses active fetching state, not only initial loading state, so refetch is visible during refresh as well as first load.
+- Shared status badges normalize report/job/monitor values through one metadata layer with fallback labels for unknown values.
+- Shared table shells expose title/description through accessible table labeling rather than relying on surrounding copy only.
 
 ### dashboard/posts
 
@@ -598,6 +626,46 @@ frontend/
 - successful retry invalidates jobs summary, queue tables, and monitor overview queries
 - jobs list limit is serialized in the URL for route-owned queue inspection state
 
+### Keyword Graph
+
+- `/keyword-graph` is now implemented as a separate advanced analysis route module and is intentionally not part of the main dashboard mode switcher.
+- The module stays inside confirmed backend scope and uses only:
+- `POST /api/keyword/search/posts`
+- `POST /api/keyword/graph/build`
+- `POST /api/keyword/graph/report`
+- Access is limited to `admin` and `analyst`; `viewer` is denied by route policy and hidden navigation.
+
+### Keyword Graph Architecture
+
+- Search flow is route-owned and URL-driven for confirmed search fields:
+- `query`
+- `limit`
+- `date_from`
+- `date_to`
+- `channel_ids`
+- Search remains explicit-submit even though filters are serialized in the URL, so the tool behaves like an analytical workspace rather than a freeform exploratory toy.
+- Graph build flow reuses the selected search result seed set plus explicit exclusions and sends only confirmed build fields:
+- `post_ids`
+- `exclude_post_ids`
+- `graph_mode`
+- `include_neighbors`
+- `neighbor_depth`
+- Report generation is implemented because the backend response is confirmed and synchronous:
+- `status`
+- `title`
+- `post_ids`
+- `excluded_post_ids`
+- `content`
+
+### Keyword Graph Visualization
+
+- Current visualization uses the same framework-native analytical graph pattern as event/process graph surfaces rather than introducing a new toy canvas:
+- seed/result toolbar and summary
+- node cards with source metadata
+- edge list with source/status/score/evidence
+- direct links back to confirmed post detail routes
+- loading, empty, build-error, and feature-unavailable states stay inline so the analytical workflow remains visible while mutations or graph requests fail.
+
 ### Event Detail
 
 - `/events/:eventId` is now implemented against live `GET /api/events/{id}`.
@@ -673,6 +741,7 @@ frontend/
 - Stage 9 reports modules are implemented against live reports list/export endpoints, with reusable table/filter/action patterns and post batch generation flow.
 - Stage 10 admin modules are implemented against live channels/users/settings endpoints, with role-protected CRUD flows, analyst-safe effective settings access, and RHF + Zod validation.
 - Stage 11 monitor and jobs modules are implemented against live monitor/jobs endpoints, with admin-only overview screens, status badges, queue tables, and confirmed retry flows.
+- Stage 12 keyword graph is implemented against live keyword search/build/report endpoints, with role-safe search, seed-set graph build, framework-native graph visualization, and synchronous report generation.
 - Desktop-first split layout foundation is in place for future table/detail/graph composition.
 
 ### Assumptions And Deferred Edges
@@ -684,6 +753,7 @@ frontend/
 - Reports export is implemented as direct endpoint links rather than streamed fetch/download state inside the SPA shell.
 - Admin settings editing currently validates JSON payloads in a textarea instead of a richer schema-aware editor.
 - Monitor currently uses one full snapshot page rather than separate specialized tabs for `/health`, `/jobs`, `/pipeline`, `/scheduler`, and `/alerts`.
+- Keyword graph currently uses a framework-native analytical node/edge layout instead of React Flow or Cytoscape.
 
 ### Remaining Gaps Against Spec
 
@@ -691,9 +761,9 @@ frontend/
 - No MUI/MUI X DataGrid integration yet; dashboard table is a reusable HTML shell only.
 - No MUI/MUI X DataGrid integration for admin modules yet; admin grids currently use reusable HTML table wrappers instead of DataGrid.
 - No MUI/MUI X DataGrid integration for jobs tables yet; jobs queue rendering still uses the same reusable HTML shell.
-- Event and process graphs are implemented, but broader graph tooling and full React Flow integration remain unfinished.
+- Event, process, and keyword graphs are implemented, but broader graph tooling and full React Flow integration remain unfinished.
 - No finalized table specs, graph specs, detail panel rules, copy rules or API-to-UI mapping implementation from the handoff checklist yet.
-- Action-level RBAC is implemented for current detail/report/admin/jobs retry surfaces, but future monitor/keyword graph actions still need the same rollout.
+- Action-level RBAC is implemented for current detail/report/admin/jobs retry/keyword graph report surfaces, but future monitor-specific actions still need the same rollout.
 - No final UI/UX handoff artifacts such as wireframes, hi-fi mocks, status matrix or interaction matrix in the repo yet.
 
 ## Pipeline Concurrency Settings

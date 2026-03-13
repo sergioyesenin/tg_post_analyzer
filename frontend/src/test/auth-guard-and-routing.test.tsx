@@ -87,7 +87,7 @@ describe('Auth guard and RBAC routing', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/Keyword graph placeholder/i)).toBeInTheDocument();
+      expect(screen.getByText(/Separate analytical tool for keyword-driven post search/i)).toBeInTheDocument();
     });
   });
 

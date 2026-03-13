@@ -1,17 +1,6 @@
 import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
 import type { ChannelDto, AdminUserDto, AppSettingDto } from '@modules/admin/contracts';
-
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return 'n/a';
-  }
-
-  return new Intl.DateTimeFormat('en-US', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone: 'UTC',
-  }).format(new Date(value));
-}
+import { formatUtcDateTime } from '@shared/utils/formatters';
 
 export const channelsColumns: DashboardTableColumn[] = [
   { id: 'channel', label: 'Channel' },
@@ -78,7 +67,7 @@ export function mapUsersToRows(
       ),
       roles: user.roles.join(', '),
       active: user.is_active ? 'yes' : 'no',
-      created: formatDateTime(user.created_at),
+      created: formatUtcDateTime(user.created_at),
       actions: (
         <button type="button" className="dashboard-button dashboard-button--ghost" onClick={() => onSelect(user.id)}>
           {user.id === selectedUserId ? 'Selected' : 'Manage'}
@@ -95,7 +84,7 @@ export function mapSettingsToRows(settings: AppSettingDto[]): DashboardTableRow[
       key: setting.key,
       description: setting.description ?? 'n/a',
       updated_by: setting.updated_by_user_id === null ? 'system' : String(setting.updated_by_user_id),
-      updated_at: formatDateTime(setting.updated_at),
+      updated_at: formatUtcDateTime(setting.updated_at),
     },
   }));
 }

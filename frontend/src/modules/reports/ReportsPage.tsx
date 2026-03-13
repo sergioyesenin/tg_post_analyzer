@@ -3,6 +3,7 @@ import { NavLink, useParams } from 'react-router-dom';
 import { useSession } from '@app/providers/SessionProvider';
 import { ApiError } from '@shared/api/client';
 import { canPerformAction } from '@shared/routing/policy';
+import { ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
@@ -85,15 +86,11 @@ export function ReportsPage() {
       <ReportsFilterBar type={type} filters={filters} onApply={applyFilters} onReset={resetFilters} />
 
       {primaryRole === 'viewer' ? (
-        <section className="dashboard-banner dashboard-banner--partial" aria-label="Read only reports notice">
-          <div>
-            <span className="dashboard-banner__eyebrow">read only</span>
-            <strong>Viewer access keeps report catalogs readable</strong>
-          </div>
-          <p className="dashboard-banner__text">
-            List inspection and export stay available while batch generation and other draft mutations remain hidden.
-          </p>
-        </section>
+        <ReadOnlyNotice
+          title="Viewer access keeps report catalogs readable"
+          description="List inspection and export stay available while batch generation and other draft mutations remain hidden."
+          ariaLabel="Read only reports notice"
+        />
       ) : null}
 
       <section className="dashboard-page__content dashboard-page__content--workspace">

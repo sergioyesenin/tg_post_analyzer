@@ -11,6 +11,7 @@ import {
 import { ApiError } from '@shared/api/client';
 import { DashboardSummaryCards } from '@shared/dashboard/components/DashboardSummaryCards';
 import { canPerformAction } from '@shared/routing/policy';
+import { ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
@@ -101,13 +102,11 @@ export function JobsPage() {
       <DashboardSummaryCards cards={summaryCards} />
 
       {!canRetry ? (
-        <section className="dashboard-banner dashboard-banner--partial" aria-label="Read only jobs notice">
-          <div>
-            <span className="dashboard-banner__eyebrow">read only</span>
-            <strong>Retry actions are hidden for this role</strong>
-          </div>
-          <p className="dashboard-banner__text">Queue inspection remains visible, but retry actions require confirmed admin permissions.</p>
-        </section>
+        <ReadOnlyNotice
+          title="Retry actions are hidden for this role"
+          description="Queue inspection remains visible, but retry actions require confirmed admin permissions."
+          ariaLabel="Read only jobs notice"
+        />
       ) : null}
 
       <section className="dashboard-page__content dashboard-page__content--workspace">

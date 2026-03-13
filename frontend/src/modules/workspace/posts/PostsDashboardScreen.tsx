@@ -3,12 +3,12 @@ import type { ReactNode } from 'react';
 import { ApiError } from '@shared/api/client';
 import { DashboardFilterBar } from '@shared/dashboard/components/DashboardFilterBar';
 import { DashboardGeneratedAt } from '@shared/dashboard/components/DashboardGeneratedAt';
-import { PartialDataNotice } from '@shared/dashboard/components/PartialDataNotice';
 import { DashboardSummaryCards } from '@shared/dashboard/components/DashboardSummaryCards';
+import { DashboardSystemAlerts } from '@shared/dashboard/components/DashboardSystemAlerts';
 import { DashboardTableShell } from '@shared/dashboard/components/DashboardTableShell';
-import { DashboardWarningsBanner } from '@shared/dashboard/components/DashboardWarningsBanner';
 import type { PostsDashboardFiltersDto } from '@shared/dashboard/contracts';
 import { useDashboardFilters } from '@shared/dashboard/hooks';
+import { ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
@@ -99,10 +99,7 @@ export function PostsDashboardScreen() {
 
   return (
     <div className="dashboard-page">
-      <div className="dashboard-page__system-layer">
-        <DashboardWarningsBanner warnings={viewModel.warnings} />
-        <PartialDataNotice partial={viewModel.isPartial} />
-      </div>
+      <DashboardSystemAlerts warnings={viewModel.warnings} partial={viewModel.isPartial} />
 
       <section className="dashboard-page__hero">
         <div>
@@ -117,15 +114,10 @@ export function PostsDashboardScreen() {
       <DashboardFilterBar mode="posts" filters={filters} onApply={applyFilters} onReset={resetFilters} />
 
       {primaryRole === 'viewer' ? (
-        <section className="dashboard-banner dashboard-banner--partial" aria-label="Read only notice">
-          <div>
-            <span className="dashboard-banner__eyebrow">read only</span>
-            <strong>Viewer access hides mutation entry points</strong>
-          </div>
-          <p className="dashboard-banner__text">
-            Open-post navigation stays available, while comments update and report update entry points remain hidden.
-          </p>
-        </section>
+        <ReadOnlyNotice
+          title="Viewer access hides mutation entry points"
+          description="Open-post navigation stays available, while comments update and report update entry points remain hidden."
+        />
       ) : null}
 
       {viewModel.rows.length === 0 ? (

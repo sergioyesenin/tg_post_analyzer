@@ -1,13 +1,11 @@
+import { formatUtcDateTime } from '@shared/utils/formatters';
+
 export type DashboardGeneratedAtProps = {
   generatedAt: string;
 };
 
 export function DashboardGeneratedAt({ generatedAt }: DashboardGeneratedAtProps) {
-  const formatted = new Intl.DateTimeFormat('en', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone: 'UTC',
-  }).format(new Date(generatedAt));
+  const formatted = formatUtcDateTime(generatedAt);
 
   return (
     <div className="dashboard-generated-at" aria-label="Dashboard generated at">

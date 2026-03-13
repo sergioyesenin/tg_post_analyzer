@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useSession } from '@app/providers/SessionProvider';
 import { ApiError } from '@shared/api/client';
 import { AsyncActionIndicator } from '@shared/ui/async/AsyncActionIndicator';
+import { ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { canPerformAction } from '@shared/routing/policy';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
@@ -117,15 +118,11 @@ export function PostDetailsPage() {
       </header>
 
       {!canRefreshComments || !canGenerateReport ? (
-        <section className="dashboard-banner dashboard-banner--partial" aria-label="Read only detail notice">
-          <div>
-            <span className="dashboard-banner__eyebrow">read only</span>
-            <strong>Viewer access has no post mutations</strong>
-          </div>
-          <p className="dashboard-banner__text">
-            Detail data remains visible, but comment refresh and report generation actions are hidden.
-          </p>
-        </section>
+        <ReadOnlyNotice
+          title="Viewer access has no post mutations"
+          description="Detail data remains visible, but comment refresh and report generation actions are hidden."
+          ariaLabel="Read only detail notice"
+        />
       ) : null}
 
       <div className="post-detail-grid">

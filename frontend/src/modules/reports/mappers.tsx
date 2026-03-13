@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 
 import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
 import { ReportStatusBadge } from '@shared/ui/status/ReportStatusBadge';
+import { formatUtcDateTime } from '@shared/utils/formatters';
 import type {
   EventReportListItemDto,
   PostReportListItemDto,
@@ -9,18 +10,6 @@ import type {
   ReportType,
   ReportsListResponseByType,
 } from '@modules/reports/contracts';
-
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return 'n/a';
-  }
-
-  return new Intl.DateTimeFormat('en-US', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone: 'UTC',
-  }).format(new Date(value));
-}
 
 export const reportsColumnsByType: Record<ReportType, DashboardTableColumn[]> = {
   posts: [
@@ -53,7 +42,7 @@ function mapPostRow(item: PostReportListItemDto): DashboardTableRow {
       entity: (
         <div className="dashboard-table-shell__cell-stack">
           <strong>Post #{item.post_id}</strong>
-          <span>{formatDateTime(item.post_date)}</span>
+          <span>{formatUtcDateTime(item.post_date)}</span>
         </div>
       ),
       context: (
@@ -63,7 +52,7 @@ function mapPostRow(item: PostReportListItemDto): DashboardTableRow {
         </div>
       ),
       status: <ReportStatusBadge status={item.status} />,
-      created_at: formatDateTime(item.created_at),
+      created_at: formatUtcDateTime(item.created_at),
       actions: (
         <div className="dashboard-table-shell__actions">
           <Link className="table-link" to={`/posts/${item.post_id}`}>
@@ -87,7 +76,7 @@ function mapEventRow(item: EventReportListItemDto): DashboardTableRow {
       ),
       version: item.version ?? 'n/a',
       status: <ReportStatusBadge status={item.status} />,
-      created_at: formatDateTime(item.created_at),
+      created_at: formatUtcDateTime(item.created_at),
       actions: (
         <div className="dashboard-table-shell__actions">
           <Link className="table-link" to={`/events/${item.event_id}`}>
@@ -111,7 +100,7 @@ function mapProcessRow(item: ProcessReportListItemDto): DashboardTableRow {
       ),
       version: item.version ?? 'n/a',
       status: <ReportStatusBadge status={item.status} />,
-      created_at: formatDateTime(item.created_at),
+      created_at: formatUtcDateTime(item.created_at),
       actions: (
         <div className="dashboard-table-shell__actions">
           <Link className="table-link" to={`/processes/${item.process_id}`}>

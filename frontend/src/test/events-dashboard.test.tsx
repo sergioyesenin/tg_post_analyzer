@@ -350,6 +350,67 @@ describe('Events dashboard', () => {
     expect(screen.getByText(/Graph data is partially available/i)).toBeInTheDocument();
   });
 
+  it('shows graph loading feedback during manual graph refresh', async () => {
+    const user = userEvent.setup();
+    let graphRequests = 0;
+    let resolveRefresh: ((value: ReturnType<typeof createEventGraphResponse>) => void) | undefined;
+
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/dashboard/events') {
+        return createEventsDashboardResponse();
+      }
+
+      if (path === '/api/dashboard/events/81/graph') {
+        graphRequests += 1;
+
+        if (graphRequests === 1) {
+          return createEventGraphResponse();
+        }
+
+        return await new Promise<ReturnType<typeof createEventGraphResponse>>((resolve) => {
+          resolveRefresh = resolve;
+        });
+      }
+
+      throw new Error(`Unhandled GET path in graph refresh test: ${path}`);
+    });
+
+    renderWorkspace();
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Root post drives the event graph/i).length).toBeGreaterThan(0);
+    });
+
+    await user.click(screen.getByRole('button', { name: /Reload graph/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Loading event graph/i)).toBeInTheDocument();
+    });
+
+    resolveRefresh?.(
+      createEventGraphResponse({
+        nodes: [
+          {
+            post_id: 7777,
+            channel_id: 77,
+            channel_username: 'signal_watch',
+            date: '2026-03-12T11:30:00Z',
+            text_preview: 'Refreshed graph snapshot.',
+            comments_count: 99,
+            views: 1234,
+            involvement: 0.21,
+            is_root: true,
+          },
+        ],
+        edges: [],
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Refreshed graph snapshot/i).length).toBeGreaterThan(0);
+    });
+  });
+
   it('hides event report mutation for viewer while keeping selection and graph visible', async () => {
     installEventsApiMock();
 

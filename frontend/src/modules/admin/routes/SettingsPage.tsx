@@ -8,6 +8,7 @@ import { useSettingsMutations, useSettingsQueries } from '@modules/admin/hooks';
 import { mapSettingsToRows, settingsColumns } from '@modules/admin/mappers';
 import { updateSettingSchema, type UpdateSettingFormValues } from '@modules/admin/validation';
 import { ApiError } from '@shared/api/client';
+import { ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
@@ -68,13 +69,11 @@ export function SettingsPage() {
       </section>
 
       {!isAdmin ? (
-        <section className="dashboard-banner dashboard-banner--partial" aria-label="Read only settings notice">
-          <div>
-            <span className="dashboard-banner__eyebrow">read only</span>
-            <strong>Analyst access is limited to effective settings</strong>
-          </div>
-          <p className="dashboard-banner__text">Editable settings keys and update actions remain admin-only.</p>
-        </section>
+        <ReadOnlyNotice
+          title="Analyst access is limited to effective settings"
+          description="Editable settings keys and update actions remain admin-only."
+          ariaLabel="Read only settings notice"
+        />
       ) : null}
 
       <section className="dashboard-page__content dashboard-page__content--workspace">

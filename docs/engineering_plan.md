@@ -814,222 +814,45 @@ P2.2 Real frontend auth integration tests against live backend
 7. `P2.1` Cross-tab session sync
 8. `P2.2` Live auth integration tests
 
-4. Pre-stage-2 tasks for Codex
-
-Этот раздел — прямой operational handoff для следующего Codex.
-Его задача: довести frontend до состояния, после которого можно без двусмысленностей переходить к этапу 2:
-
-- `AnalyticsWorkspaceLayout`
-- `mode switcher`
-- `URL filters foundation`
-
-Важно:
-
-- следующий Codex не должен начинать этап 2, пока не выполнены задачи из раздела 4;
-- если в процессе выясняется, что один из пунктов ниже уже частично реализован, нужно не пропускать его молча, а явно проверить `Definition of Done` для этого задания;
-- если для закрытия задания не хватает backend или UX контракта, это должно быть зафиксировано как blocker в результате выполнения, а не замещено предположением.
-
-4.1 Gate condition before stage 2
-
-Переход к этапу 2 разрешен только если выполнены все условия:
-
-- auth/session layer стабилен и прозрачен;
-- role-based route behavior зафиксирован не только в коде, но и в явных policy rules;
-- data layer contracts для dashboard source-of-truth подготовлены хотя бы на foundation-уровне;
-- error handling strategy задокументирована и совпадает с реализацией;
-- тесты на auth/routing/data-foundation проходят;
-- в кодовой базе нет двусмысленности, кто владеет `mode`, `filters`, `query parsing`, `dashboard contracts`.
-
-4.2 Задание A — Stabilize auth/session layer
-
-Цель:
-
-Сделать auth/session слой достаточным foundation для дальнейшего перехода к workspace-level routing и URL-driven dashboard modes.
-
-Что нужно сделать:
-
-- проверить и при необходимости доработать `login`, `logout`, `bootstrap current user`, `refresh on 401`;
-- зафиксировать правила `guest -> redirect`, `authenticated but unauthorized -> forbidden`, `hidden navigation vs forbidden route`;
-- убрать любые неявные или ad hoc решения в session lifecycle;
-- убедиться, что session provider является единственным source of truth для auth state.
-
-Что не делать в этом задании:
-
-- не начинать реализацию dashboard filters;
-- не строить AnalyticsWorkspaceLayout;
-- не добавлять новые data-heavy dashboard UI blocks.
-
-Definition of Done:
-
-- все protected routes используют единый auth/session flow;
-- refresh behavior не дублируется локально по компонентам;
-- logout всегда очищает local session state;
-- поведение `/login`, protected routes и forbidden routes одинаково трактуется в коде и README;
-- тесты auth guard, login flow, refresh flow, role-based routing проходят.
-
-Артефакты результата:
-
-- обновленный code layer;
-- краткий блок в README/engineering notes с session lifecycle;
-- явный список assumptions, если какие-то auth edge cases сознательно отложены.
-
-4.3 Задание B — Formalize RBAC policy for stage 2
-
-Цель:
-
-Подготовить прозрачную policy-основу для дальнейшей workspace navigation и mode switching, чтобы stage 2 не строился поверх размытого permission behavior.
-
-Что нужно сделать:
-
-- вынести role policy в явный и читаемый слой;
-- описать для текущего scope различие между:
-  - `hidden`
-  - `redirected`
-  - `forbidden`
-  - `read-only`
-- зафиксировать, какие разделы видят `admin`, `analyst`, `viewer`;
-- подготовить foundation для action-level RBAC, даже если сами mutation actions появятся позже.
-
-Что не делать в этом задании:
-
-- не реализовывать все mutation guards для будущих экранов, если этих экранов еще нет;
-- не придумывать недостающие UX правила сверх подтвержденного scope.
-
-Definition of Done:
-
-- role policy читается из одного места;
-- навигация и route guards используют одну и ту же policy;
-- viewer не получает ложную видимость будущих mutation areas;
-- stage 2 сможет использовать эту policy без рефакторинга auth layer.
-
-Артефакты результата:
-
-- policy module;
-- краткая RBAC matrix для текущего frontend scope;
-- tests на hidden/forbidden/redirect behavior.
-
-4.4 Задание C — Prepare dashboard data contracts foundation
-
-Цель:
-
-Подготовить foundation для следующего этапа, где workspace будет переключать dashboard modes и сериализовать filters в URL.
-
-Что нужно сделать:
-
-- проверить и при необходимости расширить shared types для dashboard envelope;
-- определить transport DTO boundaries для:
-  - `PostsDashboardResponse`
-  - `EventsDashboardResponse`
-  - `ProcessesDashboardResponse`
-  - `EventGraphResponse`
-  - `ProcessGraphResponse`
-- определить, где будет жить transport -> UI mapping;
-- подготовить query key strategy и naming conventions для dashboard resources;
-- подготовить shared contracts для `partial`, `warnings`, `generated_at`, `filters_applied`.
-
-Что не делать в этом задании:
-
-- не рендерить еще полноценные dashboard screens;
-- не внедрять business-specific table layout;
-- не строить mode switch UI.
-
-Definition of Done:
-
-- есть явные contracts и naming conventions для dashboard data layer;
-- следующий Codex сможет начать hooks/query integration без пересборки shared typing strategy;
-- нет смешения UI state types и raw backend DTO в одном слое.
-
-Артефакты результата:
-
-- shared dashboard contracts;
-- skeleton mapping layer или documented mapping entry points;
-- query key conventions.
-
-4.5 Задание D — Define auth/data error handling strategy
-
-Цель:
-
-Сделать обработку ошибок достаточно формализованной, чтобы stage 2 мог безопасно строить URL-driven mode screens и data loading states.
-
-Что нужно сделать:
-
-- зафиксировать taxonomy для:
-  - invalid credentials
-  - service unavailable
-  - refresh failed
-  - unauthorized
-  - forbidden
-  - generic request failure
-  - partial data (это не hard error)
-- определить, где ошибка ведет к redirect, где к forbidden state, где к inline error state;
-- определить общую модель для route-level и block-level errors.
-
-Что не делать в этом задании:
-
-- не проектировать финальный visual system для всех errors вне текущего scope;
-- не подменять отсутствующий UX handoff выдуманной copy strategy beyond minimal safe defaults.
-
-Definition of Done:
-
-- auth/data errors трактуются одинаково в session bootstrap, login и protected route access;
-- в документации явно указано, какие ошибки считаются blocking, а какие non-blocking;
-- partial/warnings отдельно отделены от hard failure.
-
-Артефакты результата:
-
-- shared error policy;
-- tests для критичных auth/data transitions;
-- doc block в README или engineering plan.
-
-4.6 Задание E — Add minimal data-layer readiness tests
-
-Цель:
-
-Не допустить, чтобы этап 2 начался без тестовой основы для query/filter foundations.
-
-Что нужно сделать:
-
-- добавить tests для shared query param parsing/serialization;
-- добавить tests для dashboard contract helpers, если они будут расширены;
-- при необходимости обновить existing auth/routing tests, чтобы они не конфликтовали с будущим mode-based routing.
-
-Что не делать в этом задании:
-
-- не строить end-to-end dashboard tests на несуществующие еще экраны;
-- не писать широкие snapshot tests вместо проверок поведения.
-
-Definition of Done:
-
-- query param utils покрыты тестами;
-- auth/routing tests остаются зелеными;
-- stage 2 сможет добавлять mode switcher и URL filters без ломки test harness.
-
-4.7 Exit criteria: когда можно переходить к этапу 2
-
-Переход к этапу 2 разрешен, если после выполнения заданий A-E одновременно верны следующие утверждения:
-
-- auth/session/RBAC foundation не требует немедленного архитектурного рефакторинга;
-- source of truth для dashboard mode data contracts определен;
-- query/filter ownership не размыт между `app`, `shared` и `modules`;
-- tests и build проходят;
-- в документации есть достаточно контекста, чтобы следующий Codex не выдумывал routing/data flow behavior.
-
-4.8 Прямое указание для следующего Codex
-
-Если после выполнения заданий A-E остаются только следующие незакрытые зоны:
-
-- реальный `AnalyticsWorkspaceLayout`
-- `mode switcher`
-- `URL filters foundation`
-- dashboard hooks/UI integration следующего слоя
-
-то можно считать, что кодовая база готова к старту этапа 2.
-
-Если же остаются незакрытыми:
-
-- двусмысленный auth/session lifecycle;
-- неочевидный hidden vs forbidden vs redirect policy;
-- отсутствие dashboard data contracts;
-- отсутствие query param readiness tests;
-
-то переход к этапу 2 считается преждевременным.
+Реализуй этап 14: final quality pass and spec audit.
+
+Source of truth: docs/frontend_handoff_checklist.md.
+
+Нужно:
+- провести audit реализованного frontend against spec
+- проверить все routes
+- проверить все major RBAC rules
+- проверить all dashboard modes
+- проверить details flows
+- проверить async job flows
+- проверить reports/admin/monitor/jobs/keyword graph
+- проверить URL filters
+- проверить partial/warnings
+- проверить generated_at
+- проверить tests и добавить missing key flow tests
+- привести README в финальный вид
+
+README должен содержать:
+- overview
+- tech stack
+- project structure
+- architecture decisions
+- routing model
+- auth/session model
+- data layer model
+- dashboard model
+- graph model
+- RBAC model
+- async job flow
+- testing strategy
+- known limitations
+- remaining gaps относительно spec
+
+В финале выдай:
+1. список реализованных модулей
+2. список key flow tests
+3. remaining gaps относительно spec
+4. список assumptions
+5. список технического долга
+6. рекомендуемый следующий этап
+7. финальный commit message

@@ -2,34 +2,7 @@ import type { DashboardSummaryCard } from '@shared/dashboard/components/Dashboar
 import type { EventGraphResponse } from '@shared/dashboard/contracts';
 import { mapEventGraphToViewModel, type EventGraphPanelViewModel } from '@modules/workspace/events/mappers';
 import type { EventDetailDto } from '@modules/workspace/event-detail/contracts';
-
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return 'n/a';
-  }
-
-  return new Intl.DateTimeFormat('en-US', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone: 'UTC',
-  }).format(new Date(value));
-}
-
-function formatRatio(value: number | null) {
-  if (value === null) {
-    return 'n/a';
-  }
-
-  return value.toFixed(2);
-}
-
-function formatConfidence(value: number | null) {
-  if (value === null) {
-    return 'n/a';
-  }
-
-  return `${Math.round(value * 100)}%`;
-}
+import { formatConfidencePercent, formatNullableRatio, formatUtcDateTime } from '@shared/utils/formatters';
 
 export type EventDetailPageViewModel = {
   event: {
@@ -74,11 +47,11 @@ export function mapEventDetailToViewModel(detail: EventDetailDto, graph: EventGr
       eventId: detail.event.id,
       title: detail.event.title ?? `Event ${detail.event.id}`,
       status: detail.event.status,
-      startedAt: formatDateTime(detail.event.started_at),
-      endedAt: formatDateTime(detail.event.ended_at),
-      confidence: formatConfidence(detail.event.confidence),
+      startedAt: formatUtcDateTime(detail.event.started_at),
+      endedAt: formatUtcDateTime(detail.event.ended_at),
+      confidence: formatConfidencePercent(detail.event.confidence),
       commentsCount: String(detail.event.comments_count),
-      involvement: formatRatio(detail.event.involvement),
+      involvement: formatNullableRatio(detail.event.involvement),
       postsCount,
       postIds: detail.post_ids,
       rootPostId,
@@ -91,7 +64,7 @@ export function mapEventDetailToViewModel(detail: EventDetailDto, graph: EventGr
       { id: 'status', label: 'Status', value: detail.event.status },
       { id: 'posts_count', label: 'Linked posts', value: postsCount },
       { id: 'comments_count', label: 'Comments', value: String(detail.event.comments_count) },
-      { id: 'involvement', label: 'Involvement', value: formatRatio(detail.event.involvement) },
+      { id: 'involvement', label: 'Involvement', value: formatNullableRatio(detail.event.involvement) },
     ],
     graph: graphViewModel,
   };

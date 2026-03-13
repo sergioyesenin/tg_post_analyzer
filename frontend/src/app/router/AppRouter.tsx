@@ -8,8 +8,8 @@ import { SettingsPage } from '@modules/admin/routes/SettingsPage';
 import { UsersPage } from '@modules/admin/routes/UsersPage';
 import { LoginPage } from '@modules/auth/routes/LoginPage';
 import { JobsPage } from '@modules/platform/routes/JobsPage';
-import { KeywordGraphPlaceholderPage } from '@modules/platform/routes/KeywordGraphPlaceholderPage';
 import { MonitorPage } from '@modules/platform/routes/MonitorPage';
+import { KeywordGraphPage } from '@modules/keyword-graph/KeywordGraphPage';
 import { ReportsPage } from '@modules/reports/ReportsPage';
 import { AnalyticsWorkspaceLayout } from '@modules/workspace/layouts/AnalyticsWorkspaceLayout';
 import { DashboardEventsPage } from '@modules/workspace/routes/DashboardEventsPage';
@@ -117,7 +117,7 @@ const routes = [
         path: 'keyword-graph',
         element: (
           <RoleGuard routeId="keywordGraph">
-            <KeywordGraphPlaceholderPage />
+            <KeywordGraphPage />
           </RoleGuard>
         ),
       },

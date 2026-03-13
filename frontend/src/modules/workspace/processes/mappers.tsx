@@ -5,34 +5,7 @@ import type { DashboardSummaryCard } from '@shared/dashboard/components/Dashboar
 import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
 import type { ProcessGraphResponse, ProcessesDashboardItemDto, ProcessesDashboardResponse } from '@shared/dashboard/contracts';
 import { ReportStatusBadge } from '@shared/ui/status/ReportStatusBadge';
-
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return 'n/a';
-  }
-
-  return new Intl.DateTimeFormat('en-US', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone: 'UTC',
-  }).format(new Date(value));
-}
-
-function formatRatio(value: number | null) {
-  if (value === null) {
-    return 'n/a';
-  }
-
-  return value.toFixed(2);
-}
-
-function formatConfidence(value: number | null) {
-  if (value === null) {
-    return 'n/a';
-  }
-
-  return `${Math.round(value * 100)}%`;
-}
+import { formatConfidencePercent, formatNullableRatio, formatUtcDateTime } from '@shared/utils/formatters';
 
 export type ProcessDashboardRowViewModel = {
   processId: number;
@@ -76,7 +49,7 @@ export function mapProcessesDashboardToViewModel(response: ProcessesDashboardRes
       { id: 'processes_count', label: 'Processes', value: String(response.summary.processes_count) },
       { id: 'total_events', label: 'Linked events', value: String(response.summary.total_events) },
       { id: 'comments', label: 'Comments', value: String(response.summary.total_comments) },
-      { id: 'avg_involvement', label: 'Avg involvement', value: formatRatio(response.summary.avg_involvement) },
+      { id: 'avg_involvement', label: 'Avg involvement', value: formatNullableRatio(response.summary.avg_involvement) },
       { id: 'draft_reports', label: 'Draft reports', value: String(response.summary.draft_reports) },
       { id: 'failed_reports', label: 'Failed reports', value: String(response.summary.failed_reports) },
     ],
@@ -89,11 +62,11 @@ function mapProcessItemToRow(item: ProcessesDashboardItemDto): ProcessDashboardR
     processId: item.process_id,
     title: item.title ?? `Process ${item.process_id}`,
     status: item.status,
-    startedAt: formatDateTime(item.started_at),
-    endedAt: formatDateTime(item.ended_at),
-    confidence: formatConfidence(item.confidence),
+    startedAt: formatUtcDateTime(item.started_at),
+    endedAt: formatUtcDateTime(item.ended_at),
+    confidence: formatConfidencePercent(item.confidence),
     commentsCount: String(item.comments_count),
-    involvement: formatRatio(item.involvement),
+    involvement: formatNullableRatio(item.involvement),
     eventsCount: String(item.events_count),
     eventIds: item.event_ids,
     reportStatus: item.report_status,
@@ -213,7 +186,7 @@ export function mapProcessGraphToViewModel(response: ProcessGraphResponse): Proc
       eventsCount: String(response.summary.events_count),
       postsCount: String(response.summary.posts_count),
       commentsCount: String(response.summary.comments_count),
-      involvement: formatRatio(response.summary.involvement),
+      involvement: formatNullableRatio(response.summary.involvement),
     },
     events: response.events.map((event) => ({
       eventId: event.event_id,
@@ -222,14 +195,14 @@ export function mapProcessGraphToViewModel(response: ProcessGraphResponse): Proc
       relationType: event.relation_type,
       direction: event.direction,
       score: event.score === null ? 'n/a' : event.score.toFixed(2),
-      startedAt: formatDateTime(event.started_at),
+      startedAt: formatUtcDateTime(event.started_at),
       postIds: event.post_ids,
     })),
     nodes: response.nodes.map((node) => ({
       id: String(node.post_id),
       postId: node.post_id,
       title: node.text_preview ?? `Post #${node.post_id}`,
-      date: formatDateTime(node.date),
+      date: formatUtcDateTime(node.date),
       channel: node.channel_username ?? `#${node.channel_id}`,
       eventIds: eventIdsByPostId.get(node.post_id) ?? [],
       isRoot: node.is_root,

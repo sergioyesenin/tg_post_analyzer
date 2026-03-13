@@ -1,11 +1,5 @@
-type JobStatusTone = 'muted' | 'warning' | 'success' | 'danger' | 'info';
-
-const jobStatusMeta: Record<string, { label: string; tone: JobStatusTone }> = {
-  pending: { label: 'Pending', tone: 'warning' },
-  running: { label: 'Running', tone: 'info' },
-  done: { label: 'Done', tone: 'success' },
-  failed: { label: 'Failed', tone: 'danger' },
-};
+import { StatusBadge } from '@shared/ui/status/StatusBadge';
+import { resolveJobStatusMeta } from '@shared/ui/status/statusMeta';
 
 type JobStatusInlineProps = {
   status: string;
@@ -13,13 +7,6 @@ type JobStatusInlineProps = {
 };
 
 export function JobStatusInline({ status, jobId }: JobStatusInlineProps) {
-  const normalized = status.toLowerCase();
-  const meta = jobStatusMeta[normalized] ?? { label: status || 'Unknown', tone: 'muted' as const };
-
-  return (
-    <span className={`status-badge status-badge--${meta.tone}`}>
-      {meta.label}
-      {jobId ? ` #${jobId}` : ''}
-    </span>
-  );
+  const meta = resolveJobStatusMeta(status);
+  return <StatusBadge meta={meta} ariaLabel={`Job status: ${meta.label}`} suffix={jobId ? ` #${jobId}` : null} />;
 }

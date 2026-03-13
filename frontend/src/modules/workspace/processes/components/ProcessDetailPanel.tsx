@@ -131,7 +131,7 @@ export function ProcessDetailPanel({ process, graph, relatedEvents, actionSlot }
                   <strong>{event.title}</strong>
                   <p>
                     {event.relationType}
-                    {event.postIds.length > 0 ? ` • ${event.postIds.length} confirmed posts` : ''}
+                    {event.postIds.length > 0 ? ` | ${event.postIds.length} confirmed posts` : ''}
                   </p>
                 </div>
                 <div className="detail-list__actions">

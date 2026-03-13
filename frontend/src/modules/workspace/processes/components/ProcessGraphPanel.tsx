@@ -153,7 +153,7 @@ export function ProcessGraphPanel({
                     {edge.sourcePostId} {'->'} {edge.targetPostId}
                   </strong>
                   <span>
-                    {edge.label} • {edge.status} • score {edge.score}
+                    {edge.label} | {edge.status} | score {edge.score}
                   </span>
                 </div>
               ))}

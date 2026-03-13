@@ -21,6 +21,8 @@ type DashboardTableShellProps = {
 };
 
 export function DashboardTableShell({ title, description, columns, rows }: DashboardTableShellProps) {
+  const descriptionId = `dashboard-table-description-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+
   return (
     <section className="dashboard-table-shell">
       <div className="dashboard-table-shell__header">
@@ -28,15 +30,19 @@ export function DashboardTableShell({ title, description, columns, rows }: Dashb
           <span className="state-card__eyebrow">table shell</span>
           <strong>{title}</strong>
         </div>
-        <span>{description}</span>
+        <span id={descriptionId}>{description}</span>
       </div>
 
       <div className="dashboard-table-shell__scroll">
-        <table>
+        <table aria-label={title} aria-describedby={descriptionId}>
           <thead>
             <tr>
               {columns.map((column) => (
-                <th key={column.id} scope="col">
+                <th
+                  key={column.id}
+                  scope="col"
+                  style={{ textAlign: column.align ?? 'left' }}
+                >
                   {column.label}
                 </th>
               ))}
@@ -46,7 +52,7 @@ export function DashboardTableShell({ title, description, columns, rows }: Dashb
             {rows.map((row) => (
               <tr key={row.id} className={row.isSelected ? 'dashboard-table-shell__row--selected' : undefined}>
                 {columns.map((column) => (
-                  <td key={column.id} data-column-id={column.id}>
+                  <td key={column.id} data-column-id={column.id} style={{ textAlign: column.align ?? 'left' }}>
                     {row.cells[column.id] ?? '-'}
                   </td>
                 ))}

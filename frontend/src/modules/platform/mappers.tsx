@@ -2,26 +2,11 @@ import type { DashboardSummaryCard } from '@shared/dashboard/components/Dashboar
 import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
 import { JobStatusInline } from '@shared/ui/status/JobStatusInline';
 import { MonitorStatusBadge } from '@shared/ui/status/MonitorStatusBadge';
+import { formatNullableNumber, formatUtcDateTime } from '@shared/utils/formatters';
 import type { DeadLetterJobDto, JobsSummaryDto, MonitorFullDto, PendingJobDto } from '@modules/platform/contracts';
 
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return 'n/a';
-  }
-
-  return new Intl.DateTimeFormat('en-US', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone: 'UTC',
-  }).format(new Date(value));
-}
-
 function formatCount(value: number | null | undefined) {
-  if (value === null || value === undefined) {
-    return 'n/a';
-  }
-
-  return new Intl.NumberFormat('en-US').format(value);
+  return formatNullableNumber(value);
 }
 
 function formatPercent(value: number | null | undefined) {
@@ -109,8 +94,8 @@ export function mapPendingJobsToRows(
       status: <JobStatusInline status={job.status} jobId={job.id} />,
       schedule: (
         <div className="dashboard-table-shell__cell-stack">
-          <span>Run: {formatDateTime(job.run_at)}</span>
-          <span>Retry: {formatDateTime(job.retry_at)}</span>
+          <span>Run: {formatUtcDateTime(job.run_at)}</span>
+          <span>Retry: {formatUtcDateTime(job.retry_at)}</span>
         </div>
       ),
       attempts: `${job.attempts}/${job.max_attempts}`,
@@ -149,7 +134,7 @@ export function mapDeadLetterRows(
         </div>
       ),
       attempts: `${row.attempts}/${row.max_attempts}`,
-      failed_at: formatDateTime(row.failed_at),
+      failed_at: formatUtcDateTime(row.failed_at),
       error: row.last_error ?? 'n/a',
       actions: (
         <button
@@ -184,8 +169,8 @@ export function mapMonitorDependencyRows(monitor: MonitorFullDto): DashboardTabl
       status: <MonitorStatusBadge status={dependency.status ?? (dependency.ok ? 'ok' : 'degraded')} />,
       details: (
         <div className="dashboard-table-shell__cell-stack">
-          <span>Heartbeat: {formatDateTime(dependency.last_heartbeat_at ?? null)}</span>
-          <span>Next run: {formatDateTime(dependency.next_expected_run_at ?? null)}</span>
+          <span>Heartbeat: {formatUtcDateTime(dependency.last_heartbeat_at ?? null)}</span>
+          <span>Next run: {formatUtcDateTime(dependency.next_expected_run_at ?? null)}</span>
           <span>Latency: {dependency.latency_ms ?? 'n/a'} ms</span>
         </div>
       ),
@@ -208,7 +193,7 @@ export function mapMonitorAlertRows(monitor: MonitorFullDto): DashboardTableRow[
 
 export function mapMonitorOverview(monitor: MonitorFullDto) {
   return {
-    snapshotAt: formatDateTime(monitor.health.time_utc),
+    snapshotAt: formatUtcDateTime(monitor.health.time_utc),
     overview: [
       {
         id: 'overall-health',

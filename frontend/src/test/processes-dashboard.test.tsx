@@ -374,4 +374,85 @@ describe('Processes dashboard', () => {
     expect(screen.getAllByText(/Narrative escalation chain/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/related events/i)).toBeInTheDocument();
   });
+
+  it('shows hierarchy loading feedback during manual graph refresh', async () => {
+    const user = userEvent.setup();
+    let graphRequests = 0;
+    let resolveRefresh: ((value: ReturnType<typeof createProcessGraphResponse>) => void) | undefined;
+
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/dashboard/processes') {
+        return createProcessesDashboardResponse();
+      }
+
+      if (path === '/api/dashboard/processes/201/graph') {
+        graphRequests += 1;
+
+        if (graphRequests === 1) {
+          return createProcessGraphResponse();
+        }
+
+        return await new Promise<ReturnType<typeof createProcessGraphResponse>>((resolve) => {
+          resolveRefresh = resolve;
+        });
+      }
+
+      throw new Error(`Unhandled GET path in process graph refresh test: ${path}`);
+    });
+
+    renderWorkspace();
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Election coverage spike/i).length).toBeGreaterThan(0);
+    });
+
+    await user.click(screen.getByRole('button', { name: /Reload graph/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Loading process graph/i)).toBeInTheDocument();
+    });
+
+    resolveRefresh?.(
+      createProcessGraphResponse({
+        events: [
+          {
+            event_id: 95,
+            title: 'Refreshed process event',
+            status: 'active',
+            started_at: '2026-03-10T10:00:00Z',
+            ended_at: null,
+            confidence: 0.77,
+            relation_type: 'trigger',
+            direction: 'src_to_dst',
+            score: 0.71,
+            post_ids: [9999],
+          },
+        ],
+        nodes: [
+          {
+            post_id: 9999,
+            channel_id: 28,
+            channel_username: 'cleanup_watch',
+            date: '2026-03-10T10:05:00Z',
+            text_preview: 'Refreshed process hierarchy snapshot.',
+            comments_count: 40,
+            views: 3200,
+            involvement: 0.17,
+            is_root: true,
+          },
+        ],
+        edges: [],
+        mapping: {
+          process_id: 201,
+          event_to_post_ids: {
+            95: [9999],
+          },
+        },
+      }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Refreshed process event/i).length).toBeGreaterThan(0);
+    });
+  });
 });

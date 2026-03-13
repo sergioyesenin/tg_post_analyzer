@@ -1,9 +1,13 @@
-import { screen, waitFor } from '@testing-library/react';
+import { cleanup, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { apiClient } from '@shared/api/client';
-import { createPostsDashboardResponse } from '@test/dashboard-fixtures';
+import {
+  createEventsDashboardResponse,
+  createPostsDashboardResponse,
+  createProcessesDashboardResponse,
+} from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
 
 function createAuthenticatedUser(roles: string[]) {
@@ -43,17 +47,39 @@ function renderWorkspace(initialEntry: string, roles: string[] = ['analyst']) {
 describe('Dashboard workspace shell', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.spyOn(apiClient, 'get').mockResolvedValue(createPostsDashboardResponse());
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path.startsWith('/api/dashboard/events')) {
+        return createEventsDashboardResponse();
+      }
+
+      if (path.startsWith('/api/dashboard/processes')) {
+        return createProcessesDashboardResponse({
+          partial: true,
+          warnings: [
+            {
+              code: 'processes.graph.partial',
+              message: 'Process graph snapshot is incomplete.',
+              severity: 'warning',
+            },
+          ],
+        });
+      }
+
+      return createPostsDashboardResponse();
+    });
   });
 
-  it('renders generated_at on dashboard screens', async () => {
-    renderWorkspace('/dashboard/posts');
+  it('renders generated_at on all dashboard screens', async () => {
+    for (const route of ['/dashboard/posts', '/dashboard/events', '/dashboard/processes']) {
+      cleanup();
+      renderWorkspace(route);
 
-    await waitFor(() => {
-      expect(screen.getByText(/Generated at/i)).toBeInTheDocument();
-    });
+      await waitFor(() => {
+        expect(screen.getByText(/Generated at/i)).toBeInTheDocument();
+      });
 
-    expect(screen.getByText(/Mar 13, 2026, 8:45 AM UTC/i)).toBeInTheDocument();
+      expect(screen.getByText(/Mar 13, 2026, 8:45 AM UTC/i)).toBeInTheDocument();
+    }
   });
 
   it('renders warnings and partial state as non-blocking system layers', async () => {

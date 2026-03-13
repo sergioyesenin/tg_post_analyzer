@@ -1,13 +1,13 @@
 import { ApiError } from '@shared/api/client';
 import { DashboardFilterBar } from '@shared/dashboard/components/DashboardFilterBar';
 import { DashboardGeneratedAt } from '@shared/dashboard/components/DashboardGeneratedAt';
-import { PartialDataNotice } from '@shared/dashboard/components/PartialDataNotice';
 import { DashboardSummaryCards } from '@shared/dashboard/components/DashboardSummaryCards';
+import { DashboardSystemAlerts } from '@shared/dashboard/components/DashboardSystemAlerts';
 import { DashboardTableShell } from '@shared/dashboard/components/DashboardTableShell';
-import { DashboardWarningsBanner } from '@shared/dashboard/components/DashboardWarningsBanner';
 import { useDashboardFilters } from '@shared/dashboard/hooks';
 import { canPerformAction } from '@shared/routing/policy';
 import { AsyncActionIndicator } from '@shared/ui/async/AsyncActionIndicator';
+import { ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
@@ -126,10 +126,7 @@ export function EventsDashboardScreen() {
 
   return (
     <div className="dashboard-page">
-      <div className="dashboard-page__system-layer">
-        <DashboardWarningsBanner warnings={eventsViewModel.warnings} />
-        <PartialDataNotice partial={eventsViewModel.isPartial} />
-      </div>
+      <DashboardSystemAlerts warnings={eventsViewModel.warnings} partial={eventsViewModel.isPartial} />
 
       <section className="dashboard-page__hero">
         <div>
@@ -144,15 +141,10 @@ export function EventsDashboardScreen() {
       <DashboardFilterBar mode="events" filters={filters} onApply={applyFilters} onReset={resetFilters} />
 
       {primaryRole === 'viewer' ? (
-        <section className="dashboard-banner dashboard-banner--partial" aria-label="Read only notice">
-          <div>
-            <span className="dashboard-banner__eyebrow">read only</span>
-            <strong>Viewer access hides event report mutations</strong>
-          </div>
-          <p className="dashboard-banner__text">
-            Selection, graph exploration, and related posts remain available while report draft actions stay hidden.
-          </p>
-        </section>
+        <ReadOnlyNotice
+          title="Viewer access hides event report mutations"
+          description="Selection, graph exploration, and related posts remain available while report draft actions stay hidden."
+        />
       ) : null}
 
       {eventsViewModel.rows.length === 0 ? (
@@ -174,7 +166,7 @@ export function EventsDashboardScreen() {
           <div className="dashboard-page__secondary">
             <EventGraphPanel
               selectedTitle={selectedEvent?.title ?? null}
-              isLoading={graphQuery.isLoading}
+              isLoading={graphQuery.isLoading || graphQuery.isFetching}
               isError={graphQuery.isError}
               viewModel={graphViewModel}
               hasSelection={selectedEvent !== null}

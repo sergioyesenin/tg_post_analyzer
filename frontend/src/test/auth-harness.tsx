@@ -12,8 +12,8 @@ import { SettingsPage } from '@modules/admin/routes/SettingsPage';
 import { UsersPage } from '@modules/admin/routes/UsersPage';
 import { LoginPage } from '@modules/auth/routes/LoginPage';
 import { JobsPage } from '@modules/platform/routes/JobsPage';
-import { KeywordGraphPlaceholderPage } from '@modules/platform/routes/KeywordGraphPlaceholderPage';
 import { MonitorPage } from '@modules/platform/routes/MonitorPage';
+import { KeywordGraphPage } from '@modules/keyword-graph/KeywordGraphPage';
 import { EventDetailsPage } from '@modules/workspace/event-detail/EventDetailsPage';
 import { PostDetailsPage } from '@modules/workspace/post-detail/PostDetailsPage';
 import { ProcessDetailsPage } from '@modules/workspace/process-detail/ProcessDetailsPage';
@@ -118,7 +118,7 @@ export function renderAuthHarness({ authApi, storage, initialEntry, initialEntri
                   path="keyword-graph"
                   element={
                     <RoleGuard routeId="keywordGraph">
-                      <KeywordGraphPlaceholderPage />
+                      <KeywordGraphPage />
                     </RoleGuard>
                   }
                 />

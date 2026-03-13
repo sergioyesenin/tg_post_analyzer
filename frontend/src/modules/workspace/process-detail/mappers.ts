@@ -5,34 +5,7 @@ import {
   type ProcessGraphPanelViewModel,
 } from '@modules/workspace/processes/mappers';
 import type { ProcessDetailDto } from '@modules/workspace/process-detail/contracts';
-
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return 'n/a';
-  }
-
-  return new Intl.DateTimeFormat('en-US', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone: 'UTC',
-  }).format(new Date(value));
-}
-
-function formatRatio(value: number | null) {
-  if (value === null) {
-    return 'n/a';
-  }
-
-  return value.toFixed(2);
-}
-
-function formatConfidence(value: number | null) {
-  if (value === null) {
-    return 'n/a';
-  }
-
-  return `${Math.round(value * 100)}%`;
-}
+import { formatConfidencePercent, formatNullableRatio, formatUtcDateTime } from '@shared/utils/formatters';
 
 export type ProcessDetailPageViewModel = {
   process: {
@@ -94,11 +67,11 @@ export function mapProcessDetailToViewModel(
       processId: detail.process.id,
       title: detail.process.title ?? `Process ${detail.process.id}`,
       status: detail.process.status,
-      startedAt: formatDateTime(detail.process.started_at),
-      endedAt: formatDateTime(detail.process.ended_at),
-      confidence: formatConfidence(detail.process.confidence),
+      startedAt: formatUtcDateTime(detail.process.started_at),
+      endedAt: formatUtcDateTime(detail.process.ended_at),
+      confidence: formatConfidencePercent(detail.process.confidence),
       commentsCount: String(detail.process.comments_count),
-      involvement: formatRatio(detail.process.involvement),
+      involvement: formatNullableRatio(detail.process.involvement),
       eventsCount: String(detail.events.length),
       eventIds: detail.events.map((event) => event.event_id),
       createdBy: detail.process.created_by ?? 'n/a',
@@ -109,7 +82,7 @@ export function mapProcessDetailToViewModel(
       { id: 'status', label: 'Status', value: detail.process.status },
       { id: 'events_count', label: 'Related events', value: String(detail.events.length) },
       { id: 'comments_count', label: 'Comments', value: String(detail.process.comments_count) },
-      { id: 'involvement', label: 'Involvement', value: formatRatio(detail.process.involvement) },
+      { id: 'involvement', label: 'Involvement', value: formatNullableRatio(detail.process.involvement) },
     ],
     relatedEvents,
     confirmedPostIds,

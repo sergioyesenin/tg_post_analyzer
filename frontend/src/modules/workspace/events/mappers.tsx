@@ -5,34 +5,7 @@ import type { DashboardSummaryCard } from '@shared/dashboard/components/Dashboar
 import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
 import type { EventGraphResponse, EventsDashboardItemDto, EventsDashboardResponse } from '@shared/dashboard/contracts';
 import { ReportStatusBadge } from '@shared/ui/status/ReportStatusBadge';
-
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return 'n/a';
-  }
-
-  return new Intl.DateTimeFormat('en-US', {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-    timeZone: 'UTC',
-  }).format(new Date(value));
-}
-
-function formatRatio(value: number | null) {
-  if (value === null) {
-    return 'n/a';
-  }
-
-  return value.toFixed(2);
-}
-
-function formatConfidence(value: number | null) {
-  if (value === null) {
-    return 'n/a';
-  }
-
-  return `${Math.round(value * 100)}%`;
-}
+import { formatConfidencePercent, formatNullableRatio, formatUtcDateTime } from '@shared/utils/formatters';
 
 type EventDashboardRowViewModel = {
   eventId: number;
@@ -79,7 +52,7 @@ export function mapEventsDashboardToViewModel(response: EventsDashboardResponse)
       { id: 'events_count', label: 'Events', value: String(response.summary.events_count) },
       { id: 'linked_posts', label: 'Linked posts', value: String(response.summary.total_linked_posts) },
       { id: 'comments', label: 'Comments', value: String(response.summary.total_comments) },
-      { id: 'avg_involvement', label: 'Avg involvement', value: formatRatio(response.summary.avg_involvement) },
+      { id: 'avg_involvement', label: 'Avg involvement', value: formatNullableRatio(response.summary.avg_involvement) },
       { id: 'draft_reports', label: 'Draft reports', value: String(response.summary.draft_reports) },
       { id: 'ready_reports', label: 'Ready reports', value: String(response.summary.ready_reports) },
     ],
@@ -92,11 +65,11 @@ function mapEventItemToRow(item: EventsDashboardItemDto): EventDashboardRowViewM
     eventId: item.event_id,
     title: item.title ?? `Event ${item.event_id}`,
     status: item.status,
-    startedAt: formatDateTime(item.started_at),
-    endedAt: formatDateTime(item.ended_at),
-    confidence: formatConfidence(item.confidence),
+    startedAt: formatUtcDateTime(item.started_at),
+    endedAt: formatUtcDateTime(item.ended_at),
+    confidence: formatConfidencePercent(item.confidence),
     commentsCount: String(item.comments_count),
-    involvement: formatRatio(item.involvement),
+    involvement: formatNullableRatio(item.involvement),
     postsCount: String(item.posts_count),
     postIds: item.post_ids,
     rootPostId: item.root_post_id,
@@ -203,16 +176,16 @@ export function mapEventGraphToViewModel(response: EventGraphResponse): EventGra
       reportStatus: response.event.report_status,
       postsCount: String(response.event.posts_count),
       commentsCount: String(response.event.comments_count),
-      involvement: formatRatio(response.event.involvement),
+      involvement: formatNullableRatio(response.event.involvement),
     },
     nodes: response.nodes.map((node) => ({
       id: String(node.post_id),
       postId: node.post_id,
       title: node.text_preview ?? `Post #${node.post_id}`,
-      date: formatDateTime(node.date),
+      date: formatUtcDateTime(node.date),
       commentsCount: String(node.comments_count),
       views: node.views === null ? 'n/a' : String(node.views),
-      involvement: formatRatio(node.involvement),
+      involvement: formatNullableRatio(node.involvement),
       isRoot: node.is_root,
     })),
     edges: response.edges.map((edge) => ({

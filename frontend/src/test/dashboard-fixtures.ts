@@ -17,6 +17,11 @@ import type { ProcessDetailDto } from '@modules/workspace/process-detail/contrac
 import type { EventReportListItemDto, PostReportListItemDto, ProcessReportListItemDto } from '@modules/reports/contracts';
 import type { AdminUserDto, AppSettingDto, ChannelDto } from '@modules/admin/contracts';
 import type { DeadLetterJobDto, JobsSummaryDto, MonitorFullDto, PendingJobDto } from '@modules/platform/contracts';
+import type {
+  KeywordGraphBuildResponseDto,
+  KeywordGraphReportResponseDto,
+  KeywordSearchResponseDto,
+} from '@modules/keyword-graph/contracts';
 import type { AcceptedJobResponse, JobResultResponse, JobStatusResponse } from '@shared/jobs/contracts';
 
 export function createPostsDashboardResponse(
@@ -844,6 +849,112 @@ export function createDeadLetterJobsResponse(overrides: DeadLetterJobDto[] = [])
       failed_at: '2026-03-13T08:20:00Z',
     },
   ];
+}
+
+export function createKeywordSearchResponse(
+  overrides: Partial<KeywordSearchResponseDto> = {},
+): KeywordSearchResponseDto {
+  return {
+    query: 'policy shift',
+    normalized_query: 'policy shift',
+    lemmas: ['policy', 'shift'],
+    took_ms: 142,
+    total: 2,
+    items: [
+      {
+        post_id: 4012,
+        channel_id: 77,
+        channel_username: 'signal_watch',
+        date: '2026-03-12T10:10:00Z',
+        text_preview: 'Policy shift discussion spikes across media channels.',
+        comments_count: 328,
+        views: 14300,
+        involvement: 0.62,
+        rank: 0.983,
+        matched_lemmas: ['policy', 'shift'],
+      },
+      {
+        post_id: 3975,
+        channel_id: 91,
+        channel_username: 'briefing_room',
+        date: '2026-03-11T18:55:00Z',
+        text_preview: 'Secondary mention confirms the same policy shift narrative.',
+        comments_count: 209,
+        views: 9800,
+        involvement: 0.38,
+        rank: 0.844,
+        matched_lemmas: ['policy'],
+      },
+    ],
+    ...overrides,
+  };
+}
+
+export function createKeywordGraphBuildResponse(
+  overrides: Partial<KeywordGraphBuildResponseDto> = {},
+): KeywordGraphBuildResponseDto {
+  return {
+    seed_post_ids: [4012],
+    excluded_post_ids: [],
+    nodes: [
+      {
+        post_id: 4012,
+        channel_id: 77,
+        channel_username: 'signal_watch',
+        date: '2026-03-12T10:10:00Z',
+        text_preview: 'Policy shift discussion spikes across media channels.',
+        comments_count: 328,
+        views: 14300,
+        involvement: 0.62,
+        included_by: 'seed',
+      },
+      {
+        post_id: 4100,
+        channel_id: 22,
+        channel_username: 'gov_updates',
+        date: '2026-03-12T12:00:00Z',
+        text_preview: 'Official clarification joins the same graph neighborhood.',
+        comments_count: 120,
+        views: 20100,
+        involvement: 0.41,
+        included_by: 'neighbors',
+      },
+    ],
+    edges: [
+      {
+        link_id: 81,
+        src_post_id: 4012,
+        dst_post_id: 4100,
+        link_type: 'related',
+        direction: 'src_to_dst',
+        score: 0.77,
+        status: 'verified',
+        edge_source: 'transient',
+        evidence: {
+          shared_lemmas: ['policy', 'clarification'],
+        },
+      },
+    ],
+    took_ms: 320,
+    meta: {
+      graph_mode: 'transient',
+      include_neighbors: true,
+    },
+    ...overrides,
+  };
+}
+
+export function createKeywordGraphReportResponse(
+  overrides: Partial<KeywordGraphReportResponseDto> = {},
+): KeywordGraphReportResponseDto {
+  return {
+    status: 'ready',
+    title: 'Keyword graph report',
+    post_ids: [4012],
+    excluded_post_ids: [],
+    content: 'Analytical report content for the keyword graph seed set.',
+    ...overrides,
+  };
 }
 
 export function createPostDetailResponse(overrides: Partial<PostDetailDto> = {}): PostDetailDto {

@@ -5,6 +5,7 @@ import { ApiError } from '@shared/api/client';
 import { DashboardSummaryCards } from '@shared/dashboard/components/DashboardSummaryCards';
 import { canPerformAction } from '@shared/routing/policy';
 import { AsyncActionIndicator } from '@shared/ui/async/AsyncActionIndicator';
+import { ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
@@ -98,22 +99,18 @@ export function EventDetailsPage() {
       <DashboardSummaryCards cards={viewModel.summaryCards} />
 
       {primaryRole === 'viewer' ? (
-        <section className="dashboard-banner dashboard-banner--partial" aria-label="Read only detail notice">
-          <div>
-            <span className="dashboard-banner__eyebrow">read only</span>
-            <strong>Viewer access has no event report mutations</strong>
-          </div>
-          <p className="dashboard-banner__text">
-            Detail data, graph exploration, and related post links remain visible while draft report actions stay hidden.
-          </p>
-        </section>
+        <ReadOnlyNotice
+          title="Viewer access has no event report mutations"
+          description="Detail data, graph exploration, and related post links remain visible while draft report actions stay hidden."
+          ariaLabel="Read only detail notice"
+        />
       ) : null}
 
       <div className="post-detail-grid">
         <div className="post-detail-grid__main">
           <EventGraphPanel
             selectedTitle={viewModel.event.title}
-            isLoading={graphQuery.isLoading}
+            isLoading={graphQuery.isLoading || graphQuery.isFetching}
             isError={graphQuery.isError}
             viewModel={viewModel.graph}
             hasSelection

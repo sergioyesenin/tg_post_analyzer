@@ -14,6 +14,7 @@ import type {
 } from '@modules/workspace/post-detail/contracts';
 import type { EventDetailDto } from '@modules/workspace/event-detail/contracts';
 import type { ProcessDetailDto } from '@modules/workspace/process-detail/contracts';
+import type { EventReportListItemDto, PostReportListItemDto, ProcessReportListItemDto } from '@modules/reports/contracts';
 import type { AcceptedJobResponse, JobResultResponse, JobStatusResponse } from '@shared/jobs/contracts';
 
 export function createPostsDashboardResponse(
@@ -438,6 +439,69 @@ export function createProcessDetailResponse(
     ],
     ...overrides,
   };
+}
+
+export function createPostReportsListResponse(overrides: PostReportListItemDto[] = []): PostReportListItemDto[] {
+  if (overrides.length > 0) {
+    return overrides;
+  }
+
+  return [
+    {
+      report_id: 601,
+      post_id: 4012,
+      status: 'ready',
+      created_at: '2026-03-13T08:45:00Z',
+      post_date: '2026-03-12T10:10:00Z',
+      channel_id: 77,
+      channel_username: 'signal_watch',
+      channel_category: 'media',
+    },
+    {
+      report_id: 602,
+      post_id: 3975,
+      status: 'draft',
+      created_at: '2026-03-13T07:00:00Z',
+      post_date: '2026-03-11T18:55:00Z',
+      channel_id: 91,
+      channel_username: 'briefing_room',
+      channel_category: 'official',
+    },
+  ];
+}
+
+export function createEventReportsListResponse(overrides: EventReportListItemDto[] = []): EventReportListItemDto[] {
+  if (overrides.length > 0) {
+    return overrides;
+  }
+
+  return [
+    {
+      report_id: 701,
+      event_id: 81,
+      event_title: 'Election coverage spike',
+      status: 'draft',
+      version: 'v3',
+      created_at: '2026-03-13T08:45:00Z',
+    },
+  ];
+}
+
+export function createProcessReportsListResponse(overrides: ProcessReportListItemDto[] = []): ProcessReportListItemDto[] {
+  if (overrides.length > 0) {
+    return overrides;
+  }
+
+  return [
+    {
+      report_id: 801,
+      process_id: 201,
+      process_title: 'Narrative escalation chain',
+      status: 'ready',
+      version: 'v5',
+      created_at: '2026-03-13T08:45:00Z',
+    },
+  ];
 }
 
 export function createPostDetailResponse(overrides: Partial<PostDetailDto> = {}): PostDetailDto {

@@ -14,6 +14,7 @@ import { EventDetailsPage } from '@modules/workspace/event-detail/EventDetailsPa
 import { PostDetailsPage } from '@modules/workspace/post-detail/PostDetailsPage';
 import { ProcessDetailsPage } from '@modules/workspace/process-detail/ProcessDetailsPage';
 import { AnalyticsWorkspaceLayout } from '@modules/workspace/layouts/AnalyticsWorkspaceLayout';
+import { ReportsPage } from '@modules/reports/ReportsPage';
 import { DashboardEventsPage } from '@modules/workspace/routes/DashboardEventsPage';
 import { DashboardPostsPage } from '@modules/workspace/routes/DashboardPostsPage';
 import { DashboardProcessesPage } from '@modules/workspace/routes/DashboardProcessesPage';
@@ -68,6 +69,7 @@ export function renderAuthHarness({ authApi, storage, initialEntry, initialEntri
                 <Route path="posts/:postId" element={<PostDetailsPage />} />
                 <Route path="events/:eventId" element={<EventDetailsPage />} />
                 <Route path="processes/:processId" element={<ProcessDetailsPage />} />
+                <Route path="reports/:reportType" element={<ReportsPage />} />
                 <Route
                   path="channels"
                   element={

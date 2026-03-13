@@ -8,9 +8,9 @@ import { ChannelsPlaceholderPage } from '@modules/platform/routes/ChannelsPlaceh
 import { JobsPlaceholderPage } from '@modules/platform/routes/JobsPlaceholderPage';
 import { KeywordGraphPlaceholderPage } from '@modules/platform/routes/KeywordGraphPlaceholderPage';
 import { MonitorPlaceholderPage } from '@modules/platform/routes/MonitorPlaceholderPage';
-import { ReportsPlaceholderPage } from '@modules/platform/routes/ReportsPlaceholderPage';
 import { SettingsPlaceholderPage } from '@modules/platform/routes/SettingsPlaceholderPage';
 import { UsersPlaceholderPage } from '@modules/platform/routes/UsersPlaceholderPage';
+import { ReportsPage } from '@modules/reports/ReportsPage';
 import { AnalyticsWorkspaceLayout } from '@modules/workspace/layouts/AnalyticsWorkspaceLayout';
 import { DashboardEventsPage } from '@modules/workspace/routes/DashboardEventsPage';
 import { DashboardPostsPage } from '@modules/workspace/routes/DashboardPostsPage';
@@ -71,7 +71,7 @@ const routes = [
       },
       {
         path: 'reports/:reportType',
-        element: <ReportsPlaceholderPage />,
+        element: <ReportsPage />,
       },
       {
         path: 'settings',

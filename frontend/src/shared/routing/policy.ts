@@ -127,7 +127,7 @@ export const routePolicies: readonly RoutePolicy[] = [
   },
   {
     id: 'reports',
-    path: '/reports/:reportType',
+    path: '/reports/posts',
     access: 'protected',
     allowedRoles: ['admin', 'analyst', 'viewer'],
     unauthorizedBehavior: 'forbidden',

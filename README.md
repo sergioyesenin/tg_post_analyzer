@@ -495,6 +495,32 @@ frontend/
 - `GET /api/processes/{id}` supplies canonical process and relation metadata, while the reused dashboard graph endpoint enriches only hierarchy-specific fields such as event titles and confirmed post ids.
 - This keeps hierarchy loading/error behavior, report status rendering and related-context navigation aligned between dashboard inspection and full-page detail instead of creating a second process-specific UI stack.
 
+### Reports Architecture
+
+- `/reports/posts`, `/reports/events`, and `/reports/processes` are now implemented as live route modules under one reusable reports architecture.
+- Each route keeps filters in the URL and maps transport DTOs into a table-oriented UI model instead of rendering backend list payloads directly.
+- One reusable reports table pattern drives all three modules:
+- route-level hero and type switcher
+- URL-driven filter bar
+- shared table shell with type-specific columns
+- shared action rail for export and batch-generation entry points
+- loading, empty, error, forbidden and read-only states
+
+### Reports Flows
+
+- List flow:
+- `GET /api/reports/posts/list`
+- `GET /api/reports/events/list`
+- `GET /api/reports/processes/list`
+- Export flow uses the same serialized filters as the list request and exposes direct CSV/JSON links:
+- `GET /api/reports/posts/export`
+- `GET /api/reports/events/export`
+- `GET /api/reports/processes/export`
+- Batch generation flow is implemented only where backend support exists:
+- `POST /api/reports/posts/generate-by-filter`
+- Batch generation reuses the shared async jobs layer, polls job status/result, and invalidates reports list queries after completion.
+- Viewer access remains read-only: reports catalogs and export stay visible, while batch generation stays hidden.
+
 ### Event Detail
 
 - `/events/:eventId` is now implemented against live `GET /api/events/{id}`.
@@ -567,6 +593,7 @@ frontend/
 - Stage 6 event detail is implemented against live event detail plus dashboard graph endpoints, with reusable graph/detail blocks and role-safe report actions.
 - Stage 7 processes dashboard is implemented against live dashboard and process-graph endpoints with hierarchy-aware graph and detail panels.
 - Stage 8 process detail is implemented against live process detail plus dashboard process-graph endpoints, with reusable hierarchy/detail blocks and role-safe report actions.
+- Stage 9 reports modules are implemented against live reports list/export endpoints, with reusable table/filter/action patterns and post batch generation flow.
 - Desktop-first split layout foundation is in place for future table/detail/graph composition.
 
 ### Assumptions And Deferred Edges
@@ -575,6 +602,7 @@ frontend/
 - No final UX copy handoff exists for all data-block errors, so shared messages remain minimal safe defaults.
 - The repository frontend currently does not ship MUI, MUI X, React Hook Form, Zod or React Flow packages, so this stage uses framework-native foundations while keeping component boundaries ready for later migration.
 - Detail mutation support currently covers post comment refresh, post report generation/update, event report draft generation/update, and process report draft generation/update.
+- Reports export is implemented as direct endpoint links rather than streamed fetch/download state inside the SPA shell.
 
 ### Remaining Gaps Against Spec
 
@@ -582,7 +610,7 @@ frontend/
 - No MUI/MUI X DataGrid integration yet; dashboard table is a reusable HTML shell only.
 - Event and process graphs are implemented, but broader graph tooling and full React Flow integration remain unfinished.
 - No finalized table specs, graph specs, detail panel rules, copy rules or API-to-UI mapping implementation from the handoff checklist yet.
-- Action-level RBAC is implemented for current post detail, event detail and process detail mutations, but not yet rolled out across future admin/report surfaces.
+- Action-level RBAC is implemented for current post detail, event detail, process detail and post-report batch generation mutations, but not yet rolled out across future admin/report surfaces.
 - No final UI/UX handoff artifacts such as wireframes, hi-fi mocks, status matrix or interaction matrix in the repo yet.
 
 ## Pipeline Concurrency Settings

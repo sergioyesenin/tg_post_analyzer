@@ -17,7 +17,7 @@ import { DashboardPostsPage } from '@modules/workspace/routes/DashboardPostsPage
 import { DashboardProcessesPage } from '@modules/workspace/routes/DashboardProcessesPage';
 import { EventDetailsPage } from '@modules/workspace/event-detail/EventDetailsPage';
 import { PostDetailsPage } from '@modules/workspace/post-detail/PostDetailsPage';
-import { ProcessDetailsPlaceholderPage } from '@modules/workspace/routes/ProcessDetailsPlaceholderPage';
+import { ProcessDetailsPage } from '@modules/workspace/process-detail/ProcessDetailsPage';
 import { getRoutePolicy } from '@shared/routing/policy';
 import { RootRedirect } from '@shared/routing/RootRedirect';
 import { NotFoundPage } from '@shared/ui/states/NotFoundPage';
@@ -67,7 +67,7 @@ const routes = [
       },
       {
         path: 'processes/:processId',
-        element: <ProcessDetailsPlaceholderPage />,
+        element: <ProcessDetailsPage />,
       },
       {
         path: 'reports/:reportType',

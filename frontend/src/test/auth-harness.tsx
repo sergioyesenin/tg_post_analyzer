@@ -12,6 +12,7 @@ import { ChannelsPlaceholderPage } from '@modules/platform/routes/ChannelsPlaceh
 import { KeywordGraphPlaceholderPage } from '@modules/platform/routes/KeywordGraphPlaceholderPage';
 import { EventDetailsPage } from '@modules/workspace/event-detail/EventDetailsPage';
 import { PostDetailsPage } from '@modules/workspace/post-detail/PostDetailsPage';
+import { ProcessDetailsPage } from '@modules/workspace/process-detail/ProcessDetailsPage';
 import { AnalyticsWorkspaceLayout } from '@modules/workspace/layouts/AnalyticsWorkspaceLayout';
 import { DashboardEventsPage } from '@modules/workspace/routes/DashboardEventsPage';
 import { DashboardPostsPage } from '@modules/workspace/routes/DashboardPostsPage';
@@ -66,6 +67,7 @@ export function renderAuthHarness({ authApi, storage, initialEntry, initialEntri
                 </Route>
                 <Route path="posts/:postId" element={<PostDetailsPage />} />
                 <Route path="events/:eventId" element={<EventDetailsPage />} />
+                <Route path="processes/:processId" element={<ProcessDetailsPage />} />
                 <Route
                   path="channels"
                   element={

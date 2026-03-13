@@ -13,6 +13,7 @@ import type {
   ReportDto,
 } from '@modules/workspace/post-detail/contracts';
 import type { EventDetailDto } from '@modules/workspace/event-detail/contracts';
+import type { ProcessDetailDto } from '@modules/workspace/process-detail/contracts';
 import type { AcceptedJobResponse, JobResultResponse, JobStatusResponse } from '@shared/jobs/contracts';
 
 export function createPostsDashboardResponse(
@@ -400,6 +401,41 @@ export function createProcessGraphResponse(
         82: [4100],
       },
     },
+    ...overrides,
+  };
+}
+
+export function createProcessDetailResponse(
+  overrides: Partial<ProcessDetailDto> = {},
+): ProcessDetailDto {
+  return {
+    process: {
+      id: 201,
+      title: 'Narrative escalation chain',
+      status: 'active',
+      started_at: '2026-03-09T08:00:00Z',
+      ended_at: null,
+      confidence: 0.84,
+      created_by: 'analyst.bot',
+      comments_count: 720,
+      involvement: 0.51,
+    },
+    events: [
+      {
+        event_id: 81,
+        relation_type: 'trigger',
+        direction: 'src_to_dst',
+        score: 0.82,
+        status: 'active',
+      },
+      {
+        event_id: 82,
+        relation_type: 'response',
+        direction: 'src_to_dst',
+        score: 0.76,
+        status: 'cooling',
+      },
+    ],
     ...overrides,
   };
 }

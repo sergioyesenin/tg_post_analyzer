@@ -263,7 +263,7 @@ frontend/
 - `/dashboard/events`
 - `/dashboard/processes`
 - Each mode page composes the same reusable building blocks: warnings banner, partial notice, generated-at display, summary cards, filter bar, split content area and table shell.
-- Route modules outside `/dashboard/*` remain isolated placeholders so workspace changes do not leak into admin/report/detail ownership.
+- Reports, admin, monitor, jobs and keyword graph routes remain isolated placeholders; workspace detail routes now use live modules that still honor the same shared RBAC and async-state foundations.
 
 ### Route Strategy
 
@@ -477,6 +477,24 @@ frontend/
 - event-to-post mapping used for related-event and context navigation
 - This keeps process view structurally different from events mode while still reusing shared loading/error/async patterns.
 
+### Process Detail
+
+- `/processes/:processId` is now implemented against live `GET /api/processes/{id}`.
+- The full page treats `/api/processes/{id}` as the canonical process snapshot and reuses `GET /api/dashboard/processes/{process_id}/graph` only for hierarchy exploration plus confirmed event/post context.
+- The screen renders:
+- process header and summary cards
+- reusable process hierarchy graph panel
+- reusable process detail panel with related events
+- related context links back to processes dashboard and confirmed event/post routes where graph data resolves them
+- loading, not found, forbidden, graph error and read-only states
+- analyst/admin draft report action through the shared jobs flow
+
+### Process Detail Reuse
+
+- The full detail page reuses the same `ProcessGraphPanel` and `ProcessDetailPanel` that already power the dashboard secondary rail.
+- `GET /api/processes/{id}` supplies canonical process and relation metadata, while the reused dashboard graph endpoint enriches only hierarchy-specific fields such as event titles and confirmed post ids.
+- This keeps hierarchy loading/error behavior, report status rendering and related-context navigation aligned between dashboard inspection and full-page detail instead of creating a second process-specific UI stack.
+
 ### Event Detail
 
 - `/events/:eventId` is now implemented against live `GET /api/events/{id}`.
@@ -548,6 +566,7 @@ frontend/
 - Stage 5 events dashboard is implemented against live dashboard and event-graph endpoints with stable selection and async event report draft actions.
 - Stage 6 event detail is implemented against live event detail plus dashboard graph endpoints, with reusable graph/detail blocks and role-safe report actions.
 - Stage 7 processes dashboard is implemented against live dashboard and process-graph endpoints with hierarchy-aware graph and detail panels.
+- Stage 8 process detail is implemented against live process detail plus dashboard process-graph endpoints, with reusable hierarchy/detail blocks and role-safe report actions.
 - Desktop-first split layout foundation is in place for future table/detail/graph composition.
 
 ### Assumptions And Deferred Edges
@@ -555,16 +574,15 @@ frontend/
 - No proactive token refresh scheduler or expiry countdown is implemented yet; current scope is refresh-on-401 only.
 - No final UX copy handoff exists for all data-block errors, so shared messages remain minimal safe defaults.
 - The repository frontend currently does not ship MUI, MUI X, React Hook Form, Zod or React Flow packages, so this stage uses framework-native foundations while keeping component boundaries ready for later migration.
-- Detail mutation support currently covers post comment refresh, post report generation/update, and event report draft generation/update.
+- Detail mutation support currently covers post comment refresh, post report generation/update, event report draft generation/update, and process report draft generation/update.
 
 ### Remaining Gaps Against Spec
 
 - No access-token expiry countdown or proactive refresh scheduling yet.
-- `/processes/:processId` detail is still a placeholder.
 - No MUI/MUI X DataGrid integration yet; dashboard table is a reusable HTML shell only.
 - Event and process graphs are implemented, but broader graph tooling and full React Flow integration remain unfinished.
 - No finalized table specs, graph specs, detail panel rules, copy rules or API-to-UI mapping implementation from the handoff checklist yet.
-- Action-level RBAC is implemented for current post detail and event dashboard mutations, but not yet rolled out across future process/actions surfaces.
+- Action-level RBAC is implemented for current post detail, event detail and process detail mutations, but not yet rolled out across future admin/report surfaces.
 - No final UI/UX handoff artifacts such as wireframes, hi-fi mocks, status matrix or interaction matrix in the repo yet.
 
 ## Pipeline Concurrency Settings

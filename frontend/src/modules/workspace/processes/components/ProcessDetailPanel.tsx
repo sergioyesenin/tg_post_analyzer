@@ -4,26 +4,36 @@ import { Link } from 'react-router-dom';
 import { ReportStatusBadge } from '@shared/ui/status/ReportStatusBadge';
 import type { ProcessGraphPanelViewModel } from '@modules/workspace/processes/mappers';
 
+export type ProcessDetailPanelProcess = {
+  processId: number;
+  title: string;
+  status: string;
+  startedAt: string;
+  endedAt: string;
+  confidence: string;
+  commentsCount: string;
+  involvement: string;
+  eventsCount: string;
+  eventIds: number[];
+  reportStatus: string;
+  graphReady: boolean | null;
+};
+
+export type ProcessDetailPanelRelatedEvent = {
+  eventId: number;
+  title: string;
+  relationType: string;
+  postIds: number[];
+};
+
 type ProcessDetailPanelProps = {
-  process: {
-    processId: number;
-    title: string;
-    status: string;
-    startedAt: string;
-    endedAt: string;
-    confidence: string;
-    commentsCount: string;
-    involvement: string;
-    eventsCount: string;
-    eventIds: number[];
-    reportStatus: string;
-    graphReady: boolean;
-  } | null;
+  process: ProcessDetailPanelProcess | null;
   graph: ProcessGraphPanelViewModel | null;
+  relatedEvents?: ProcessDetailPanelRelatedEvent[];
   actionSlot?: ReactNode;
 };
 
-export function ProcessDetailPanel({ process, graph, actionSlot }: ProcessDetailPanelProps) {
+export function ProcessDetailPanel({ process, graph, relatedEvents, actionSlot }: ProcessDetailPanelProps) {
   if (!process) {
     return (
       <section className="detail-block detail-block--process">
@@ -38,7 +48,8 @@ export function ProcessDetailPanel({ process, graph, actionSlot }: ProcessDetail
     );
   }
 
-  const relatedEvents =
+  const mergedRelatedEvents =
+    relatedEvents ??
     graph?.events.map((event) => ({
       eventId: event.eventId,
       title: event.title,
@@ -111,10 +122,10 @@ export function ProcessDetailPanel({ process, graph, actionSlot }: ProcessDetail
         <div className="process-detail-panel__events">
           <div className="process-detail-panel__events-header">
             <span className="state-card__eyebrow">related events</span>
-            <strong>{relatedEvents.length} linked events</strong>
+            <strong>{mergedRelatedEvents.length} linked events</strong>
           </div>
           <div className="detail-list">
-            {relatedEvents.map((event) => (
+            {mergedRelatedEvents.map((event) => (
               <div key={event.eventId} className="detail-list__item">
                 <div>
                   <strong>{event.title}</strong>
@@ -138,7 +149,7 @@ export function ProcessDetailPanel({ process, graph, actionSlot }: ProcessDetail
           </div>
         </div>
 
-        {!process.graphReady ? (
+        {process.graphReady === false ? (
           <section className="dashboard-banner dashboard-banner--partial" aria-label="Hierarchy readiness notice">
             <div>
               <span className="dashboard-banner__eyebrow">hierarchy readiness</span>

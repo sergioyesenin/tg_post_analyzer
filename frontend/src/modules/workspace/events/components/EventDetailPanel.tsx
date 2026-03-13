@@ -18,8 +18,9 @@ type EventDetailPanelProps = {
     postIds: number[];
     rootPostId: number | null;
     channels: string;
-    reportStatus: string;
-    graphReady: boolean;
+    reportStatus: string | null;
+    graphReady: boolean | null;
+    createdBy?: string;
   } | null;
   graph: EventGraphPanelViewModel | null;
   actionSlot?: ReactNode;
@@ -96,12 +97,22 @@ export function EventDetailPanel({ event, graph, actionSlot }: EventDetailPanelP
             <span>Channels</span>
             <strong>{event.channels}</strong>
           </div>
+          {'createdBy' in event ? (
+            <div>
+              <span>Created by</span>
+              <strong>{event.createdBy}</strong>
+            </div>
+          ) : null}
         </div>
 
         <div className="event-detail-panel__report">
           <div className="event-detail-panel__report-header">
             <span className="state-card__eyebrow">event report</span>
-            <ReportStatusBadge status={graph?.event.reportStatus ?? event.reportStatus} />
+            {graph?.event.reportStatus ?? event.reportStatus ? (
+              <ReportStatusBadge status={graph?.event.reportStatus ?? event.reportStatus ?? ''} />
+            ) : (
+              <span className="table-link table-link--muted">Report status becomes available with graph context</span>
+            )}
           </div>
           <p className="dashboard-panel-copy">
             Draft report action runs async and refreshes both the events dashboard row and selected event graph snapshot.
@@ -130,7 +141,7 @@ export function EventDetailPanel({ event, graph, actionSlot }: EventDetailPanelP
           </div>
         </div>
 
-        {!event.graphReady ? (
+        {event.graphReady === false ? (
           <section className="dashboard-banner dashboard-banner--partial" aria-label="Graph readiness notice">
             <div>
               <span className="dashboard-banner__eyebrow">graph readiness</span>

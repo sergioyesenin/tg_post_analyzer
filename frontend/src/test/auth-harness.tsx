@@ -10,6 +10,7 @@ import { AppShell } from '@app/shell/AppShell';
 import { LoginPage } from '@modules/auth/routes/LoginPage';
 import { ChannelsPlaceholderPage } from '@modules/platform/routes/ChannelsPlaceholderPage';
 import { KeywordGraphPlaceholderPage } from '@modules/platform/routes/KeywordGraphPlaceholderPage';
+import { EventDetailsPage } from '@modules/workspace/event-detail/EventDetailsPage';
 import { PostDetailsPage } from '@modules/workspace/post-detail/PostDetailsPage';
 import { AnalyticsWorkspaceLayout } from '@modules/workspace/layouts/AnalyticsWorkspaceLayout';
 import { DashboardEventsPage } from '@modules/workspace/routes/DashboardEventsPage';
@@ -21,7 +22,9 @@ import type { TokenStorage } from '@shared/auth/token-storage';
 type RenderAuthHarnessOptions = {
   authApi?: AuthApiContract;
   storage?: TokenStorage;
-  initialEntry: string;
+  initialEntry?: string;
+  initialEntries?: string[];
+  initialIndex?: number;
 };
 
 export function createMemoryTokenStorage(initialValue: unknown = null): TokenStorage {
@@ -38,12 +41,14 @@ export function createMemoryTokenStorage(initialValue: unknown = null): TokenSto
   };
 }
 
-export function renderAuthHarness({ authApi, storage, initialEntry }: RenderAuthHarnessOptions) {
+export function renderAuthHarness({ authApi, storage, initialEntry, initialEntries, initialIndex }: RenderAuthHarnessOptions) {
+  const entries = initialEntries ?? (initialEntry ? [initialEntry] : ['/']);
+
   return render(
     <ThemeProvider>
       <QueryClientProvider>
         <SessionProvider authApi={authApi} storage={storage}>
-          <MemoryRouter initialEntries={[initialEntry]}>
+          <MemoryRouter initialEntries={entries} initialIndex={initialIndex}>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route
@@ -60,6 +65,7 @@ export function renderAuthHarness({ authApi, storage, initialEntry }: RenderAuth
                   <Route path="processes" element={<DashboardProcessesPage />} />
                 </Route>
                 <Route path="posts/:postId" element={<PostDetailsPage />} />
+                <Route path="events/:eventId" element={<EventDetailsPage />} />
                 <Route
                   path="channels"
                   element={

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import type { UserRole } from '@shared/auth/roles';
 import type { DashboardSummaryCard } from '@shared/dashboard/components/DashboardSummaryCards';
 import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
-import type { EventGraphResponse, EventsDashboardItemDto, EventsDashboardResponse } from '@shared/dashboard/contracts';
+import type { ProcessGraphResponse, ProcessesDashboardItemDto, ProcessesDashboardResponse } from '@shared/dashboard/contracts';
 import { ReportStatusBadge } from '@shared/ui/status/ReportStatusBadge';
 
 function formatDateTime(value: string | null) {
@@ -34,8 +34,8 @@ function formatConfidence(value: number | null) {
   return `${Math.round(value * 100)}%`;
 }
 
-type EventDashboardRowViewModel = {
-  eventId: number;
+export type ProcessDashboardRowViewModel = {
+  processId: number;
   title: string;
   status: string;
   startedAt: string;
@@ -43,101 +43,92 @@ type EventDashboardRowViewModel = {
   confidence: string;
   commentsCount: string;
   involvement: string;
-  postsCount: string;
-  postIds: number[];
-  rootPostId: number | null;
-  channels: string;
+  eventsCount: string;
+  eventIds: number[];
   reportStatus: string;
   graphReady: boolean;
 };
 
-export type EventsDashboardViewModel = {
+export type ProcessesDashboardViewModel = {
   generatedAt: string;
   isPartial: boolean;
-  warnings: EventsDashboardResponse['warnings'];
+  warnings: ProcessesDashboardResponse['warnings'];
   summaryCards: DashboardSummaryCard[];
-  rows: EventDashboardRowViewModel[];
+  rows: ProcessDashboardRowViewModel[];
 };
 
-export const eventsDashboardColumns: DashboardTableColumn[] = [
-  { id: 'event', label: 'Event' },
-  { id: 'status', label: 'Status' },
-  { id: 'started_at', label: 'Started at' },
-  { id: 'posts_count', label: 'Posts', align: 'right' },
+export const processesDashboardColumns: DashboardTableColumn[] = [
+  { id: 'process', label: 'Process' },
+  { id: 'timeline', label: 'Timeline' },
+  { id: 'events_count', label: 'Events', align: 'right' },
   { id: 'comments_count', label: 'Comments', align: 'right' },
   { id: 'involvement', label: 'Involvement', align: 'right' },
   { id: 'report_status', label: 'Report status' },
   { id: 'actions', label: 'Actions' },
 ];
 
-export function mapEventsDashboardToViewModel(response: EventsDashboardResponse): EventsDashboardViewModel {
+export function mapProcessesDashboardToViewModel(response: ProcessesDashboardResponse): ProcessesDashboardViewModel {
   return {
     generatedAt: response.generated_at,
     isPartial: response.partial,
     warnings: response.warnings,
     summaryCards: [
-      { id: 'events_count', label: 'Events', value: String(response.summary.events_count) },
-      { id: 'linked_posts', label: 'Linked posts', value: String(response.summary.total_linked_posts) },
+      { id: 'processes_count', label: 'Processes', value: String(response.summary.processes_count) },
+      { id: 'total_events', label: 'Linked events', value: String(response.summary.total_events) },
       { id: 'comments', label: 'Comments', value: String(response.summary.total_comments) },
       { id: 'avg_involvement', label: 'Avg involvement', value: formatRatio(response.summary.avg_involvement) },
       { id: 'draft_reports', label: 'Draft reports', value: String(response.summary.draft_reports) },
-      { id: 'ready_reports', label: 'Ready reports', value: String(response.summary.ready_reports) },
+      { id: 'failed_reports', label: 'Failed reports', value: String(response.summary.failed_reports) },
     ],
-    rows: response.items.map((item) => mapEventItemToRow(item)),
+    rows: response.items.map((item) => mapProcessItemToRow(item)),
   };
 }
 
-function mapEventItemToRow(item: EventsDashboardItemDto): EventDashboardRowViewModel {
+function mapProcessItemToRow(item: ProcessesDashboardItemDto): ProcessDashboardRowViewModel {
   return {
-    eventId: item.event_id,
-    title: item.title ?? `Event ${item.event_id}`,
+    processId: item.process_id,
+    title: item.title ?? `Process ${item.process_id}`,
     status: item.status,
     startedAt: formatDateTime(item.started_at),
     endedAt: formatDateTime(item.ended_at),
     confidence: formatConfidence(item.confidence),
     commentsCount: String(item.comments_count),
     involvement: formatRatio(item.involvement),
-    postsCount: String(item.posts_count),
-    postIds: item.post_ids,
-    rootPostId: item.root_post_id,
-    channels: item.channels.map((channel) => channel.channel_username ?? `#${channel.channel_id}`).join(', ') || 'n/a',
+    eventsCount: String(item.events_count),
+    eventIds: item.event_ids,
     reportStatus: item.report_status,
     graphReady: item.graph_ready,
   };
 }
 
-export function mapEventsRowsToTableRows(
-  rows: EventDashboardRowViewModel[],
-  selectedEventId: number | null,
-  onSelect: (eventId: number) => void,
+export function mapProcessesRowsToTableRows(
+  rows: ProcessDashboardRowViewModel[],
+  selectedProcessId: number | null,
+  onSelect: (processId: number) => void,
   role: UserRole | null,
 ): DashboardTableRow[] {
   return rows.map((row) => {
-    const isSelected = row.eventId === selectedEventId;
+    const isSelected = row.processId === selectedProcessId;
 
     return {
-      id: String(row.eventId),
+      id: String(row.processId),
       isSelected,
       cells: {
-        event: (
+        process: (
           <div className="dashboard-table-shell__cell-stack">
             <strong>{row.title}</strong>
-            <span>{row.channels}</span>
+            <span>
+              {row.status} • confidence {row.confidence}
+            </span>
           </div>
         ),
-        status: (
-          <div className="dashboard-table-shell__cell-stack">
-            <span>{row.status}</span>
-            <span>confidence {row.confidence}</span>
-          </div>
-        ),
-        started_at: (
+        timeline: (
           <div className="dashboard-table-shell__cell-stack">
             <span>{row.startedAt}</span>
-            <span>{row.endedAt === 'n/a' ? 'open event' : `ended ${row.endedAt}`}</span>
+            <span>{row.endedAt === 'n/a' ? 'process still active' : `ended ${row.endedAt}`}</span>
           </div>
         ),
-        posts_count: row.postsCount,
+        events_count: row.eventsCount,
         comments_count: row.commentsCount,
         involvement: row.involvement,
         report_status: <ReportStatusBadge status={row.reportStatus} />,
@@ -146,16 +137,13 @@ export function mapEventsRowsToTableRows(
             <button
               type="button"
               className={`dashboard-button ${isSelected ? 'dashboard-button--ghost' : ''}`.trim()}
-              onClick={() => onSelect(row.eventId)}
+              onClick={() => onSelect(row.processId)}
             >
               {isSelected ? 'Selected' : 'Inspect'}
             </button>
-            <Link className="table-link" to={`/events/${row.eventId}`}>
-              Event detail
-            </Link>
-            {row.rootPostId ? (
-              <Link className="table-link" to={`/posts/${row.rootPostId}`}>
-                Root post
+            {row.eventIds[0] ? (
+              <Link className="table-link" to={`/events/${row.eventIds[0]}`}>
+                Lead event
               </Link>
             ) : null}
             {role === 'viewer' ? <span className="table-link table-link--muted">Read only</span> : null}
@@ -166,23 +154,34 @@ export function mapEventsRowsToTableRows(
   });
 }
 
-export type EventGraphPanelViewModel = {
-  event: {
+export type ProcessGraphPanelViewModel = {
+  summary: {
+    processId: number;
     title: string;
     status: string;
     reportStatus: string;
+    eventsCount: string;
     postsCount: string;
     commentsCount: string;
     involvement: string;
   };
+  events: Array<{
+    eventId: number;
+    title: string;
+    status: string;
+    relationType: string;
+    direction: string;
+    score: string;
+    startedAt: string;
+    postIds: number[];
+  }>;
   nodes: Array<{
     id: string;
     postId: number;
     title: string;
     date: string;
-    commentsCount: string;
-    views: string;
-    involvement: string;
+    channel: string;
+    eventIds: number[];
     isRoot: boolean;
   }>;
   edges: Array<{
@@ -195,24 +194,44 @@ export type EventGraphPanelViewModel = {
   }>;
 };
 
-export function mapEventGraphToViewModel(response: EventGraphResponse): EventGraphPanelViewModel {
+export function mapProcessGraphToViewModel(response: ProcessGraphResponse): ProcessGraphPanelViewModel {
+  const eventIdsByPostId = new Map<number, number[]>();
+
+  Object.entries(response.mapping.event_to_post_ids).forEach(([eventId, postIds]) => {
+    postIds.forEach((postId) => {
+      const existing = eventIdsByPostId.get(postId) ?? [];
+      eventIdsByPostId.set(postId, [...existing, Number(eventId)]);
+    });
+  });
+
   return {
-    event: {
-      title: response.event.title ?? `Event ${response.event.event_id}`,
-      status: response.event.status,
-      reportStatus: response.event.report_status,
-      postsCount: String(response.event.posts_count),
-      commentsCount: String(response.event.comments_count),
-      involvement: formatRatio(response.event.involvement),
+    summary: {
+      processId: response.summary.process_id,
+      title: response.summary.title ?? `Process ${response.summary.process_id}`,
+      status: response.summary.status,
+      reportStatus: response.summary.report_status,
+      eventsCount: String(response.summary.events_count),
+      postsCount: String(response.summary.posts_count),
+      commentsCount: String(response.summary.comments_count),
+      involvement: formatRatio(response.summary.involvement),
     },
+    events: response.events.map((event) => ({
+      eventId: event.event_id,
+      title: event.title ?? `Event ${event.event_id}`,
+      status: event.status,
+      relationType: event.relation_type,
+      direction: event.direction,
+      score: event.score === null ? 'n/a' : event.score.toFixed(2),
+      startedAt: formatDateTime(event.started_at),
+      postIds: event.post_ids,
+    })),
     nodes: response.nodes.map((node) => ({
       id: String(node.post_id),
       postId: node.post_id,
       title: node.text_preview ?? `Post #${node.post_id}`,
       date: formatDateTime(node.date),
-      commentsCount: String(node.comments_count),
-      views: node.views === null ? 'n/a' : String(node.views),
-      involvement: formatRatio(node.involvement),
+      channel: node.channel_username ?? `#${node.channel_id}`,
+      eventIds: eventIdsByPostId.get(node.post_id) ?? [],
       isRoot: node.is_root,
     })),
     edges: response.edges.map((edge) => ({

@@ -1,5 +1,5 @@
-import { DashboardModePage } from '@modules/workspace/components/DashboardModePage';
+import { ProcessesDashboardScreen } from '@modules/workspace/processes/ProcessesDashboardScreen';
 
 export function DashboardProcessesPage() {
-  return <DashboardModePage mode="processes" />;
+  return <ProcessesDashboardScreen />;
 }

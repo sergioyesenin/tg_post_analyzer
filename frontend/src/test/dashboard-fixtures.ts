@@ -1,4 +1,10 @@
-import type { EventGraphResponse, EventsDashboardResponse, PostsDashboardResponse } from '@shared/dashboard/contracts';
+import type {
+  EventGraphResponse,
+  EventsDashboardResponse,
+  PostsDashboardResponse,
+  ProcessGraphResponse,
+  ProcessesDashboardResponse,
+} from '@shared/dashboard/contracts';
 import type {
   CommentDto,
   LinkDto,
@@ -6,6 +12,7 @@ import type {
   PostLinksDto,
   ReportDto,
 } from '@modules/workspace/post-detail/contracts';
+import type { EventDetailDto } from '@modules/workspace/event-detail/contracts';
 import type { AcceptedJobResponse, JobResultResponse, JobStatusResponse } from '@shared/jobs/contracts';
 
 export function createPostsDashboardResponse(
@@ -203,6 +210,196 @@ export function createEventGraphResponse(
         status: 'verified',
       },
     ],
+    ...overrides,
+  };
+}
+
+export function createEventDetailResponse(overrides: Partial<EventDetailDto> = {}): EventDetailDto {
+  return {
+    event: {
+      id: 81,
+      title: 'Election coverage spike',
+      status: 'active',
+      started_at: '2026-03-12T06:30:00Z',
+      ended_at: null,
+      confidence: 0.88,
+      created_by: 'pipeline',
+      comments_count: 310,
+      involvement: 0.57,
+      ...(overrides.event ?? {}),
+    },
+    post_ids: overrides.post_ids ?? [4012, 3975, 3980],
+  };
+}
+
+export function createProcessesDashboardResponse(
+  overrides: Partial<ProcessesDashboardResponse> = {},
+): ProcessesDashboardResponse {
+  return {
+    mode: 'processes',
+    generated_at: '2026-03-13T08:45:00Z',
+    partial: false,
+    warnings: [],
+    filters_applied: {
+      date_from: null,
+      date_to: null,
+      limit: 25,
+      status: [],
+      min_comments: null,
+      sort_by: 'started_at',
+      sort_order: 'desc',
+    },
+    summary: {
+      processes_count: 2,
+      total_events: 5,
+      total_comments: 1240,
+      avg_involvement: 0.44,
+      draft_reports: 1,
+      failed_reports: 0,
+    },
+    items: [
+      {
+        process_id: 201,
+        title: 'Narrative escalation chain',
+        status: 'active',
+        started_at: '2026-03-09T08:00:00Z',
+        ended_at: null,
+        confidence: 0.84,
+        comments_count: 720,
+        involvement: 0.51,
+        events_count: 3,
+        event_ids: [81, 82, 83],
+        report_status: 'draft',
+        graph_ready: true,
+      },
+      {
+        process_id: 202,
+        title: 'Cleanup response cycle',
+        status: 'cooling',
+        started_at: '2026-03-08T10:30:00Z',
+        ended_at: '2026-03-10T18:00:00Z',
+        confidence: 0.71,
+        comments_count: 520,
+        involvement: 0.32,
+        events_count: 2,
+        event_ids: [91, 92],
+        report_status: 'ready',
+        graph_ready: true,
+      },
+    ],
+    meta: {
+      sort: { by: 'started_at', order: 'desc' },
+      supported_sorts: ['started_at', 'comments_count', 'involvement', 'events_count'],
+    },
+    ...overrides,
+  };
+}
+
+export function createProcessGraphResponse(
+  overrides: Partial<ProcessGraphResponse> = {},
+): ProcessGraphResponse {
+  return {
+    summary: {
+      process_id: 201,
+      title: 'Narrative escalation chain',
+      status: 'active',
+      started_at: '2026-03-09T08:00:00Z',
+      ended_at: null,
+      confidence: 0.84,
+      report_status: 'draft',
+      events_count: 3,
+      posts_count: 4,
+      comments_count: 720,
+      involvement: 0.51,
+    },
+    events: [
+      {
+        event_id: 81,
+        title: 'Election coverage spike',
+        status: 'active',
+        started_at: '2026-03-12T06:30:00Z',
+        ended_at: null,
+        confidence: 0.88,
+        relation_type: 'trigger',
+        direction: 'src_to_dst',
+        score: 0.82,
+        post_ids: [4012, 3975],
+      },
+      {
+        event_id: 82,
+        title: 'Official response cascade',
+        status: 'cooling',
+        started_at: '2026-03-11T14:00:00Z',
+        ended_at: '2026-03-12T02:30:00Z',
+        confidence: 0.73,
+        relation_type: 'response',
+        direction: 'src_to_dst',
+        score: 0.76,
+        post_ids: [4100],
+      },
+    ],
+    nodes: [
+      {
+        post_id: 4012,
+        channel_id: 77,
+        channel_username: 'signal_watch',
+        date: '2026-03-12T06:45:00Z',
+        text_preview: 'Root post anchors the first process event.',
+        comments_count: 170,
+        views: 14300,
+        involvement: 0.62,
+        is_root: true,
+      },
+      {
+        post_id: 3975,
+        channel_id: 91,
+        channel_username: 'briefing_room',
+        date: '2026-03-12T07:10:00Z',
+        text_preview: 'Supporting post extends the same event.',
+        comments_count: 83,
+        views: 9800,
+        involvement: 0.38,
+        is_root: false,
+      },
+      {
+        post_id: 4100,
+        channel_id: 22,
+        channel_username: 'gov_updates',
+        date: '2026-03-11T14:05:00Z',
+        text_preview: 'Official statement bridges into the next event.',
+        comments_count: 190,
+        views: 20100,
+        involvement: 0.41,
+        is_root: true,
+      },
+    ],
+    edges: [
+      {
+        link_id: 33,
+        src_post_id: 4012,
+        dst_post_id: 3975,
+        link_type: 'related',
+        direction: 'src_to_dst',
+        score: 0.81,
+        status: 'verified',
+      },
+      {
+        link_id: 34,
+        src_post_id: 3975,
+        dst_post_id: 4100,
+        link_type: 'update',
+        direction: 'src_to_dst',
+        score: 0.69,
+        status: 'verified',
+      },
+    ],
+    mapping: {
+      process_id: 201,
+      event_to_post_ids: {
+        81: [4012, 3975],
+        82: [4100],
+      },
+    },
     ...overrides,
   };
 }

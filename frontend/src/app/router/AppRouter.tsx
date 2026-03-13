@@ -15,7 +15,7 @@ import { AnalyticsWorkspaceLayout } from '@modules/workspace/layouts/AnalyticsWo
 import { DashboardEventsPage } from '@modules/workspace/routes/DashboardEventsPage';
 import { DashboardPostsPage } from '@modules/workspace/routes/DashboardPostsPage';
 import { DashboardProcessesPage } from '@modules/workspace/routes/DashboardProcessesPage';
-import { EventDetailsPlaceholderPage } from '@modules/workspace/routes/EventDetailsPlaceholderPage';
+import { EventDetailsPage } from '@modules/workspace/event-detail/EventDetailsPage';
 import { PostDetailsPage } from '@modules/workspace/post-detail/PostDetailsPage';
 import { ProcessDetailsPlaceholderPage } from '@modules/workspace/routes/ProcessDetailsPlaceholderPage';
 import { getRoutePolicy } from '@shared/routing/policy';
@@ -63,7 +63,7 @@ const routes = [
       },
       {
         path: 'events/:eventId',
-        element: <EventDetailsPlaceholderPage />,
+        element: <EventDetailsPage />,
       },
       {
         path: 'processes/:processId',

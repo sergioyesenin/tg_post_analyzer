@@ -271,7 +271,7 @@ frontend/
 - Protected routes render inside one `AppShell`.
 - `/` redirects to `/dashboard/posts`.
 - `/dashboard/*` now renders inside `AnalyticsWorkspaceLayout` instead of each mode owning its own shell.
-- Detail, reports, admin, monitor, jobs and keyword graph routes still exist as separate modules and continue to use the same RBAC source of truth.
+- Post and event detail routes now use live route modules; reports, admin, monitor, jobs and keyword graph routes still remain isolated and continue to use the same RBAC source of truth.
 - `AuthGuard` protects the shell. `RoleGuard` returns a reusable forbidden state for unauthorized role access instead of silently hiding route issues.
 
 ### Dashboard Shell
@@ -436,6 +436,65 @@ frontend/
 - Viewer access remains read-only: selection, graph exploration and related-post navigation stay visible, while draft-report mutation is hidden.
 - Analyst and admin users can trigger `POST /api/reports/events/{event_id}/update`, with jobs polling and invalidation handled through the shared async jobs layer.
 
+### dashboard/processes
+
+- `/dashboard/processes` is now implemented against live `GET /api/dashboard/processes`.
+- Supported filter params:
+- `date_from`
+- `date_to`
+- `limit`
+- `status`
+- `min_comments`
+- `sort_by`
+- `sort_order`
+- Supported processes sorts:
+- `started_at`
+- `comments_count`
+- `involvement`
+- `events_count`
+- The screen renders:
+- KPI summary cards from `summary`
+- dense process table from `items`
+- selected-process hierarchy area backed by `GET /api/dashboard/processes/{process_id}/graph`
+- selected-process detail panel with related events list
+- event and post context links where graph data confirms them
+- process report status badges
+- `generated_at`
+- `warnings[]`
+- `partial=true` as a non-blocking exploration state
+- async draft report action for analyst/admin users
+
+### Process Graph Architecture
+
+- Process graph is intentionally distinct from event graph:
+- event graph centers one event and its related posts
+- process graph centers one higher-level process and shows nested events inside that process before exposing post context
+- The hierarchy model is `process -> event -> post`.
+- `GET /api/dashboard/processes/{process_id}/graph` provides:
+- process summary for the top layer
+- nested event rows with relation metadata
+- confirmed post nodes and post-link edges
+- event-to-post mapping used for related-event and context navigation
+- This keeps process view structurally different from events mode while still reusing shared loading/error/async patterns.
+
+### Event Detail
+
+- `/events/:eventId` is now implemented against live `GET /api/events/{id}`.
+- The full page treats `/api/events/{id}` as the canonical detail payload and uses `GET /api/dashboard/events/{event_id}/graph` only for graph/report context, avoiding unnecessary fetch chains.
+- The screen renders:
+- event header and summary cards
+- reusable event graph panel
+- reusable event detail panel with related posts
+- related context links back to events dashboard and root post when graph data confirms it
+- loading, not found, forbidden, graph error and read-only states
+- analyst/admin draft report action through the shared jobs flow
+
+### Event Detail Reuse
+
+- The full detail page reuses the same `EventGraphPanel` and `EventDetailPanel` that power the dashboard secondary rail.
+- This keeps graph loading/no-edges/error behavior, report status rendering and related-post presentation aligned between dashboard inspection and full-page detail.
+- Dashboard rows now expose a direct `Event detail` link so the route-level view extends the existing workspace flow instead of introducing a parallel UI pattern.
+
 ### Post Detail
 
 - `/posts/:postId` is now implemented as the detail entry point for `dashboard/posts`.
@@ -487,7 +546,8 @@ frontend/
 - Stage 3 posts dashboard is implemented against live `GET /api/dashboard/posts`.
 - Stage 4 post detail is implemented against live post/comments/report/links endpoints with role-aware async mutation flows and jobs polling.
 - Stage 5 events dashboard is implemented against live dashboard and event-graph endpoints with stable selection and async event report draft actions.
-- Processes dashboard still uses a contract-safe placeholder transport snapshot.
+- Stage 6 event detail is implemented against live event detail plus dashboard graph endpoints, with reusable graph/detail blocks and role-safe report actions.
+- Stage 7 processes dashboard is implemented against live dashboard and process-graph endpoints with hierarchy-aware graph and detail panels.
 - Desktop-first split layout foundation is in place for future table/detail/graph composition.
 
 ### Assumptions And Deferred Edges
@@ -500,9 +560,9 @@ frontend/
 ### Remaining Gaps Against Spec
 
 - No access-token expiry countdown or proactive refresh scheduling yet.
-- `dashboard/processes` still does not use live `/api/dashboard/*` queries.
+- `/processes/:processId` detail is still a placeholder.
 - No MUI/MUI X DataGrid integration yet; dashboard table is a reusable HTML shell only.
-- Event graph is implemented, but process graph and broader graph tooling remain unfinished.
+- Event and process graphs are implemented, but broader graph tooling and full React Flow integration remain unfinished.
 - No finalized table specs, graph specs, detail panel rules, copy rules or API-to-UI mapping implementation from the handoff checklist yet.
 - Action-level RBAC is implemented for current post detail and event dashboard mutations, but not yet rolled out across future process/actions surfaces.
 - No final UI/UX handoff artifacts such as wireframes, hi-fi mocks, status matrix or interaction matrix in the repo yet.

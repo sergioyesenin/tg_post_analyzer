@@ -256,6 +256,13 @@ export const actionPolicies: readonly ActionPolicy[] = [
       admin: 'read-write',
     },
   },
+  {
+    id: 'jobs.retry',
+    allowedRoles: ['admin'],
+    capabilityByRole: {
+      admin: 'read-write',
+    },
+  },
 ] as const;
 
 export const defaultAuthenticatedRoute = '/dashboard/posts';

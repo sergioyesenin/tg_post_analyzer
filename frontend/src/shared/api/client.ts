@@ -53,6 +53,29 @@ export class ApiClient {
     });
   }
 
+  async put<T>(path: string, body?: unknown, init?: RequestOptions) {
+    return this.request<T>(path, {
+      ...init,
+      method: 'PUT',
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  }
+
+  async patch<T>(path: string, body?: unknown, init?: RequestOptions) {
+    return this.request<T>(path, {
+      ...init,
+      method: 'PATCH',
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  }
+
+  async delete<T>(path: string, init?: RequestOptions) {
+    return this.request<T>(path, {
+      ...init,
+      method: 'DELETE',
+    });
+  }
+
   async request<T>(path: string, init: RequestOptions = {}) {
     const response = await this.execute(path, init);
 

@@ -15,6 +15,8 @@ import type {
 import type { EventDetailDto } from '@modules/workspace/event-detail/contracts';
 import type { ProcessDetailDto } from '@modules/workspace/process-detail/contracts';
 import type { EventReportListItemDto, PostReportListItemDto, ProcessReportListItemDto } from '@modules/reports/contracts';
+import type { AdminUserDto, AppSettingDto, ChannelDto } from '@modules/admin/contracts';
+import type { DeadLetterJobDto, JobsSummaryDto, MonitorFullDto, PendingJobDto } from '@modules/platform/contracts';
 import type { AcceptedJobResponse, JobResultResponse, JobStatusResponse } from '@shared/jobs/contracts';
 
 export function createPostsDashboardResponse(
@@ -500,6 +502,346 @@ export function createProcessReportsListResponse(overrides: ProcessReportListIte
       status: 'ready',
       version: 'v5',
       created_at: '2026-03-13T08:45:00Z',
+    },
+  ];
+}
+
+export function createChannelsResponse(overrides: ChannelDto[] = []): ChannelDto[] {
+  if (overrides.length > 0) {
+    return overrides;
+  }
+
+  return [
+    {
+      id: 1,
+      username: 'signal_watch',
+      title: 'Signal Watch',
+      category: 'media',
+      is_active: true,
+    },
+    {
+      id: 2,
+      username: 'briefing_room',
+      title: 'Briefing Room',
+      category: 'official',
+      is_active: false,
+    },
+  ];
+}
+
+export function createUsersResponse(overrides: AdminUserDto[] = []): AdminUserDto[] {
+  if (overrides.length > 0) {
+    return overrides;
+  }
+
+  return [
+    {
+      id: 1,
+      username: 'admin',
+      email: 'admin@example.com',
+      full_name: 'Admin User',
+      is_active: true,
+      is_local: true,
+      roles: ['admin'],
+      created_at: '2026-03-13T08:45:00Z',
+    },
+    {
+      id: 2,
+      username: 'analyst',
+      email: 'analyst@example.com',
+      full_name: 'Analyst User',
+      is_active: true,
+      is_local: true,
+      roles: ['analyst'],
+      created_at: '2026-03-12T08:45:00Z',
+    },
+  ];
+}
+
+export function createSettingsResponse(overrides: AppSettingDto[] = []): AppSettingDto[] {
+  if (overrides.length > 0) {
+    return overrides;
+  }
+
+  return [
+    {
+      key: 'jobs',
+      value_json: {
+        ai_poll_seconds: 30,
+        ai_scheduler_limit: 20,
+      },
+      description: 'Jobs configuration',
+      updated_by_user_id: 1,
+      updated_at: '2026-03-13T08:45:00Z',
+    },
+    {
+      key: 'ingest',
+      value_json: {
+        poll_seconds: 120,
+        lookback_days: 7,
+      },
+      description: 'Ingest configuration',
+      updated_by_user_id: 1,
+      updated_at: '2026-03-13T07:45:00Z',
+    },
+  ];
+}
+
+export function createEffectiveSettingsResponse(overrides: Record<string, unknown> = {}) {
+  return {
+    jobs: {
+      ai_poll_seconds: 30,
+      ai_scheduler_limit: 20,
+    },
+    ingest: {
+      poll_seconds: 120,
+      lookback_days: 7,
+    },
+    ...overrides,
+  };
+}
+
+export function createMonitorFullResponse(overrides: Partial<MonitorFullDto> = {}): MonitorFullDto {
+  return {
+    health: {
+      status: 'degraded',
+      time_utc: '2026-03-13T08:45:00Z',
+      dependencies: {
+        database: {
+          ok: true,
+          status: 'ok',
+          latency_ms: 18.5,
+          error: null,
+        },
+        telegram_client: {
+          ok: false,
+          connected: false,
+          status: 'process_stale',
+          last_heartbeat_at: '2026-03-13T08:00:00Z',
+        },
+        ai_pipeline: {
+          ok: true,
+          status: 'ok',
+          last_heartbeat_at: '2026-03-13T08:44:00Z',
+        },
+        scheduler: {
+          ok: true,
+          enabled: true,
+          status: 'warning',
+          next_expected_run_at: '2026-03-14T00:00:00Z',
+          last_enqueue_at: '2026-03-13T03:00:00Z',
+          last_heartbeat_at: '2026-03-13T08:40:00Z',
+        },
+      },
+    },
+    system: {
+      timestamp: '2026-03-13T08:45:00Z',
+      host: {
+        cpu_count: 8,
+        pid: 1200,
+      },
+      cpu: {
+        system_percent: 42.1,
+        process_percent: 3.2,
+      },
+      memory: {
+        total_bytes: 16000000000,
+        available_bytes: 6000000000,
+        used_bytes: 10000000000,
+        used_percent: 62.5,
+        process_rss_bytes: 300000000,
+      },
+      disk: {
+        total_bytes: 100000000000,
+        used_bytes: 55000000000,
+        free_bytes: 45000000000,
+        used_percent: 55,
+      },
+    },
+    jobs: {
+      total: 14,
+      by_status: {
+        pending: 4,
+        running: 2,
+        failed: 1,
+        done: 7,
+      },
+      pending_lag_seconds: 180,
+      retry_lag_seconds: 3600,
+      dead_letter_count: 2,
+    },
+    pipeline: {
+      ingest: {
+        last_ingested_at: '2026-03-13T08:30:00Z',
+        ingest_lag_seconds: 900,
+        last_post_date: '2026-03-13T08:28:00Z',
+        post_freshness_lag_seconds: 1020,
+      },
+      collect_comments: {
+        window_since: '2026-03-13T07:45:00Z',
+        error_pool_size: 4,
+        flood_count: 1,
+        rpc_count: 1,
+        flood_rate: 0.25,
+        rpc_rate: 0.25,
+      },
+      backlog: {
+        jobs_created_1h: 12,
+        jobs_done_1h: 9,
+        delta_1h: 3,
+      },
+      archive: {
+        retention_cutoff: '2026-02-12T08:45:00Z',
+        oldest_unarchived_post_date: '2026-02-10T00:00:00Z',
+        archive_lag_seconds: 7200,
+        last_archive_job_at: '2026-03-13T03:00:00Z',
+        archive_job_lag_seconds: 18000,
+      },
+      runtime: {
+        telegram_pipeline: {
+          runtime: 'telegram_pipeline',
+          ok: false,
+          status: 'process_stale',
+          process: {
+            status: 'stale',
+            last_heartbeat_at: '2026-03-13T08:00:00Z',
+            heartbeat_age_seconds: 2700,
+            heartbeat_timeout_seconds: 120,
+            pid: 1234,
+          },
+        },
+        ai_pipeline: {
+          runtime: 'ai_pipeline',
+          ok: true,
+          status: 'ok',
+          process: {
+            status: 'running',
+            last_heartbeat_at: '2026-03-13T08:44:00Z',
+            heartbeat_age_seconds: 60,
+            heartbeat_timeout_seconds: 120,
+            pid: 5678,
+          },
+        },
+      },
+    },
+    scheduler: {
+      status: 'warning',
+      retention_mode: 'scheduler',
+      enabled: true,
+      timezone: 'Europe/Minsk',
+      schedule: {
+        retention_hour: 3,
+        retention_minute: 0,
+        last_expected_run_at: '2026-03-13T00:00:00Z',
+        next_expected_run_at: '2026-03-14T00:00:00Z',
+      },
+      process: {
+        status: 'running',
+        last_heartbeat_at: '2026-03-13T08:40:00Z',
+        heartbeat_age_seconds: 300,
+        heartbeat_timeout_seconds: 120,
+        pid: 999,
+      },
+      last_archive_enqueue_at: '2026-03-13T03:00:00Z',
+      last_jobs_retention_enqueue_at: '2026-03-13T03:10:00Z',
+      last_enqueue_at: '2026-03-13T03:10:00Z',
+      enqueue_lag_seconds: 19800,
+    },
+    alerts: {
+      status: 'critical',
+      alerts_count: 2,
+      alerts: [
+        {
+          severity: 'critical',
+          metric: 'jobs.retry_lag_seconds',
+          current: 3600,
+          threshold: 1800,
+          message: 'Retry lag is above threshold.',
+        },
+        {
+          severity: 'warning',
+          metric: 'telegram_pipeline.status',
+          current: 'process_stale',
+          threshold: 'ok',
+          message: 'Telegram pipeline process is not healthy.',
+        },
+      ],
+    },
+    activity_24h: {
+      since: '2026-03-12T08:45:00Z',
+      posts_last_hours: 28,
+      comments_last_hours: 412,
+    },
+    database: {
+      database: 'tg_post_analyzer',
+      bytes: 4096000000,
+      pretty: '3906 MB',
+    },
+    ...overrides,
+  };
+}
+
+export function createJobsSummaryResponse(overrides: Partial<JobsSummaryDto> = {}): JobsSummaryDto {
+  return {
+    total: 9,
+    by_status: {
+      pending: 3,
+      running: 2,
+      failed: 1,
+      done: 3,
+    },
+    ...overrides,
+  };
+}
+
+export function createPendingJobsResponse(overrides: PendingJobDto[] = []): PendingJobDto[] {
+  if (overrides.length > 0) {
+    return overrides;
+  }
+
+  return [
+    {
+      id: 11,
+      type: 'collect_comments',
+      status: 'pending',
+      priority: 50,
+      run_at: '2026-03-13T08:45:00Z',
+      retry_at: null,
+      attempts: 0,
+      max_attempts: 5,
+      locked_by: null,
+      last_error: null,
+    },
+    {
+      id: 12,
+      type: 'build_event_report',
+      status: 'failed',
+      priority: 40,
+      run_at: '2026-03-13T08:15:00Z',
+      retry_at: '2026-03-13T09:15:00Z',
+      attempts: 3,
+      max_attempts: 5,
+      locked_by: null,
+      last_error: 'worker_failed',
+    },
+  ];
+}
+
+export function createDeadLetterJobsResponse(overrides: DeadLetterJobDto[] = []): DeadLetterJobDto[] {
+  if (overrides.length > 0) {
+    return overrides;
+  }
+
+  return [
+    {
+      id: 91,
+      source_job_id: 12,
+      type: 'build_process_report',
+      priority: 40,
+      attempts: 5,
+      max_attempts: 5,
+      last_error: 'max_attempts_reached',
+      failed_at: '2026-03-13T08:20:00Z',
     },
   ];
 }

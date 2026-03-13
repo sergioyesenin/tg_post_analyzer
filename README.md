@@ -521,6 +521,83 @@ frontend/
 - Batch generation reuses the shared async jobs layer, polls job status/result, and invalidates reports list queries after completion.
 - Viewer access remains read-only: reports catalogs and export stay visible, while batch generation stays hidden.
 
+### Admin Modules
+
+- `/channels`, `/users`, and `/settings` are now implemented as live admin modules with one shared CRUD pattern.
+- Transport DTOs stay separate from screen state: list queries mirror backend payloads, while forms own their own validated input models.
+- Table rendering uses one reusable admin grid wrapper so channels, users, and settings keep aligned loading, empty, error, and forbidden behavior.
+- Mutation flows stay explicit and conservative:
+- RHF + Zod validate create/edit payloads before submit
+- destructive or state-flip mutations use confirmation prompts
+- successful mutations invalidate only the affected admin resource queries
+- no backend-only fields are synthesized on the client
+
+### Admin Permission Boundaries
+
+- `admin`: full access to `/channels`, `/users`, and `/settings`, including create/update/delete/activate flows.
+- `analyst`: no access to channels or users; `/settings` is limited to `GET /api/settings/effective` read-only mode.
+- `viewer`: no access to admin modules and receives a forbidden state on direct route entry.
+- Backend `403` remains visible as a screen state even inside allowed role scopes, so route-level RBAC and backend enforcement stay aligned.
+
+### Admin Mutation Patterns
+
+- Channels:
+- `GET /api/channels/`
+- `POST /api/channels/add`
+- `PATCH /api/channels/{id}`
+- `PUT /api/channels/{id}/active`
+- `DELETE /api/channels/{id}`
+- Users:
+- `GET /api/auth/users`
+- `POST /api/auth/users`
+- `PUT /api/auth/users/{id}/roles`
+- `PUT /api/auth/users/{id}/active`
+- Settings:
+- `GET /api/settings/effective`
+- `GET /api/settings/`
+- `PUT /api/settings/{key}`
+- Channels and users expose inline forms plus row actions; settings uses a focused single-record editor with JSON validation so unsupported shape assumptions do not leak into the UI.
+
+### Monitor And Jobs
+
+- `/monitor` is now implemented as an admin-only overview screen backed by `GET /api/monitor/full`.
+- The monitor module stays inside confirmed backend scope and renders one overview snapshot instead of inventing extra API tabs.
+- `/jobs` is now implemented as an admin-only operations screen backed by:
+- `GET /api/jobs/summary`
+- `GET /api/jobs/pending`
+- `GET /api/jobs/dead-letter`
+- Confirmed retry actions are exposed only where backend support exists:
+- `POST /api/jobs/failed/{job_id}/retry`
+- `POST /api/jobs/dead-letter/{dead_letter_id}/retry`
+
+### Monitor Status System
+
+- Monitor status presentation now treats these states as first-class badges:
+- `ok`
+- `warning`
+- `critical`
+- `degraded`
+- Backend-specific monitor states such as `disabled`, `late_or_missing`, and `process_*` are rendered through the same reusable status badge with explicit fallback labels.
+- The overview screen surfaces:
+- overall health status
+- alerts status
+- scheduler status
+- dependency table
+- active alerts table
+- runtime/backlog snapshot details
+
+### Jobs Management Flow
+
+- Jobs management keeps queue inspection and retry actions on one route.
+- Summary cards render aggregate counts from `GET /api/jobs/summary`.
+- Pending/running/failed queue rows render from `GET /api/jobs/pending`.
+- Dead-letter rows render from `GET /api/jobs/dead-letter`.
+- Retry is conservative and explicit:
+- only `admin` sees retry buttons
+- retry uses confirmation before mutation
+- successful retry invalidates jobs summary, queue tables, and monitor overview queries
+- jobs list limit is serialized in the URL for route-owned queue inspection state
+
 ### Event Detail
 
 - `/events/:eventId` is now implemented against live `GET /api/events/{id}`.
@@ -594,23 +671,29 @@ frontend/
 - Stage 7 processes dashboard is implemented against live dashboard and process-graph endpoints with hierarchy-aware graph and detail panels.
 - Stage 8 process detail is implemented against live process detail plus dashboard process-graph endpoints, with reusable hierarchy/detail blocks and role-safe report actions.
 - Stage 9 reports modules are implemented against live reports list/export endpoints, with reusable table/filter/action patterns and post batch generation flow.
+- Stage 10 admin modules are implemented against live channels/users/settings endpoints, with role-protected CRUD flows, analyst-safe effective settings access, and RHF + Zod validation.
+- Stage 11 monitor and jobs modules are implemented against live monitor/jobs endpoints, with admin-only overview screens, status badges, queue tables, and confirmed retry flows.
 - Desktop-first split layout foundation is in place for future table/detail/graph composition.
 
 ### Assumptions And Deferred Edges
 
 - No proactive token refresh scheduler or expiry countdown is implemented yet; current scope is refresh-on-401 only.
 - No final UX copy handoff exists for all data-block errors, so shared messages remain minimal safe defaults.
-- The repository frontend currently does not ship MUI, MUI X, React Hook Form, Zod or React Flow packages, so this stage uses framework-native foundations while keeping component boundaries ready for later migration.
+- MUI, MUI X DataGrid, and React Flow are still not installed in this repository, so current admin/report/dashboard tables and graphs use framework-native foundations while keeping component boundaries ready for later migration.
 - Detail mutation support currently covers post comment refresh, post report generation/update, event report draft generation/update, and process report draft generation/update.
 - Reports export is implemented as direct endpoint links rather than streamed fetch/download state inside the SPA shell.
+- Admin settings editing currently validates JSON payloads in a textarea instead of a richer schema-aware editor.
+- Monitor currently uses one full snapshot page rather than separate specialized tabs for `/health`, `/jobs`, `/pipeline`, `/scheduler`, and `/alerts`.
 
 ### Remaining Gaps Against Spec
 
 - No access-token expiry countdown or proactive refresh scheduling yet.
 - No MUI/MUI X DataGrid integration yet; dashboard table is a reusable HTML shell only.
+- No MUI/MUI X DataGrid integration for admin modules yet; admin grids currently use reusable HTML table wrappers instead of DataGrid.
+- No MUI/MUI X DataGrid integration for jobs tables yet; jobs queue rendering still uses the same reusable HTML shell.
 - Event and process graphs are implemented, but broader graph tooling and full React Flow integration remain unfinished.
 - No finalized table specs, graph specs, detail panel rules, copy rules or API-to-UI mapping implementation from the handoff checklist yet.
-- Action-level RBAC is implemented for current post detail, event detail, process detail and post-report batch generation mutations, but not yet rolled out across future admin/report surfaces.
+- Action-level RBAC is implemented for current detail/report/admin/jobs retry surfaces, but future monitor/keyword graph actions still need the same rollout.
 - No final UI/UX handoff artifacts such as wireframes, hi-fi mocks, status matrix or interaction matrix in the repo yet.
 
 ## Pipeline Concurrency Settings

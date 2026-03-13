@@ -3,13 +3,13 @@ import { RouterProvider, createBrowserRouter, createMemoryRouter } from 'react-r
 import { AuthGuard } from '@app/router/guards/AuthGuard';
 import { RoleGuard } from '@app/router/guards/RoleGuard';
 import { AppShell } from '@app/shell/AppShell';
+import { ChannelsPage } from '@modules/admin/routes/ChannelsPage';
+import { SettingsPage } from '@modules/admin/routes/SettingsPage';
+import { UsersPage } from '@modules/admin/routes/UsersPage';
 import { LoginPage } from '@modules/auth/routes/LoginPage';
-import { ChannelsPlaceholderPage } from '@modules/platform/routes/ChannelsPlaceholderPage';
-import { JobsPlaceholderPage } from '@modules/platform/routes/JobsPlaceholderPage';
+import { JobsPage } from '@modules/platform/routes/JobsPage';
 import { KeywordGraphPlaceholderPage } from '@modules/platform/routes/KeywordGraphPlaceholderPage';
-import { MonitorPlaceholderPage } from '@modules/platform/routes/MonitorPlaceholderPage';
-import { SettingsPlaceholderPage } from '@modules/platform/routes/SettingsPlaceholderPage';
-import { UsersPlaceholderPage } from '@modules/platform/routes/UsersPlaceholderPage';
+import { MonitorPage } from '@modules/platform/routes/MonitorPage';
 import { ReportsPage } from '@modules/reports/ReportsPage';
 import { AnalyticsWorkspaceLayout } from '@modules/workspace/layouts/AnalyticsWorkspaceLayout';
 import { DashboardEventsPage } from '@modules/workspace/routes/DashboardEventsPage';
@@ -77,7 +77,7 @@ const routes = [
         path: 'settings',
         element: (
           <RoleGuard routeId="settings">
-            <SettingsPlaceholderPage />
+            <SettingsPage />
           </RoleGuard>
         ),
       },
@@ -85,7 +85,7 @@ const routes = [
         path: 'channels',
         element: (
           <RoleGuard routeId="channels">
-            <ChannelsPlaceholderPage />
+            <ChannelsPage />
           </RoleGuard>
         ),
       },
@@ -93,7 +93,7 @@ const routes = [
         path: 'users',
         element: (
           <RoleGuard routeId="users">
-            <UsersPlaceholderPage />
+            <UsersPage />
           </RoleGuard>
         ),
       },
@@ -101,7 +101,7 @@ const routes = [
         path: 'monitor',
         element: (
           <RoleGuard routeId="monitor">
-            <MonitorPlaceholderPage />
+            <MonitorPage />
           </RoleGuard>
         ),
       },
@@ -109,7 +109,7 @@ const routes = [
         path: 'jobs',
         element: (
           <RoleGuard routeId="jobs">
-            <JobsPlaceholderPage />
+            <JobsPage />
           </RoleGuard>
         ),
       },

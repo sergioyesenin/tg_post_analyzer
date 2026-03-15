@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { useSession } from '@app/providers/SessionProvider';
 import { ApiError } from '@shared/api/client';
@@ -13,19 +14,20 @@ import { KeywordGraphPanel } from '@modules/keyword-graph/components/KeywordGrap
 import { useKeywordChannelsQuery, useKeywordGraphWorkspace, useKeywordSearchFilters, useKeywordSearchQuery } from '@modules/keyword-graph/hooks';
 import { keywordSearchColumns, mapKeywordGraphToPanel, mapKeywordSearchRows, mapKeywordSearchSummary } from '@modules/keyword-graph/mappers';
 
-function toInlineMessage(error: unknown, fallback: string) {
+function toInlineMessage(error: unknown, fallback: string, t: (key: string, options?: Record<string, unknown>) => string) {
   if (error instanceof ApiError && error.status === 404) {
-    return 'Keyword graph is unavailable for this account or environment. Backend feature flag or rollout gate denied the request.';
+    return t('keywordGraph.messages.unavailable');
   }
 
   if (error instanceof ApiError && error.status === 403) {
-    return 'Keyword graph access is forbidden by backend RBAC.';
+    return t('keywordGraph.messages.forbiddenBackend');
   }
 
   return fallback;
 }
 
 export function KeywordGraphPage() {
+  const { t } = useTranslation();
   const { user } = useSession();
   const roles = user?.roles ?? [];
   const canGenerateReport = canPerformAction('reports.generate', roles);
@@ -63,13 +65,13 @@ export function KeywordGraphPage() {
     workspace.toggleExcluded,
   );
   const searchErrorMessage = searchQuery.isError
-    ? toInlineMessage(searchQuery.error, 'The keyword search request failed.')
+    ? toInlineMessage(searchQuery.error, t('keywordGraph.messages.searchFailedFallback'), t)
     : null;
   const buildErrorMessage = workspace.buildMutation.isError
-    ? toInlineMessage(workspace.buildMutation.error, 'The keyword graph build request failed.')
+    ? toInlineMessage(workspace.buildMutation.error, t('keywordGraph.messages.buildFailedFallback'), t)
     : null;
   const reportErrorMessage = workspace.reportMutation.isError
-    ? toInlineMessage(workspace.reportMutation.error, 'The keyword graph report request failed.')
+    ? toInlineMessage(workspace.reportMutation.error, t('keywordGraph.messages.reportFailedFallback'), t)
     : null;
   const reportStatus = workspace.reportMutation.data?.status ?? null;
   const reportContent = workspace.reportMutation.data?.content ?? null;
@@ -87,16 +89,20 @@ export function KeywordGraphPage() {
       availableChannels.map((channel) => ({
         id: channel.id,
         label: channel.title ? `${channel.title} (@${channel.username})` : `@${channel.username}`,
-        meta: channel.category ? `${channel.category}${channel.is_active ? '' : ' · inactive'}` : channel.is_active ? 'active' : 'inactive',
+        meta: channel.category
+          ? `${channel.category}${channel.is_active ? '' : ` • ${t('common.inactive')}`}`
+          : channel.is_active
+            ? t('common.active')
+            : t('common.inactive'),
       })),
-    [availableChannels],
+    [availableChannels, t],
   );
 
   if (searchQuery.isError && searchQuery.error instanceof ApiError && searchQuery.error.status === 403) {
     return (
       <ForbiddenState
-        title="Keyword graph is restricted"
-        description="The route is visible, but the backend denied access to the keyword graph tool."
+        title={t('keywordGraph.forbiddenTitle')}
+        description={t('keywordGraph.forbiddenDescription')}
       />
     );
   }
@@ -105,42 +111,39 @@ export function KeywordGraphPage() {
     <div className="dashboard-page">
       <section className="dashboard-page__hero">
         <div>
-          <span className="state-card__eyebrow">advanced analysis</span>
-          <h2>Keyword graph</h2>
-          <p>
-            Separate analytical tool for keyword-driven post search, graph build, and optional report generation. It is not part of
-            the main dashboard modes.
-          </p>
+          <span className="state-card__eyebrow">{t('states.advancedAnalysis')}</span>
+          <h2>{t('navigation.keywordGraph')}</h2>
+          <p>{t('keywordGraph.heroDescription')}</p>
         </div>
         <div className="dashboard-page__meta">
-          <span>Allowed roles: admin, analyst</span>
-          <span>Graph mode defaults to transient</span>
+          <span>{t('keywordGraph.allowedRoles')}</span>
+          <span>{t('keywordGraph.defaultGraphMode')}</span>
         </div>
       </section>
 
-      <section className="dashboard-filter-bar" aria-label="Keyword graph search form">
+      <section className="dashboard-filter-bar" aria-label={t('keywordGraph.searchFormAria')}>
         <div className="dashboard-filter-bar__header">
           <div>
-            <span className="state-card__eyebrow">search</span>
-            <strong>Search posts by keyword or phrase</strong>
+            <span className="state-card__eyebrow">{t('states.search')}</span>
+            <strong>{t('keywordGraph.searchTitle')}</strong>
           </div>
-          <code>{filters.query ? `query=${filters.query}` : 'explicit submit only'}</code>
+          <code>{filters.query ? `query=${filters.query}` : t('keywordGraph.explicitSubmitOnly')}</code>
         </div>
 
         <div className="dashboard-filter-grid">
           <label>
-            <span>Query</span>
+            <span>{t('fields.query')}</span>
             <input
-              aria-label="Keyword query"
+              aria-label={t('keywordGraph.queryAria')}
               value={formState.query}
               onChange={(event) => setFormState((current) => ({ ...current, query: event.target.value }))}
               placeholder="policy shift"
             />
           </label>
           <label>
-            <span>Limit</span>
+            <span>{t('fields.limit')}</span>
             <input
-              aria-label="Search limit"
+              aria-label={t('fields.searchLimit')}
               type="number"
               min={1}
               max={200}
@@ -149,7 +152,7 @@ export function KeywordGraphPage() {
             />
           </label>
           <label>
-            <span>Date from</span>
+            <span>{t('fields.dateFrom')}</span>
             <input
               type="date"
               value={formState.date_from}
@@ -157,7 +160,7 @@ export function KeywordGraphPage() {
             />
           </label>
           <label>
-            <span>Date to</span>
+            <span>{t('fields.dateTo')}</span>
             <input
               type="date"
               value={formState.date_to}
@@ -165,17 +168,15 @@ export function KeywordGraphPage() {
             />
           </label>
           <fieldset className="detail-block">
-            <legend>Channels</legend>
+            <legend>{t('fields.channels')}</legend>
             {channelsQuery.isLoading ? (
-              <p className="dashboard-panel-copy">Loading channel options from the backend.</p>
+              <p className="dashboard-panel-copy">{t('keywordGraph.channels.loading')}</p>
             ) : channelsQuery.isError ? (
-              <p className="dashboard-panel-copy">
-                Channel list is unavailable, so channel-scoped filtering cannot be applied right now.
-              </p>
+              <p className="dashboard-panel-copy">{t('keywordGraph.channels.error')}</p>
             ) : channelOptions.length === 0 ? (
-              <p className="dashboard-panel-copy">No channels are available for filtering.</p>
+              <p className="dashboard-panel-copy">{t('keywordGraph.channels.empty')}</p>
             ) : (
-              <div className="detail-list" aria-label="Channel filter options">
+              <div className="detail-list" aria-label={t('keywordGraph.channels.optionsAria')}>
                 {channelOptions.map((channel) => {
                   const isChecked = formState.channel_ids.includes(channel.id);
 
@@ -193,7 +194,7 @@ export function KeywordGraphPage() {
                                 : [...current.channel_ids, channel.id],
                             }))
                           }
-                          aria-label={`Channel ${channel.label}`}
+                          aria-label={t('keywordGraph.channels.channelAria', { label: channel.label })}
                         />{' '}
                         {channel.label}
                       </span>
@@ -208,7 +209,7 @@ export function KeywordGraphPage() {
 
         <div className="dashboard-filter-bar__actions">
           <button type="button" className="dashboard-button dashboard-button--ghost" onClick={resetFilters}>
-            Reset search
+            {t('actions.resetSearch')}
           </button>
           <button
             type="button"
@@ -223,7 +224,7 @@ export function KeywordGraphPage() {
               })
             }
           >
-            Search posts
+            {t('actions.searchPosts')}
           </button>
         </div>
       </section>
@@ -234,19 +235,19 @@ export function KeywordGraphPage() {
         <div className="dashboard-page__primary">
           {filters.query.trim().length < 2 ? (
             <EmptyState
-              title="Start with a keyword search"
-              description="Enter a query of at least two characters and submit the form to build an analytical seed set."
+              title={t('keywordGraph.startTitle')}
+              description={t('keywordGraph.startDescription')}
             />
           ) : searchQuery.isLoading ? (
-            <LoadingState title="Searching posts" description="Looking up posts through POST /api/keyword/search/posts." />
+            <LoadingState title={t('keywordGraph.loadingTitle')} description={t('keywordGraph.loadingDescription')} />
           ) : searchErrorMessage ? (
-            <ErrorState title="Keyword search failed" description={searchErrorMessage} />
+            <ErrorState title={t('keywordGraph.searchFailedTitle')} description={searchErrorMessage} />
           ) : searchRows.length === 0 ? (
-            <EmptyState title="No posts matched the query" description="The search request succeeded, but no posts matched the current keyword and filter set." />
+            <EmptyState title={t('keywordGraph.noResultsTitle')} description={t('keywordGraph.noResultsDescription')} />
           ) : (
             <DashboardTableShell
-              title="Search results"
-              description={`Matched posts for the analytical query.${resultMeta.tookMs ? ` Took ${resultMeta.tookMs} ms.` : ''}`}
+              title={t('keywordGraph.resultsTitle')}
+              description={resultMeta.tookMs ? t('keywordGraph.resultsDescriptionWithTiming', { tookMs: resultMeta.tookMs }) : t('keywordGraph.resultsDescription')}
               columns={keywordSearchColumns}
               rows={searchRows}
             />
@@ -269,24 +270,24 @@ export function KeywordGraphPage() {
           <section className="detail-block">
             <div className="detail-block__header">
               <div>
-                <span className="state-card__eyebrow">seed set</span>
-                <strong>Selected posts</strong>
+                <span className="state-card__eyebrow">{t('states.seedSet')}</span>
+                <strong>{t('keywordGraph.selectedPostsTitle')}</strong>
               </div>
             </div>
 
             {workspace.selectedItems.length === 0 ? (
-              <p className="dashboard-panel-copy">Select posts from the search results table to define the graph seed set.</p>
+              <p className="dashboard-panel-copy">{t('keywordGraph.selectedPostsEmpty')}</p>
             ) : (
               <div className="detail-list">
                 {workspace.selectedItems.map((item) => (
                   <div key={item.post_id} className="detail-list__item">
                     <div>
-                      <strong>Post #{item.post_id}</strong>
-                      <p>{item.text_preview ?? 'No preview available.'}</p>
+                      <strong>{t('keywordGraph.rows.postLabel', { id: item.post_id })}</strong>
+                      <p>{item.text_preview ?? t('keywordGraph.rows.noPreview')}</p>
                     </div>
                     <div className="detail-list__actions">
                       <span>@{item.channel_username ?? 'unknown_channel'}</span>
-                      <span>{workspace.excludedPostIds.includes(item.post_id) ? 'Excluded' : 'Included'}</span>
+                      <span>{workspace.excludedPostIds.includes(item.post_id) ? t('common.excluded') : t('common.included')}</span>
                     </div>
                   </div>
                 ))}
@@ -297,14 +298,14 @@ export function KeywordGraphPage() {
           <section className="detail-block">
             <div className="detail-block__header">
               <div>
-                <span className="state-card__eyebrow">build</span>
-                <strong>Graph build flow</strong>
+                <span className="state-card__eyebrow">{t('states.build')}</span>
+                <strong>{t('keywordGraph.buildTitle')}</strong>
               </div>
             </div>
 
             <div className="dashboard-filter-grid">
               <label>
-                <span>Graph mode</span>
+                <span>{t('fields.graphMode')}</span>
                 <select
                   value={workspace.graphConfig.graph_mode}
                   onChange={(event) =>
@@ -314,12 +315,12 @@ export function KeywordGraphPage() {
                     }))
                   }
                 >
-                  <option value="transient">transient</option>
-                  <option value="persisted">persisted</option>
+                  <option value="transient">{t('common.transient')}</option>
+                  <option value="persisted">{t('common.persisted')}</option>
                 </select>
               </label>
               <label>
-                <span>Neighbor depth</span>
+                <span>{t('fields.neighborDepth')}</span>
                 <input
                   type="number"
                   min={0}
@@ -345,7 +346,7 @@ export function KeywordGraphPage() {
                       }))
                     }
                   />{' '}
-                  Include neighbors
+                  {t('fields.includeNeighbors')}
                 </span>
               </label>
             </div>
@@ -357,7 +358,7 @@ export function KeywordGraphPage() {
                 disabled={workspace.selectedPostIds.length === 0 || workspace.buildMutation.isPending}
                 onClick={() => workspace.buildMutation.mutate()}
               >
-                Build graph
+                {t('actions.buildGraph')}
               </button>
             </div>
           </section>
@@ -366,18 +367,18 @@ export function KeywordGraphPage() {
             <section className="detail-block">
               <div className="detail-block__header">
                 <div>
-                  <span className="state-card__eyebrow">report</span>
-                  <strong>Graph report</strong>
+                  <span className="state-card__eyebrow">{t('states.report')}</span>
+                  <strong>{t('keywordGraph.reportTitle')}</strong>
                 </div>
               </div>
 
               <label className="dashboard-filter-grid">
-                <span>Report title</span>
+                <span>{t('fields.reportTitle')}</span>
                 <input
-                  aria-label="Graph report title"
+                  aria-label={t('keywordGraph.reportTitleAria')}
                   value={reportTitle}
                   onChange={(event) => setReportTitle(event.target.value)}
-                  placeholder="Keyword graph report"
+                  placeholder={t('keywordGraph.reportPlaceholder')}
                 />
               </label>
 
@@ -388,15 +389,15 @@ export function KeywordGraphPage() {
                   disabled={workspace.selectedPostIds.length === 0 || workspace.reportMutation.isPending}
                   onClick={() => workspace.reportMutation.mutate(reportTitle.trim())}
                 >
-                  Generate report
+                  {t('actions.generateReport')}
                 </button>
               </div>
 
               {workspace.reportMutation.isPending ? (
-                <LoadingState title="Generating keyword graph report" description="Calling POST /api/keyword/graph/report for the current seed set." />
+                <LoadingState title={t('keywordGraph.reportLoadingTitle')} description={t('keywordGraph.reportLoadingDescription')} />
               ) : null}
 
-              {reportErrorMessage ? <ErrorState title="Keyword graph report failed" description={reportErrorMessage} /> : null}
+              {reportErrorMessage ? <ErrorState title={t('keywordGraph.reportErrorTitle')} description={reportErrorMessage} /> : null}
 
               {reportContent ? (
                 <div className="report-block">
@@ -414,3 +415,4 @@ export function KeywordGraphPage() {
     </div>
   );
 }
+

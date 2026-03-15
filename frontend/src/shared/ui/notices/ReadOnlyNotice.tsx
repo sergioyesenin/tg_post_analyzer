@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 type ReadOnlyNoticeProps = {
   title: string;
   description: string;
@@ -7,12 +9,14 @@ type ReadOnlyNoticeProps = {
 export function ReadOnlyNotice({
   title,
   description,
-  ariaLabel = 'Read only notice',
+  ariaLabel = 'states.readOnly',
 }: ReadOnlyNoticeProps) {
+  const { t } = useTranslation();
+
   return (
-    <section className="dashboard-banner dashboard-banner--partial" aria-label={ariaLabel}>
+    <section className="dashboard-banner dashboard-banner--partial" aria-label={t(ariaLabel)}>
       <div>
-        <span className="dashboard-banner__eyebrow">read only</span>
+        <span className="dashboard-banner__eyebrow">{t('states.readOnly')}</span>
         <strong>{title}</strong>
       </div>
       <p className="dashboard-banner__text">{description}</p>

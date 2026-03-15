@@ -9,6 +9,8 @@ import {
 } from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
 
+const ru = (value: string) => JSON.parse('"' + value + '"') as string;
+
 function createAuthenticatedUser(roles: string[]) {
   return {
     id: 11,
@@ -68,7 +70,7 @@ describe('Event detail', () => {
     renderEventDetail();
 
     await waitFor(() => {
-      expect(screen.getByText(/Loading event detail/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u0434\u0435\u0442\u0430\u043b\u0435\u0439 \u0441\u043e\u0431\u044b\u0442\u0438\u044f'))).toBeInTheDocument();
     });
 
     resolveDetail?.(createEventDetailResponse());
@@ -94,7 +96,7 @@ describe('Event detail', () => {
     renderEventDetail();
 
     await waitFor(() => {
-      expect(screen.getByText(/Event not found/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0421\u043e\u0431\u044b\u0442\u0438\u0435 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e'))).toBeInTheDocument();
     });
   });
 
@@ -118,7 +120,7 @@ describe('Event detail', () => {
 
     expect(getSpy).toHaveBeenCalledWith('/api/events/81');
     expect(getSpy).toHaveBeenCalledWith('/api/dashboard/events/81/graph');
-    expect(screen.getAllByText(/Draft/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(ru('\u0427\u0435\u0440\u043d\u043e\u0432\u0438\u043a')).length).toBeGreaterThan(0);
   });
 
   it('navigates back to events dashboard from direct event detail entry', async () => {
@@ -193,10 +195,10 @@ describe('Event detail', () => {
       expect(screen.getByRole('heading', { name: /Election coverage spike/i })).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: /^Back$/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u041d\u0430\u0437\u0430\u0434') }));
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /Events workspace/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: ru('\u0420\u0430\u0431\u043e\u0447\u0435\u0435 \u043f\u0440\u043e\u0441\u0442\u0440\u0430\u043d\u0441\u0442\u0432\u043e \u0441\u043e\u0431\u044b\u0442\u0438\u0439') })).toBeInTheDocument();
     });
   });
 });

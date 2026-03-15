@@ -12,6 +12,8 @@ import {
 } from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
 
+const ru = (value: string) => JSON.parse('"' + value + '"') as string;
+
 function createAuthenticatedUser(roles: string[]) {
   return {
     id: 11,
@@ -148,10 +150,10 @@ describe('Processes dashboard', () => {
       expect(screen.getAllByText(/Narrative escalation chain/i).length).toBeGreaterThan(0);
     });
 
-    expect(screen.getAllByText(/Linked events/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Process hierarchy/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('link', { name: /Open event/i }).length).toBeGreaterThan(0);
-    expect(screen.getByText(/process -> event -> post/i)).toBeInTheDocument();
+    expect(screen.getAllByText(ru('\u0421\u0432\u044f\u0437\u0430\u043d\u043d\u044b\u0435 \u0441\u043e\u0431\u044b\u0442\u0438\u044f'), { exact: false }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(ru('\u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044f \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0430')).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0441\u043e\u0431\u044b\u0442\u0438\u0435') }).length).toBeGreaterThan(0);
+    expect(screen.getByText(ru('\u043f\u0440\u043e\u0446\u0435\u0441\u0441 -> \u0441\u043e\u0431\u044b\u0442\u0438\u0435 -> \u043f\u043e\u0441\u0442'))).toBeInTheDocument();
   });
 
   it('keeps selection stable and loads the graph for the selected process', async () => {
@@ -164,7 +166,7 @@ describe('Processes dashboard', () => {
       expect(screen.getAllByText(/Election coverage spike/i).length).toBeGreaterThan(0);
     });
 
-    await user.click(screen.getByRole('button', { name: /Inspect/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c') }));
 
     await waitFor(() => {
       expect(screen.getAllByText(/Cleanup bulletin/i).length).toBeGreaterThan(0);
@@ -179,14 +181,16 @@ describe('Processes dashboard', () => {
     renderWorkspace();
 
     await waitFor(() => {
-      expect(screen.getAllByRole('link', { name: /Open event/i }).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole('link', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0441\u043e\u0431\u044b\u0442\u0438\u0435') }).length).toBeGreaterThan(0);
     });
 
     await waitFor(() => {
-      expect(screen.queryByText(/Loading process graph/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(ru('\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u0433\u0440\u0430\u0444\u0430 \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0430'))).not.toBeInTheDocument();
     });
 
-    expect(screen.getByRole('link', { name: /Post #4012/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: ru('\u041f\u043e\u0441\u0442 #4012') })).toBeInTheDocument();
+    });
   });
 
   it('runs the process report action flow and renders the async job result', async () => {
@@ -235,18 +239,18 @@ describe('Processes dashboard', () => {
     renderWorkspace();
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Generate draft report/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a \u043e\u0442\u0447\u0435\u0442\u0430') })).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: /Generate draft report/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a \u043e\u0442\u0447\u0435\u0442\u0430') }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Process report job/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0417\u0430\u0434\u0430\u043d\u0438\u0435 \u043e\u0442\u0447\u0435\u0442\u0430 \u043f\u043e \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0443'))).toBeInTheDocument();
       expect(screen.getByText(/report_id: 44/i)).toBeInTheDocument();
     });
 
     await waitFor(() => {
-      expect(screen.getAllByText(/Draft/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(ru('\u0427\u0435\u0440\u043d\u043e\u0432\u0438\u043a')).length).toBeGreaterThan(0);
     });
   });
 
@@ -277,8 +281,8 @@ describe('Processes dashboard', () => {
       expect(screen.getByText(/Process hierarchy enrichment is partially unavailable/i)).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/Screen stays usable with partially enriched data/i)).toBeInTheDocument();
-    expect(screen.getByText(/Process hierarchy is partially available/i)).toBeInTheDocument();
+    expect(screen.getByText(ru('\u042d\u043a\u0440\u0430\u043d \u043e\u0441\u0442\u0430\u0435\u0442\u0441\u044f \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u043c \u043f\u0440\u0438 \u0447\u0430\u0441\u0442\u0438\u0447\u043d\u043e \u043e\u0431\u043e\u0433\u0430\u0449\u0435\u043d\u043d\u044b\u0445 \u0434\u0430\u043d\u043d\u044b\u0445'))).toBeInTheDocument();
+    expect(screen.getByText(ru('\u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044f \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0430 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430 \u0447\u0430\u0441\u0442\u0438\u0447\u043d\u043e'))).toBeInTheDocument();
   });
 
   it('renders no-edges and empty graph states without breaking the detail rail', async () => {
@@ -340,13 +344,13 @@ describe('Processes dashboard', () => {
     renderWorkspace();
 
     await waitFor(() => {
-      expect(screen.getByText(/No process hierarchy is available/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044f \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0430 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430'))).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: /Inspect/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c') }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Process graph has no post-link edges/i)).toBeInTheDocument();
+      expect(screen.getByText(/\u0433\u0440\u0430\u0444\u0435 \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0430.*\u043f\u043e\u0441\u0442\u0430\u043c/i)).toBeInTheDocument();
     });
 
     expect(screen.getAllByText(/Cleanup bulletin/i).length).toBeGreaterThan(0);
@@ -368,11 +372,11 @@ describe('Processes dashboard', () => {
     renderWorkspace();
 
     await waitFor(() => {
-      expect(screen.getByText(/Process graph failed to load/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0433\u0440\u0430\u0444 \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0430'))).toBeInTheDocument();
     });
 
     expect(screen.getAllByText(/Narrative escalation chain/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/related events/i)).toBeInTheDocument();
+    expect(screen.getAllByText(ru('\\u0441\\u0432\\u044f\\u0437\\u0430\\u043d\\u043d\\u044b\\u0435 \\u0441\\u043e\\u0431\\u044b\\u0442\\u0438\\u044f'), { exact: false }).length).toBeGreaterThan(0);
   });
 
   it('shows hierarchy loading feedback during manual graph refresh', async () => {
@@ -406,10 +410,10 @@ describe('Processes dashboard', () => {
       expect(screen.getAllByText(/Election coverage spike/i).length).toBeGreaterThan(0);
     });
 
-    await user.click(screen.getByRole('button', { name: /Reload graph/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0433\u0440\u0430\u0444') }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Loading process graph/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u0433\u0440\u0430\u0444\u0430 \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0430'))).toBeInTheDocument();
     });
 
     resolveRefresh?.(

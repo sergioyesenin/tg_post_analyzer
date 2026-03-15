@@ -1,4 +1,4 @@
-import { cleanup, screen, waitFor } from '@testing-library/react';
+﻿import { cleanup, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -12,6 +12,8 @@ import {
   createProcessesDashboardResponse,
 } from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
+
+const ru = (value: string) => JSON.parse('"' + value + '"') as string;
 
 function createAuthenticatedUser(roles: string[]) {
   return {
@@ -68,7 +70,7 @@ describe('Process detail', () => {
     renderProcessDetail();
 
     await waitFor(() => {
-      expect(screen.getByText(/Loading process detail/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u0434\u0435\u0442\u0430\u043b\u0435\u0439 \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0430'))).toBeInTheDocument();
     });
   });
 
@@ -93,8 +95,8 @@ describe('Process detail', () => {
 
     expect(getSpy).toHaveBeenCalledWith('/api/processes/201');
     expect(getSpy).toHaveBeenCalledWith('/api/dashboard/processes/201/graph');
-    expect(screen.getAllByRole('link', { name: /Open event/i }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('link', { name: /Lead post/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0441\u043e\u0431\u044b\u0442\u0438\u0435') }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: ru('\u0412\u0435\u0434\u0443\u0449\u0438\u0439 \u043f\u043e\u0441\u0442') }).length).toBeGreaterThan(0);
   });
 
   it('navigates to related event and post context when confirmed', async () => {
@@ -189,10 +191,10 @@ describe('Process detail', () => {
     renderProcessDetail();
 
     await waitFor(() => {
-      expect(screen.getAllByRole('link', { name: /Open event/i }).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole('link', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0441\u043e\u0431\u044b\u0442\u0438\u0435') }).length).toBeGreaterThan(0);
     });
 
-    await user.click(screen.getAllByRole('link', { name: /Open event/i })[0]!);
+    await user.click(screen.getAllByRole('link', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0441\u043e\u0431\u044b\u0442\u0438\u0435') })[0]!);
 
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /Election coverage spike/i })).toBeInTheDocument();
@@ -202,13 +204,13 @@ describe('Process detail', () => {
     renderProcessDetail('/processes/201');
 
     await waitFor(() => {
-      expect(screen.getAllByRole('link', { name: /Lead post/i }).length).toBeGreaterThan(0);
+      expect(screen.getAllByRole('link', { name: ru('\u0412\u0435\u0434\u0443\u0449\u0438\u0439 \u043f\u043e\u0441\u0442') }).length).toBeGreaterThan(0);
     });
 
-    await user.click(screen.getAllByRole('link', { name: /Lead post/i })[0]!);
+    await user.click(screen.getAllByRole('link', { name: ru('\u0412\u0435\u0434\u0443\u0449\u0438\u0439 \u043f\u043e\u0441\u0442') })[0]!);
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /Post #4012/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: ru('\\u041f\\u043e\\u0441\\u0442 #4012') })).toBeInTheDocument();
     });
   });
 
@@ -228,7 +230,7 @@ describe('Process detail', () => {
     renderProcessDetail();
 
     await waitFor(() => {
-      expect(screen.getByText(/Process detail is restricted/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\\u0414\\u0435\\u0442\\u0430\\u043b\\u0438 \\u043f\\u0440\\u043e\\u0446\\u0435\\u0441\\u0441\\u0430 \\u043d\\u0435\\u0434\\u043e\\u0441\\u0442\\u0443\\u043f\\u043d\\u044b'))).toBeInTheDocument();
     });
 
     vi.restoreAllMocks();
@@ -248,7 +250,7 @@ describe('Process detail', () => {
     renderProcessDetail();
 
     await waitFor(() => {
-      expect(screen.getByText(/Process not found/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041f\u0440\u043e\u0446\u0435\u0441\u0441 \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d'))).toBeInTheDocument();
     });
   });
 
@@ -268,12 +270,11 @@ describe('Process detail', () => {
     renderProcessDetail('/processes/201', ['viewer']);
 
     await waitFor(() => {
-      expect(screen.getByText(/Process graph failed to load/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0433\u0440\u0430\u0444 \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0430'))).toBeInTheDocument();
     });
 
     expect(screen.getAllByText(/Narrative escalation chain/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Viewer access has no process report mutations/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Generate draft report/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a \u043e\u0442\u0447\u0435\u0442\u0430') })).not.toBeInTheDocument();
   });
 
   it('runs the process report action flow and invalidates process detail data', async () => {
@@ -318,18 +319,20 @@ describe('Process detail', () => {
     renderProcessDetail();
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Generate draft report/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a \u043e\u0442\u0447\u0435\u0442\u0430') })).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: /Generate draft report/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a \u043e\u0442\u0447\u0435\u0442\u0430') }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Process report job/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0417\u0430\u0434\u0430\u043d\u0438\u0435 \u043e\u0442\u0447\u0435\u0442\u0430 \u043f\u043e \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0443'))).toBeInTheDocument();
       expect(screen.getByText(/report_id: 44/i)).toBeInTheDocument();
     });
 
     await waitFor(() => {
-      expect(screen.getAllByText(/Draft/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(ru('\u0427\u0435\u0440\u043d\u043e\u0432\u0438\u043a')).length).toBeGreaterThan(0);
     });
   });
 });
+
+

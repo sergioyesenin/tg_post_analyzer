@@ -15,6 +15,8 @@ import {
 } from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
 
+const ru = (value: string) => JSON.parse('"' + value + '"') as string;
+
 function createAuthApiMock(roles: string[] = ['analyst']) {
   return {
     login: vi.fn(),
@@ -73,7 +75,7 @@ function installDetailGetMock(options?: {
 
     if (path === '/api/reports/post/42') {
       if (report === null) {
-        throw Object.assign(new Error('Not found'), { status: 404, name: 'ApiError' });
+        return null;
       }
 
       return report;
@@ -110,12 +112,12 @@ describe('Post detail screen', () => {
     renderPostDetail();
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /Post #42/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: ru('\u041f\u043e\u0441\u0442 #42') })).toBeInTheDocument();
     });
 
     expect(screen.getByText(/Detailed post body for the post detail screen/i)).toBeInTheDocument();
-    expect(screen.getByText(/3 comments/i)).toBeInTheDocument();
-    expect(screen.getByText(/14,300 views/i)).toBeInTheDocument();
+    expect(screen.getByText(ru('\u0033 \u043a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0435\u0432'))).toBeInTheDocument();
+    expect(screen.getByText(/14\s?300 \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u043e\u0432/i)).toBeInTheDocument();
   });
 
   it('loads comments, links, and report blocks', async () => {
@@ -128,9 +130,9 @@ describe('Post detail screen', () => {
     });
 
     expect(screen.getByText(/Nested reply with thread metadata/i)).toBeInTheDocument();
-    expect(screen.getByText(/thread-aware/i)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Open linked post/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Update report/i })).toBeInTheDocument();
+    expect(screen.getByText(ru('\u0441 \u0443\u0447\u0435\u0442\u043e\u043c \u0442\u0440\u0435\u0434\u0430'))).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0441\u0432\u044f\u0437\u0430\u043d\u043d\u044b\u0439 \u043f\u043e\u0441\u0442') })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: ru('\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u043e\u0442\u0447\u0435\u0442') })).toBeInTheDocument();
     expect(screen.getByText(/Report content body/i)).toBeInTheDocument();
   });
 
@@ -193,13 +195,13 @@ describe('Post detail screen', () => {
     renderPostDetail();
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Refresh comments/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: ru('\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u043a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0438') })).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: /Refresh comments/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u043a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0438') }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Comments refresh job/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0417\u0430\u0434\u0430\u043d\u0438\u0435 \u043e\u0431\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u044f \u043a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0435\u0432'))).toBeInTheDocument();
       expect(screen.getByText(/comments_saved: 4/i)).toBeInTheDocument();
     });
 
@@ -258,13 +260,13 @@ describe('Post detail screen', () => {
     renderPostDetail();
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Generate report/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043e\u0442\u0447\u0435\u0442') })).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: /Generate report/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043e\u0442\u0447\u0435\u0442') }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Report job/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0417\u0430\u0434\u0430\u043d\u0438\u0435 \u043e\u0442\u0447\u0435\u0442\u0430'))).toBeInTheDocument();
       expect(screen.getByText(/report_id: 15/i)).toBeInTheDocument();
     });
 
@@ -279,11 +281,11 @@ describe('Post detail screen', () => {
     renderPostDetail('/posts/42', ['viewer']);
 
     await waitFor(() => {
-      expect(screen.getByText(/Viewer access has no post mutations/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0414\u043b\u044f viewer \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b \u043c\u0443\u0442\u0430\u0446\u0438\u0438 \u043f\u043e\u0441\u0442\u0430'))).toBeInTheDocument();
     });
 
-    expect(screen.queryByRole('button', { name: /Refresh comments/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Generate report/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: ru('\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u043a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0438') })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043e\u0442\u0447\u0435\u0442') })).not.toBeInTheDocument();
   });
 
   it('renders failed job result for async actions', async () => {
@@ -299,10 +301,10 @@ describe('Post detail screen', () => {
     renderPostDetail();
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Refresh comments/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: ru('\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u043a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0438') })).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: /Refresh comments/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u043a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0438') }));
 
     await waitFor(() => {
       expect(screen.getByText(/worker_failed/i)).toBeInTheDocument();

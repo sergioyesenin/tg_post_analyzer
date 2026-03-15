@@ -1,7 +1,7 @@
 import { DashboardTableShell } from '@shared/dashboard/components/DashboardTableShell';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import type { ReportType } from '@modules/reports/contracts';
-import { mapReportsRowsToTableRows, reportsColumnsByType, reportsCopyByType } from '@modules/reports/mappers';
+import { getReportsColumnsByType, getReportsCopyByType, mapReportsRowsToTableRows } from '@modules/reports/mappers';
 import type { ReportsListResponseByType } from '@modules/reports/contracts';
 
 type ReportsTableSectionProps<TType extends ReportType> = {
@@ -10,7 +10,8 @@ type ReportsTableSectionProps<TType extends ReportType> = {
 };
 
 export function ReportsTableSection<TType extends ReportType>({ type, items }: ReportsTableSectionProps<TType>) {
-  const copy = reportsCopyByType[type];
+  const copy = getReportsCopyByType()[type];
+  const columns = getReportsColumnsByType()[type];
 
   if (items.length === 0) {
     return <EmptyState title={copy.emptyTitle} description={copy.emptyDescription} />;
@@ -18,9 +19,9 @@ export function ReportsTableSection<TType extends ReportType>({ type, items }: R
 
   return (
     <DashboardTableShell
-      title={`${copy.title} table`}
+      title={copy.tableTitle}
       description={copy.description}
-      columns={reportsColumnsByType[type]}
+      columns={columns}
       rows={mapReportsRowsToTableRows(type, items)}
     />
   );

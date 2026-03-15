@@ -1,10 +1,12 @@
-import { screen, waitFor } from '@testing-library/react';
+﻿import { screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { apiClient } from '@shared/api/client';
 import { AuthApiError } from '@shared/auth/auth-errors';
-import { createPostsDashboardResponse } from '@test/dashboard-fixtures';
+import { createChannelsResponse, createPostsDashboardResponse } from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
+
+const ru = (value: string) => JSON.parse('"' + value + '"') as string;
 
 function createAuthApiMock(overrides: Record<string, unknown> = {}) {
   return {
@@ -19,7 +21,17 @@ function createAuthApiMock(overrides: Record<string, unknown> = {}) {
 describe('Auth guard and RBAC routing', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    vi.spyOn(apiClient, 'get').mockResolvedValue(createPostsDashboardResponse());
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/dashboard/posts') {
+        return createPostsDashboardResponse();
+      }
+
+      if (path === '/api/channels/') {
+        return createChannelsResponse();
+      }
+
+      throw new Error(`Unhandled GET path in auth guard test: ${path}`);
+    });
   });
 
   it('redirects guest users from protected routes to /login', async () => {
@@ -29,7 +41,7 @@ describe('Auth guard and RBAC routing', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /Sign in to the analytics workspace/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: ru('\\u0412\\u0445\\u043e\\u0434 \\u0432 \\u0430\\u043d\\u0430\\u043b\\u0438\\u0442\\u0438\\u0447\\u0435\\u0441\\u043a\\u043e\\u0435 \\u0440\\u0430\\u0431\\u043e\\u0447\\u0435\\u0435 \\u043f\\u0440\\u043e\\u0441\\u0442\\u0440\\u0430\\u043d\\u0441\\u0442\\u0432\\u043e') })).toBeInTheDocument();
     });
   });
 
@@ -56,12 +68,12 @@ describe('Auth guard and RBAC routing', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/Route is restricted/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\\u041c\\u0430\\u0440\\u0448\\u0440\\u0443\\u0442 \\u043d\\u0435\\u0434\\u043e\\u0441\\u0442\\u0443\\u043f\\u0435\\u043d'))).toBeInTheDocument();
     });
 
-    expect(screen.queryByRole('link', { name: /Channels/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /Keyword graph/i })).not.toBeInTheDocument();
-    expect(screen.getByText(/Hidden navigation and direct route access use the same policy source/i)).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: ru('\\u041a\\u0430\\u043d\\u0430\\u043b\\u044b') })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: ru('\\u0413\\u0440\\u0430\\u0444 \\u043a\\u043b\\u044e\\u0447\\u0435\\u0432\\u044b\\u0445 \\u0441\\u043b\\u043e\\u0432') })).not.toBeInTheDocument();
+    expect(screen.getByText(/\/channels/)).toBeInTheDocument();
   });
 
   it('allows analyst to open analyst-level routes', async () => {
@@ -87,7 +99,7 @@ describe('Auth guard and RBAC routing', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/Separate analytical tool for keyword-driven post search/i)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: ru('\\u0413\\u0440\\u0430\\u0444 \\u043a\\u043b\\u044e\\u0447\\u0435\\u0432\\u044b\\u0445 \\u0441\\u043b\\u043e\\u0432') })).toBeInTheDocument();
     });
   });
 
@@ -114,7 +126,8 @@ describe('Auth guard and RBAC routing', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/Posts workspace/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\\u0420\\u0430\\u0431\\u043e\\u0447\\u0435\\u0435 \\u043f\\u0440\\u043e\\u0441\\u0442\\u0440\\u0430\\u043d\\u0441\\u0442\\u0432\\u043e \\u043f\\u043e\\u0441\\u0442\\u043e\\u0432'))).toBeInTheDocument();
     });
   });
 });
+

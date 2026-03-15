@@ -13,6 +13,8 @@ import {
 } from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
 
+const ru = (value: string) => JSON.parse('"' + value + '"') as string;
+
 function createAuthenticatedUser(roles: string[]) {
   return {
     id: 11,
@@ -73,18 +75,18 @@ describe('Reports page', () => {
     renderReports('/reports/posts');
 
     await waitFor(() => {
-      expect(screen.getByText(/Post #4012/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041f\u043e\u0441\u0442 #4012'), { exact: false })).toBeInTheDocument();
     });
 
-    expect(screen.getAllByRole('link', { name: /Open post/i }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u043f\u043e\u0441\u0442') }).length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole('link', { name: /^Events$/i }));
+    await user.click(screen.getByRole('link', { name: ru('\u0421\u043e\u0431\u044b\u0442\u0438\u044f') }));
 
     await waitFor(() => {
       expect(screen.getByText(/Election coverage spike/i)).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('link', { name: /^Processes$/i }));
+    await user.click(screen.getByRole('link', { name: ru('\u041f\u0440\u043e\u0446\u0435\u0441\u0441\u044b') }));
 
     await waitFor(() => {
       expect(screen.getByText(/Narrative escalation chain/i)).toBeInTheDocument();
@@ -103,15 +105,15 @@ describe('Reports page', () => {
     renderReports('/reports/posts?channel_ids=77&limit=25', ['viewer']);
 
     await waitFor(() => {
-      expect(screen.getByText(/Viewer access keeps report catalogs readable/i)).toBeInTheDocument();
+      expect(screen.getByText(/\u0442\u043e\u043b\u044c\u043a\u043e \u0434\u043b\u044f \u0447\u0442\u0435\u043d\u0438\u044f/i)).toBeInTheDocument();
     });
 
-    expect(screen.getByRole('link', { name: /Export CSV/i })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: ru('\u042d\u043a\u0441\u043f\u043e\u0440\u0442 CSV') })).toHaveAttribute(
       'href',
       expect.stringContaining('/api/reports/posts/export?channel_ids=77&limit=25&offset=0&format=csv'),
     );
-    expect(screen.getByRole('link', { name: /Export JSON/i })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Generate by filter/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: ru('\u042d\u043a\u0441\u043f\u043e\u0440\u0442 JSON') })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043f\u043e \u0444\u0438\u043b\u044c\u0442\u0440\u0443') })).not.toBeInTheDocument();
   });
 
   it('runs batch report generation flow for post reports and refreshes the list', async () => {
@@ -151,18 +153,18 @@ describe('Reports page', () => {
     renderReports('/reports/posts?channel_ids=77&categories=media&min_comments=5&limit=25');
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Generate by filter/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043f\u043e \u0444\u0438\u043b\u044c\u0442\u0440\u0443') })).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: /Generate by filter/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043f\u043e \u0444\u0438\u043b\u044c\u0442\u0440\u0443') }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Batch report job/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041f\u0430\u043a\u0435\u0442\u043d\u043e\u0435 \u0437\u0430\u0434\u0430\u043d\u0438\u0435 \u043e\u0442\u0447\u0435\u0442\u043e\u0432'))).toBeInTheDocument();
       expect(screen.getByText(/report_id: 601/i)).toBeInTheDocument();
     });
 
     await waitFor(() => {
-      expect(screen.getAllByText(/Draft/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(ru('\u0427\u0435\u0440\u043d\u043e\u0432\u0438\u043a')).length).toBeGreaterThan(0);
     });
 
     expect(apiClient.post).toHaveBeenCalledWith(
@@ -182,7 +184,7 @@ describe('Reports page', () => {
     renderReports('/reports/events');
 
     await waitFor(() => {
-      expect(screen.getByText(/No event reports match the current filters/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041d\u0435\u0442 \u043e\u0442\u0447\u0435\u0442\u043e\u0432 \u043f\u043e \u0441\u043e\u0431\u044b\u0442\u0438\u044f\u043c \u0434\u043b\u044f \u0442\u0435\u043a\u0443\u0449\u0438\u0445 \u0444\u0438\u043b\u044c\u0442\u0440\u043e\u0432'))).toBeInTheDocument();
     });
 
     vi.restoreAllMocks();
@@ -198,7 +200,7 @@ describe('Reports page', () => {
     renderReports('/reports/processes');
 
     await waitFor(() => {
-      expect(screen.getByText(/Reports catalog failed to load/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u043a\u0430\u0442\u0430\u043b\u043e\u0433 \u043e\u0442\u0447\u0435\u0442\u043e\u0432'))).toBeInTheDocument();
     });
   });
 });

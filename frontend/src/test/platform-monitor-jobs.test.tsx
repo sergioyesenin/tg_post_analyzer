@@ -1,4 +1,4 @@
-import { cleanup, screen, waitFor } from '@testing-library/react';
+﻿import { cleanup, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,6 +10,8 @@ import {
   createPendingJobsResponse,
 } from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
+
+const ru = (value: string) => JSON.parse('"' + value + '"') as string;
 
 function createAuthenticatedUser(roles: string[]) {
   return {
@@ -55,7 +57,7 @@ describe('Monitor and jobs modules', () => {
     renderProtected('/monitor', ['analyst']);
 
     await waitFor(() => {
-      expect(screen.getByText(/Route is restricted/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041c\u0430\u0440\u0448\u0440\u0443\u0442 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d'))).toBeInTheDocument();
     });
 
     cleanup();
@@ -63,7 +65,7 @@ describe('Monitor and jobs modules', () => {
     renderProtected('/jobs', ['viewer']);
 
     await waitFor(() => {
-      expect(screen.getByText(/Route is restricted/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041c\u0430\u0440\u0448\u0440\u0443\u0442 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d'))).toBeInTheDocument();
     });
   });
 
@@ -79,11 +81,11 @@ describe('Monitor and jobs modules', () => {
     renderProtected('/monitor');
 
     await waitFor(() => {
-      expect(screen.getByText(/Admin-only monitor snapshot/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0421\u043d\u0438\u043c\u043e\u043a \u043c\u043e\u043d\u0438\u0442\u043e\u0440\u0438\u043d\u0433\u0430 \u0434\u043b\u044f admin, \u043f\u043e\u0441\u0442\u0440\u043e\u0435\u043d\u043d\u044b\u0439 \u043d\u0430 GET /api/monitor/full \u0431\u0435\u0437 \u043f\u0440\u0435\u0434\u043f\u043e\u043b\u043e\u0436\u0435\u043d\u0438\u0439 \u043e \u043d\u0435\u043f\u043e\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u043c\u044b\u0445 \u0441\u043f\u0435\u0446\u0438\u0430\u043b\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u043d\u043d\u044b\u0445 \u0432\u043a\u043b\u0430\u0434\u043a\u0430\u0445.'))).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/Snapshot at/i)).toBeInTheDocument();
-    expect(screen.getAllByText(/Critical/i)[0]).toBeInTheDocument();
+    expect(screen.getByText(/\u0421\u043d\u0438\u043c\u043e\u043a \u043d\u0430/u)).toBeInTheDocument();
+    expect(screen.getAllByText(ru('\\u041a\\u0440\\u0438\\u0442\\u0438\\u0447\\u043d\\u043e'))[0]).toBeInTheDocument();
     expect(screen.getAllByText(/Telegram pipeline/i)[0]).toBeInTheDocument();
     expect(screen.getByText(/Retry lag is above threshold/i)).toBeInTheDocument();
   });
@@ -122,18 +124,18 @@ describe('Monitor and jobs modules', () => {
     renderProtected('/jobs');
 
     await waitFor(() => {
-      expect(screen.getByText(/Admin-only queue inspection/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041f\u0440\u043e\u0441\u043c\u043e\u0442\u0440 \u043e\u0447\u0435\u0440\u0435\u0434\u0438 \u0434\u043b\u044f admin \u0441 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u043d\u044b\u043c\u0438 retry-\u0441\u0446\u0435\u043d\u0430\u0440\u0438\u044f\u043c\u0438 \u0434\u043b\u044f failed jobs \u0438 dead-letter rows.'))).toBeInTheDocument();
     });
 
-    expect(screen.getByRole('button', { name: /Retry failed job/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Retry dead letter/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: ru('\u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u044c failed job') })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: ru('\u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u044c dead letter') })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /Retry failed job/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u044c failed job') }));
     await waitFor(() => {
       expect(postSpy).toHaveBeenCalledWith('/api/jobs/failed/12/retry');
     });
 
-    await user.click(screen.getByRole('button', { name: /Retry dead letter/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u044c dead letter') }));
     await waitFor(() => {
       expect(postSpy).toHaveBeenCalledWith('/api/jobs/dead-letter/91/retry');
     });
@@ -159,10 +161,10 @@ describe('Monitor and jobs modules', () => {
     renderProtected('/jobs');
 
     await waitFor(() => {
-      expect(screen.getByText(/No pending jobs/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041d\u0435\u0442 \u043e\u0436\u0438\u0434\u0430\u044e\u0449\u0438\u0445 \u0437\u0430\u0434\u0430\u043d\u0438\u0439'))).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/No dead-letter jobs/i)).toBeInTheDocument();
+    expect(screen.getByText(ru('\u041d\u0435\u0442 dead-letter \u0437\u0430\u0434\u0430\u043d\u0438\u0439'))).toBeInTheDocument();
   });
 
   it('renders forbidden backend states for monitor and jobs', async () => {
@@ -181,7 +183,7 @@ describe('Monitor and jobs modules', () => {
     renderProtected('/monitor');
 
     await waitFor(() => {
-      expect(screen.getByText(/Monitor module is restricted/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041c\u043e\u0434\u0443\u043b\u044c \u043c\u043e\u043d\u0438\u0442\u043e\u0440\u0438\u043d\u0433\u0430 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d'))).toBeInTheDocument();
     });
 
     cleanup();
@@ -189,7 +191,8 @@ describe('Monitor and jobs modules', () => {
     renderProtected('/jobs');
 
     await waitFor(() => {
-      expect(screen.getByText(/Jobs module is restricted/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041c\u043e\u0434\u0443\u043b\u044c \u0437\u0430\u0434\u0430\u043d\u0438\u0439 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d'))).toBeInTheDocument();
     });
   });
 });
+

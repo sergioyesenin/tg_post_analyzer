@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 import { ReportStatusBadge } from '@shared/ui/status/ReportStatusBadge';
 import type { ProcessGraphPanelViewModel } from '@modules/workspace/processes/mappers';
@@ -34,16 +35,18 @@ type ProcessDetailPanelProps = {
 };
 
 export function ProcessDetailPanel({ process, graph, relatedEvents, actionSlot }: ProcessDetailPanelProps) {
+  const { t } = useTranslation();
+
   if (!process) {
     return (
       <section className="detail-block detail-block--process">
         <div className="detail-block__header">
           <div>
-            <span className="state-card__eyebrow">detail panel</span>
-            <strong>Selected process</strong>
+            <span className="state-card__eyebrow">{t('processes.detail.eyebrow')}</span>
+            <strong>{t('processes.detail.selectedTitle')}</strong>
           </div>
         </div>
-        <p className="dashboard-panel-copy">Select a process row to keep the detail panel and hierarchy graph synchronized.</p>
+        <p className="dashboard-panel-copy">{t('processes.detail.emptyDescription')}</p>
       </section>
     );
   }
@@ -58,8 +61,8 @@ export function ProcessDetailPanel({ process, graph, relatedEvents, actionSlot }
     })) ??
     process.eventIds.map((eventId) => ({
       eventId,
-      title: `Event ${eventId}`,
-      relationType: 'confirmed relation',
+      title: t('processes.detail.fallbackEvent', { id: eventId }),
+      relationType: t('processes.detail.fallbackRelation'),
       postIds: [],
     }));
 
@@ -67,7 +70,7 @@ export function ProcessDetailPanel({ process, graph, relatedEvents, actionSlot }
     <section className="detail-block detail-block--process">
       <div className="detail-block__header">
         <div>
-          <span className="state-card__eyebrow">detail panel</span>
+          <span className="state-card__eyebrow">{t('processes.detail.eyebrow')}</span>
           <strong>{process.title}</strong>
         </div>
         {actionSlot}
@@ -75,54 +78,28 @@ export function ProcessDetailPanel({ process, graph, relatedEvents, actionSlot }
 
       <div className="process-detail-panel">
         <div className="process-detail-panel__summary">
-          <div>
-            <span>Status</span>
-            <strong>{process.status}</strong>
-          </div>
-          <div>
-            <span>Started</span>
-            <strong>{process.startedAt}</strong>
-          </div>
-          <div>
-            <span>Ended</span>
-            <strong>{process.endedAt}</strong>
-          </div>
-          <div>
-            <span>Confidence</span>
-            <strong>{process.confidence}</strong>
-          </div>
-          <div>
-            <span>Events</span>
-            <strong>{process.eventsCount}</strong>
-          </div>
-          <div>
-            <span>Comments</span>
-            <strong>{process.commentsCount}</strong>
-          </div>
-          <div>
-            <span>Involvement</span>
-            <strong>{process.involvement}</strong>
-          </div>
-          <div>
-            <span>Hierarchy layer</span>
-            <strong>process {'->'} event {'->'} post</strong>
-          </div>
+          <div><span>{t('processes.detail.status')}</span><strong>{process.status}</strong></div>
+          <div><span>{t('processes.detail.started')}</span><strong>{process.startedAt}</strong></div>
+          <div><span>{t('processes.detail.ended')}</span><strong>{process.endedAt}</strong></div>
+          <div><span>{t('processes.detail.confidence')}</span><strong>{process.confidence}</strong></div>
+          <div><span>{t('processes.detail.events')}</span><strong>{process.eventsCount}</strong></div>
+          <div><span>{t('processes.detail.comments')}</span><strong>{process.commentsCount}</strong></div>
+          <div><span>{t('processes.detail.involvement')}</span><strong>{process.involvement}</strong></div>
+          <div><span>{t('processes.detail.hierarchyLayer')}</span><strong>{t('processes.detail.hierarchyValue')}</strong></div>
         </div>
 
         <div className="process-detail-panel__report">
           <div className="process-detail-panel__report-header">
-            <span className="state-card__eyebrow">process report</span>
+            <span className="state-card__eyebrow">{t('processes.detail.reportEyebrow')}</span>
             <ReportStatusBadge status={graph?.summary.reportStatus ?? process.reportStatus} />
           </div>
-          <p className="dashboard-panel-copy">
-            Draft report action runs async and refreshes both the processes dashboard row and selected process hierarchy snapshot.
-          </p>
+          <p className="dashboard-panel-copy">{t('processes.detail.reportDescription')}</p>
         </div>
 
         <div className="process-detail-panel__events">
           <div className="process-detail-panel__events-header">
-            <span className="state-card__eyebrow">related events</span>
-            <strong>{mergedRelatedEvents.length} linked events</strong>
+            <span className="state-card__eyebrow">{t('processes.detail.relatedEyebrow')}</span>
+            <strong>{t('processes.detail.linkedEvents', { count: mergedRelatedEvents.length })}</strong>
           </div>
           <div className="detail-list">
             {mergedRelatedEvents.map((event) => (
@@ -131,17 +108,13 @@ export function ProcessDetailPanel({ process, graph, relatedEvents, actionSlot }
                   <strong>{event.title}</strong>
                   <p>
                     {event.relationType}
-                    {event.postIds.length > 0 ? ` | ${event.postIds.length} confirmed posts` : ''}
+                    {event.postIds.length > 0 ? ` | ${t('processes.detail.confirmedPosts', { count: event.postIds.length })}` : ''}
                   </p>
                 </div>
                 <div className="detail-list__actions">
-                  <Link className="table-link" to={`/events/${event.eventId}`}>
-                    Open event
-                  </Link>
+                  <Link className="table-link" to={`/events/${event.eventId}`}>{t('processes.detail.openEvent')}</Link>
                   {event.postIds[0] ? (
-                    <Link className="table-link" to={`/posts/${event.postIds[0]}`}>
-                      Lead post
-                    </Link>
+                    <Link className="table-link" to={`/posts/${event.postIds[0]}`}>{t('processes.detail.leadPost')}</Link>
                   ) : null}
                 </div>
               </div>
@@ -150,14 +123,12 @@ export function ProcessDetailPanel({ process, graph, relatedEvents, actionSlot }
         </div>
 
         {process.graphReady === false ? (
-          <section className="dashboard-banner dashboard-banner--partial" aria-label="Hierarchy readiness notice">
+          <section className="dashboard-banner dashboard-banner--partial" aria-label={t('processes.detail.readinessAria')}>
             <div>
-              <span className="dashboard-banner__eyebrow">hierarchy readiness</span>
-              <strong>Nested events are still catching up</strong>
+              <span className="dashboard-banner__eyebrow">{t('processes.detail.readinessEyebrow')}</span>
+              <strong>{t('processes.detail.readinessTitle')}</strong>
             </div>
-            <p className="dashboard-banner__text">
-              The selected process remains explorable even while the hierarchy graph is only partially enriched.
-            </p>
+            <p className="dashboard-banner__text">{t('processes.detail.readinessDescription')}</p>
           </section>
         ) : null}
       </div>

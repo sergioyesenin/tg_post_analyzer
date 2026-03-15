@@ -1,27 +1,28 @@
+﻿import { i18n } from '@shared/i18n/i18n';
 import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
 import type { ChannelDto, AdminUserDto, AppSettingDto } from '@modules/admin/contracts';
 import { formatUtcDateTime } from '@shared/utils/formatters';
 
 export const channelsColumns: DashboardTableColumn[] = [
-  { id: 'channel', label: 'Channel' },
-  { id: 'category', label: 'Category' },
-  { id: 'active', label: 'Active' },
-  { id: 'actions', label: 'Actions' },
+  { id: 'channel', label: i18n.t('admin.channels.table.channel') },
+  { id: 'category', label: i18n.t('admin.channels.table.category') },
+  { id: 'active', label: i18n.t('admin.channels.table.active') },
+  { id: 'actions', label: i18n.t('admin.channels.table.actions') },
 ];
 
 export const usersColumns: DashboardTableColumn[] = [
-  { id: 'user', label: 'User' },
-  { id: 'roles', label: 'Roles' },
-  { id: 'active', label: 'Active' },
-  { id: 'created', label: 'Created' },
-  { id: 'actions', label: 'Actions' },
+  { id: 'user', label: i18n.t('admin.users.table.user') },
+  { id: 'roles', label: i18n.t('admin.users.table.roles') },
+  { id: 'active', label: i18n.t('admin.users.table.active') },
+  { id: 'created', label: i18n.t('admin.users.table.created') },
+  { id: 'actions', label: i18n.t('admin.users.table.actions') },
 ];
 
 export const settingsColumns: DashboardTableColumn[] = [
-  { id: 'key', label: 'Key' },
-  { id: 'description', label: 'Description' },
-  { id: 'updated_by', label: 'Updated by' },
-  { id: 'updated_at', label: 'Updated at' },
+  { id: 'key', label: i18n.t('admin.settings.table.key') },
+  { id: 'description', label: i18n.t('admin.settings.table.description') },
+  { id: 'updated_by', label: i18n.t('admin.settings.table.updatedBy') },
+  { id: 'updated_at', label: i18n.t('admin.settings.table.updatedAt') },
 ];
 
 export function mapChannelsToRows(
@@ -36,14 +37,14 @@ export function mapChannelsToRows(
       channel: (
         <div className="dashboard-table-shell__cell-stack">
           <strong>@{channel.username}</strong>
-          <span>{channel.title ?? 'n/a'}</span>
+          <span>{channel.title ?? i18n.t('common.na')}</span>
         </div>
       ),
-      category: channel.category ?? 'n/a',
-      active: channel.is_active ? 'yes' : 'no',
+      category: channel.category ?? i18n.t('common.na'),
+      active: channel.is_active ? i18n.t('common.yes') : i18n.t('common.no'),
       actions: (
         <button type="button" className="dashboard-button dashboard-button--ghost" onClick={() => onSelect(channel.id)}>
-          {channel.id === selectedChannelId ? 'Selected' : 'Manage'}
+          {channel.id === selectedChannelId ? i18n.t('common.selected') : i18n.t('admin.common.manage')}
         </button>
       ),
     },
@@ -62,15 +63,15 @@ export function mapUsersToRows(
       user: (
         <div className="dashboard-table-shell__cell-stack">
           <strong>{user.username}</strong>
-          <span>{user.email ?? 'n/a'}</span>
+          <span>{user.email ?? i18n.t('common.na')}</span>
         </div>
       ),
-      roles: user.roles.join(', '),
-      active: user.is_active ? 'yes' : 'no',
+      roles: user.roles.map((role) => i18n.t(`admin.roles.${role}`)).join(', '),
+      active: user.is_active ? i18n.t('common.yes') : i18n.t('common.no'),
       created: formatUtcDateTime(user.created_at),
       actions: (
         <button type="button" className="dashboard-button dashboard-button--ghost" onClick={() => onSelect(user.id)}>
-          {user.id === selectedUserId ? 'Selected' : 'Manage'}
+          {user.id === selectedUserId ? i18n.t('common.selected') : i18n.t('admin.common.manage')}
         </button>
       ),
     },
@@ -82,8 +83,8 @@ export function mapSettingsToRows(settings: AppSettingDto[]): DashboardTableRow[
     id: setting.key,
     cells: {
       key: setting.key,
-      description: setting.description ?? 'n/a',
-      updated_by: setting.updated_by_user_id === null ? 'system' : String(setting.updated_by_user_id),
+      description: setting.description ?? i18n.t('common.na'),
+      updated_by: setting.updated_by_user_id === null ? i18n.t('admin.common.system') : String(setting.updated_by_user_id),
       updated_at: formatUtcDateTime(setting.updated_at),
     },
   }));

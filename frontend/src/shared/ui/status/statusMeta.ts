@@ -1,3 +1,5 @@
+import { i18n } from '@shared/i18n/i18n';
+
 export type StatusTone = 'muted' | 'warning' | 'success' | 'danger' | 'info';
 
 export type StatusMeta = {
@@ -6,32 +8,32 @@ export type StatusMeta = {
 };
 
 const reportStatusMeta: Record<string, StatusMeta> = {
-  missing: { label: 'Missing', tone: 'muted' },
-  pending: { label: 'Pending', tone: 'warning' },
-  draft: { label: 'Draft', tone: 'info' },
-  ready: { label: 'Ready', tone: 'success' },
-  failed: { label: 'Failed', tone: 'danger' },
+  missing: { label: i18n.t('statusLabels.missing'), tone: 'muted' },
+  pending: { label: i18n.t('statusLabels.pending'), tone: 'warning' },
+  draft: { label: i18n.t('statusLabels.draft'), tone: 'info' },
+  ready: { label: i18n.t('statusLabels.ready'), tone: 'success' },
+  failed: { label: i18n.t('statusLabels.failed'), tone: 'danger' },
 };
 
 const jobStatusMeta: Record<string, StatusMeta> = {
-  pending: { label: 'Pending', tone: 'warning' },
-  running: { label: 'Running', tone: 'info' },
-  done: { label: 'Done', tone: 'success' },
-  failed: { label: 'Failed', tone: 'danger' },
+  pending: { label: i18n.t('statusLabels.pending'), tone: 'warning' },
+  running: { label: i18n.t('statusLabels.running'), tone: 'info' },
+  done: { label: i18n.t('statusLabels.done'), tone: 'success' },
+  failed: { label: i18n.t('statusLabels.failed'), tone: 'danger' },
 };
 
 const monitorStatusMeta: Record<string, StatusMeta> = {
-  ok: { label: 'OK', tone: 'success' },
-  warning: { label: 'Warning', tone: 'warning' },
-  critical: { label: 'Critical', tone: 'danger' },
-  degraded: { label: 'Degraded', tone: 'warning' },
-  disabled: { label: 'Disabled', tone: 'muted' },
-  late_or_missing: { label: 'Late or missing', tone: 'warning' },
-  process_missing: { label: 'Process missing', tone: 'danger' },
-  process_stale: { label: 'Process stale', tone: 'warning' },
-  process_stopped: { label: 'Process stopped', tone: 'danger' },
-  process_unknown: { label: 'Process unknown', tone: 'warning' },
-  running: { label: 'Running', tone: 'info' },
+  ok: { label: i18n.t('statusLabels.ok'), tone: 'success' },
+  warning: { label: i18n.t('statusLabels.warning'), tone: 'warning' },
+  critical: { label: i18n.t('statusLabels.critical'), tone: 'danger' },
+  degraded: { label: i18n.t('statusLabels.degraded'), tone: 'warning' },
+  disabled: { label: i18n.t('statusLabels.disabled'), tone: 'muted' },
+  late_or_missing: { label: i18n.t('statusLabels.late_or_missing'), tone: 'warning' },
+  process_missing: { label: i18n.t('statusLabels.process_missing'), tone: 'danger' },
+  process_stale: { label: i18n.t('statusLabels.process_stale'), tone: 'warning' },
+  process_stopped: { label: i18n.t('statusLabels.process_stopped'), tone: 'danger' },
+  process_unknown: { label: i18n.t('statusLabels.process_unknown'), tone: 'warning' },
+  running: { label: i18n.t('statusLabels.running'), tone: 'info' },
 };
 
 function normalizeStatus(value: string | null | undefined) {
@@ -40,7 +42,7 @@ function normalizeStatus(value: string | null | undefined) {
 
 function fallbackStatusMeta(status: string | null | undefined): StatusMeta {
   return {
-    label: status && status.trim().length > 0 ? status : 'Unknown',
+    label: status && status.trim().length > 0 ? status : i18n.t('common.unknown'),
     tone: 'muted',
   };
 }

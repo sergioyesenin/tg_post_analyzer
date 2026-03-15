@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { ReportType, ReportsFiltersByType } from '@modules/reports/contracts';
 import { serializeReportsFilters } from '@modules/reports/filters';
@@ -15,6 +16,7 @@ function formatArrayInput(value: readonly string[] | readonly number[]) {
 }
 
 export function ReportsFilterBar<TType extends ReportType>({ type, filters, onApply, onReset }: ReportsFilterBarProps<TType>) {
+  const { t } = useTranslation();
   const buildFormState = () => ({
     date_from: String(filters.date_from ?? ''),
     date_to: String(filters.date_to ?? ''),
@@ -81,80 +83,70 @@ export function ReportsFilterBar<TType extends ReportType>({ type, filters, onAp
   };
 
   return (
-    <section className="dashboard-filter-bar" aria-label="Reports filters">
+    <section className="dashboard-filter-bar" aria-label={t('reports.filters.ariaLabel', { defaultValue: 'Фильтры отчетов' })}>
       <div className="dashboard-filter-bar__header">
         <div>
-          <span className="state-card__eyebrow">filters</span>
-          <strong>URL-driven report filters</strong>
+          <span className="state-card__eyebrow">{t('states.filters')}</span>
+          <strong>{t('reports.filters.title', { defaultValue: 'Фильтры отчетов в URL' })}</strong>
         </div>
-        <code>{previewQuery || 'default report filters'}</code>
+        <code>{previewQuery || t('reports.filters.defaultQuery', { defaultValue: 'фильтры отчетов по умолчанию' })}</code>
       </div>
 
       <div className="dashboard-filter-grid">
         <label>
-          <span>Date from</span>
+          <span>{t('fields.dateFrom')}</span>
           <input type="date" value={formState.date_from} onChange={(event) => updateField('date_from', event.target.value)} />
         </label>
         <label>
-          <span>Date to</span>
+          <span>{t('fields.dateTo')}</span>
           <input type="date" value={formState.date_to} onChange={(event) => updateField('date_to', event.target.value)} />
         </label>
         <label>
-          <span>Limit</span>
+          <span>{t('fields.limit')}</span>
           <input type="number" min="1" value={formState.limit} onChange={(event) => updateField('limit', event.target.value)} />
         </label>
         <label>
-          <span>Offset</span>
+          <span>{t('reports.fields.offset', { defaultValue: 'Смещение' })}</span>
           <input type="number" min="0" value={formState.offset} onChange={(event) => updateField('offset', event.target.value)} />
         </label>
         {'channel_ids' in filters ? (
           <label>
-            <span>Channel ids</span>
+            <span>{t('fields.channelIds')}</span>
             <input value={formState.channel_ids} onChange={(event) => updateField('channel_ids', event.target.value)} />
           </label>
         ) : null}
         {'categories' in filters ? (
           <label>
-            <span>Categories</span>
+            <span>{t('fields.categories')}</span>
             <input value={formState.categories} onChange={(event) => updateField('categories', event.target.value)} />
           </label>
         ) : null}
         {'min_comments' in filters ? (
           <label>
-            <span>Min comments</span>
-            <input
-              type="number"
-              min="0"
-              value={formState.min_comments}
-              onChange={(event) => updateField('min_comments', event.target.value)}
-            />
+            <span>{t('fields.minComments')}</span>
+            <input type="number" min="0" value={formState.min_comments} onChange={(event) => updateField('min_comments', event.target.value)} />
           </label>
         ) : null}
         {'event_id' in filters ? (
           <label>
-            <span>Event id</span>
+            <span>{t('reports.fields.eventId', { defaultValue: 'ID события' })}</span>
             <input type="number" min="1" value={formState.event_id} onChange={(event) => updateField('event_id', event.target.value)} />
           </label>
         ) : null}
         {'process_id' in filters ? (
           <label>
-            <span>Process id</span>
-            <input
-              type="number"
-              min="1"
-              value={formState.process_id}
-              onChange={(event) => updateField('process_id', event.target.value)}
-            />
+            <span>{t('reports.fields.processId', { defaultValue: 'ID процесса' })}</span>
+            <input type="number" min="1" value={formState.process_id} onChange={(event) => updateField('process_id', event.target.value)} />
           </label>
         ) : null}
       </div>
 
       <div className="dashboard-filter-bar__actions">
         <button type="button" className="dashboard-button dashboard-button--ghost" onClick={onReset}>
-          Reset filters
+          {t('actions.resetFilters')}
         </button>
         <button type="button" className="dashboard-button" onClick={handleApply}>
-          Apply filters
+          {t('actions.applyFilters')}
         </button>
       </div>
     </section>

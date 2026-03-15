@@ -6,5 +6,5 @@ type EmptyStateProps = {
 };
 
 export function EmptyState({ title, description }: EmptyStateProps) {
-  return <StateCard eyebrow="empty" tone="empty" title={title} description={description} />;
+  return <StateCard eyebrow="states.empty" tone="empty" title={title} description={description} />;
 }

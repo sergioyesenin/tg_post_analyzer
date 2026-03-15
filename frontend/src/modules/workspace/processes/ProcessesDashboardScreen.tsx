@@ -27,8 +27,10 @@ import {
   mapProcessesRowsToTableRows,
   processesDashboardColumns,
 } from '@modules/workspace/processes/mappers';
+import { useTranslation } from 'react-i18next';
 
 export function ProcessesDashboardScreen() {
+  const { t } = useTranslation();
   const { filters, applyFilters, resetFilters } = useDashboardFilters('processes');
   const { user, primaryRole } = useSession();
   const roles = user?.roles ?? [];
@@ -47,15 +49,12 @@ export function ProcessesDashboardScreen() {
       <div className="dashboard-page">
         <section className="dashboard-page__hero">
           <div>
-            <h2>Processes workspace</h2>
-            <p>Primary source: `/api/dashboard/processes`. Selection stabilizes around process-level hierarchy exploration.</p>
+            <h2>{t('processes.dashboard.heroTitle')}</h2>
+            <p>{t('processes.dashboard.sourceDescription')}</p>
           </div>
         </section>
         <DashboardFilterBar mode="processes" filters={filters} onApply={applyFilters} onReset={resetFilters} />
-        <LoadingState
-          title="Loading processes dashboard"
-          description="The dashboard snapshot is being loaded from /api/dashboard/processes."
-        />
+        <LoadingState title={t('processes.dashboard.loadingTitle')} description={t('processes.dashboard.loadingDescription')} />
       </div>
     );
   }
@@ -68,21 +67,15 @@ export function ProcessesDashboardScreen() {
       <div className="dashboard-page">
         <section className="dashboard-page__hero">
           <div>
-            <h2>Processes workspace</h2>
-            <p>Primary source: `/api/dashboard/processes`. Selection stabilizes around process-level hierarchy exploration.</p>
+            <h2>{t('processes.dashboard.heroTitle')}</h2>
+            <p>{t('processes.dashboard.sourceDescription')}</p>
           </div>
         </section>
         <DashboardFilterBar mode="processes" filters={filters} onApply={applyFilters} onReset={resetFilters} />
         {isForbidden ? (
-          <ForbiddenState
-            title="Processes dashboard is not available for this role"
-            description="The route is visible, but the backend denied access to the processes dashboard snapshot."
-          />
+          <ForbiddenState title={t('processes.dashboard.forbiddenTitle')} description={t('processes.dashboard.forbiddenDescription')} />
         ) : (
-          <ErrorState
-            title="Processes dashboard failed to load"
-            description="The snapshot request failed. Retry when the dashboard backend becomes available."
-          />
+          <ErrorState title={t('processes.dashboard.errorTitle')} description={t('processes.dashboard.errorDescription')} />
         )}
       </div>
     );
@@ -93,15 +86,12 @@ export function ProcessesDashboardScreen() {
       <div className="dashboard-page">
         <section className="dashboard-page__hero">
           <div>
-            <h2>Processes workspace</h2>
-            <p>Primary source: `/api/dashboard/processes`. Selection stabilizes around process-level hierarchy exploration.</p>
+            <h2>{t('processes.dashboard.heroTitle')}</h2>
+            <p>{t('processes.dashboard.sourceDescription')}</p>
           </div>
         </section>
         <DashboardFilterBar mode="processes" filters={filters} onApply={applyFilters} onReset={resetFilters} />
-        <ErrorState
-          title="Processes dashboard returned no data"
-          description="The request finished without a dashboard payload. Retry when the backend snapshot is available."
-        />
+        <ErrorState title={t('processes.dashboard.noDataTitle')} description={t('processes.dashboard.noDataDescription')} />
       </div>
     );
   }
@@ -109,10 +99,7 @@ export function ProcessesDashboardScreen() {
   if (!viewModel) {
     return (
       <div className="dashboard-page">
-        <ErrorState
-          title="Processes dashboard mapping failed"
-          description="The dashboard payload is present, but the UI view model could not be constructed."
-        />
+        <ErrorState title={t('processes.dashboard.mappingTitle')} description={t('processes.dashboard.mappingDescription')} />
       </div>
     );
   }
@@ -120,7 +107,7 @@ export function ProcessesDashboardScreen() {
   const processesViewModel = viewModel;
   const graphPartialHint =
     selectedProcess && (!selectedProcess.graphReady || processesViewModel.isPartial)
-      ? 'Partial warnings do not block hierarchy exploration. Nested events and confirmed post context remain visible where available.'
+      ? t('processes.dashboard.partialHint')
       : null;
 
   return (
@@ -129,8 +116,8 @@ export function ProcessesDashboardScreen() {
 
       <section className="dashboard-page__hero">
         <div>
-          <h2>Processes workspace</h2>
-          <p>Process mode emphasizes hierarchy: process summary, nested events, and confirmed post context stay synchronized around one selected process.</p>
+          <h2>{t('processes.dashboard.heroTitle')}</h2>
+          <p>{t('processes.dashboard.heroDescription')}</p>
         </div>
         <DashboardGeneratedAt generatedAt={processesViewModel.generatedAt} />
       </section>
@@ -140,23 +127,17 @@ export function ProcessesDashboardScreen() {
       <DashboardFilterBar mode="processes" filters={filters} onApply={applyFilters} onReset={resetFilters} />
 
       {primaryRole === 'viewer' ? (
-        <ReadOnlyNotice
-          title="Viewer access hides process report mutations"
-          description="Selection, hierarchy exploration, and event or post navigation remain available while report draft actions stay hidden."
-        />
+        <ReadOnlyNotice title={t('processes.dashboard.readOnlyTitle')} description={t('processes.dashboard.readOnlyDescription')} />
       ) : null}
 
       {processesViewModel.rows.length === 0 ? (
-        <EmptyState
-          title="No processes match the current filters"
-          description="The dashboard loaded successfully, but the snapshot contains no process rows for these filters."
-        />
+        <EmptyState title={t('processes.dashboard.emptyTitle')} description={t('processes.dashboard.emptyDescription')} />
       ) : (
         <section className="dashboard-page__content dashboard-page__content--workspace">
           <div className="dashboard-page__primary">
             <DashboardTableShell
-              title="Processes table"
-              description="Process list with stable selection, hierarchy entry points, and process report status."
+              title={t('processes.dashboard.tableTitle')}
+              description={t('processes.dashboard.tableDescription')}
               columns={[...processesDashboardColumns]}
               rows={mapProcessesRowsToTableRows(processesViewModel.rows, selectedProcessId, selectProcess, primaryRole)}
             />
@@ -186,7 +167,7 @@ export function ProcessesDashboardScreen() {
                     disabled={reportAction.isSubmitting || reportAction.jobStatus === 'running'}
                     onClick={() => reportAction.run(undefined)}
                   >
-                    {selectedProcess.reportStatus === 'draft' ? 'Update draft report' : 'Generate draft report'}
+                    {selectedProcess.reportStatus === 'draft' ? t('actions.updateDraftReport') : t('actions.generateDraftReport')}
                   </button>
                 ) : null
               }
@@ -194,8 +175,8 @@ export function ProcessesDashboardScreen() {
 
             {canMutate && selectedProcess && reportAction.jobStatus ? (
               <AsyncActionIndicator
-                title="Process report job"
-                description="Draft report generation uses jobs polling and invalidates both dashboard rows and selected process hierarchy snapshot."
+                title={t('processes.rows.reportJobTitle')}
+                description={t('processes.rows.reportJobDescription')}
                 status={reportAction.jobStatus}
                 jobId={reportAction.activeJob?.job_id ?? reportAction.terminalState?.jobId}
                 resultSummary={reportAction.resultSummary}

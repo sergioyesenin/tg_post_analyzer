@@ -1,9 +1,11 @@
+import { i18n } from '@shared/i18n/i18n';
+
 export function formatUtcDateTime(value: string | null | undefined, fallback = 'n/a') {
   if (!value) {
-    return fallback;
+    return fallback === 'n/a' ? i18n.t('common.na') : fallback;
   }
 
-  return new Intl.DateTimeFormat('en-US', {
+  return new Intl.DateTimeFormat(i18n.resolvedLanguage === 'ru' ? 'ru-RU' : 'en-US', {
     dateStyle: 'medium',
     timeStyle: 'short',
     timeZone: 'UTC',
@@ -17,8 +19,8 @@ export function formatNullableNumber(
     locale?: string;
   },
 ) {
-  const fallback = options?.fallback ?? 'n/a';
-  const locale = options?.locale ?? 'en-US';
+  const fallback = options?.fallback ?? i18n.t('common.na');
+  const locale = options?.locale ?? (i18n.resolvedLanguage === 'ru' ? 'ru-RU' : 'en-US');
 
   if (value === null || value === undefined) {
     return fallback;
@@ -34,7 +36,7 @@ export function formatNullableRatio(
     digits?: number;
   },
 ) {
-  const fallback = options?.fallback ?? 'n/a';
+  const fallback = options?.fallback ?? i18n.t('common.na');
   const digits = options?.digits ?? 2;
 
   if (value === null || value === undefined) {
@@ -44,7 +46,7 @@ export function formatNullableRatio(
   return value.toFixed(digits);
 }
 
-export function formatConfidencePercent(value: number | null | undefined, fallback = 'n/a') {
+export function formatConfidencePercent(value: number | null | undefined, fallback = i18n.t('common.na')) {
   if (value === null || value === undefined) {
     return fallback;
   }

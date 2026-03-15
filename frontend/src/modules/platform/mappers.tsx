@@ -1,3 +1,4 @@
+﻿import { i18n } from '@shared/i18n/i18n';
 import type { DashboardSummaryCard } from '@shared/dashboard/components/DashboardSummaryCards';
 import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
 import { JobStatusInline } from '@shared/ui/status/JobStatusInline';
@@ -11,7 +12,7 @@ function formatCount(value: number | null | undefined) {
 
 function formatPercent(value: number | null | undefined) {
   if (value === null || value === undefined) {
-    return 'n/a';
+    return i18n.t('common.na');
   }
 
   return `${value.toFixed(2)}%`;
@@ -19,7 +20,7 @@ function formatPercent(value: number | null | undefined) {
 
 function formatSeconds(value: number | null | undefined) {
   if (value === null || value === undefined) {
-    return 'n/a';
+    return i18n.t('common.na');
   }
 
   if (value < 60) {
@@ -35,45 +36,45 @@ function formatSeconds(value: number | null | undefined) {
 }
 
 export const pendingJobsColumns: DashboardTableColumn[] = [
-  { id: 'job', label: 'Job' },
-  { id: 'status', label: 'Status' },
-  { id: 'schedule', label: 'Run / Retry' },
-  { id: 'attempts', label: 'Attempts' },
-  { id: 'lock', label: 'Lock' },
-  { id: 'error', label: 'Last error' },
-  { id: 'actions', label: 'Actions' },
+  { id: 'job', label: i18n.t('platform.jobs.table.job') },
+  { id: 'status', label: i18n.t('platform.jobs.table.status') },
+  { id: 'schedule', label: i18n.t('platform.jobs.table.schedule') },
+  { id: 'attempts', label: i18n.t('platform.jobs.table.attempts') },
+  { id: 'lock', label: i18n.t('platform.jobs.table.lock') },
+  { id: 'error', label: i18n.t('platform.jobs.table.error') },
+  { id: 'actions', label: i18n.t('platform.jobs.table.actions') },
 ];
 
 export const deadLetterColumns: DashboardTableColumn[] = [
-  { id: 'job', label: 'Dead letter' },
-  { id: 'attempts', label: 'Attempts' },
-  { id: 'failed_at', label: 'Failed at' },
-  { id: 'error', label: 'Last error' },
-  { id: 'actions', label: 'Actions' },
+  { id: 'job', label: i18n.t('platform.jobs.table.deadLetter') },
+  { id: 'attempts', label: i18n.t('platform.jobs.table.attempts') },
+  { id: 'failed_at', label: i18n.t('platform.jobs.table.failedAt') },
+  { id: 'error', label: i18n.t('platform.jobs.table.error') },
+  { id: 'actions', label: i18n.t('platform.jobs.table.actions') },
 ];
 
 export const monitorDependencyColumns: DashboardTableColumn[] = [
-  { id: 'dependency', label: 'Dependency' },
-  { id: 'status', label: 'Status' },
-  { id: 'details', label: 'Details' },
+  { id: 'dependency', label: i18n.t('platform.monitor.dependenciesTable.dependency') },
+  { id: 'status', label: i18n.t('platform.monitor.dependenciesTable.status') },
+  { id: 'details', label: i18n.t('platform.monitor.dependenciesTable.details') },
 ];
 
 export const monitorAlertColumns: DashboardTableColumn[] = [
-  { id: 'metric', label: 'Metric' },
-  { id: 'severity', label: 'Severity' },
-  { id: 'current', label: 'Current' },
-  { id: 'threshold', label: 'Threshold' },
-  { id: 'message', label: 'Message' },
+  { id: 'metric', label: i18n.t('platform.monitor.alertsTable.metric') },
+  { id: 'severity', label: i18n.t('platform.monitor.alertsTable.severity') },
+  { id: 'current', label: i18n.t('platform.monitor.alertsTable.current') },
+  { id: 'threshold', label: i18n.t('platform.monitor.alertsTable.threshold') },
+  { id: 'message', label: i18n.t('platform.monitor.alertsTable.message') },
 ];
 
 export function mapJobsSummaryToCards(summary: JobsSummaryDto, pending: PendingJobDto[], deadLetter: DeadLetterJobDto[]): DashboardSummaryCard[] {
   return [
-    { id: 'total', label: 'Tracked jobs', value: formatCount(summary.total) },
-    { id: 'pending', label: 'Pending', value: formatCount(summary.by_status.pending ?? 0) },
-    { id: 'running', label: 'Running', value: formatCount(summary.by_status.running ?? 0) },
-    { id: 'failed', label: 'Failed', value: formatCount(summary.by_status.failed ?? 0) },
-    { id: 'dead-letter', label: 'Dead-letter', value: formatCount(deadLetter.length) },
-    { id: 'visible', label: 'Visible queue rows', value: formatCount(pending.length) },
+    { id: 'total', label: i18n.t('platform.jobs.summary.trackedJobs'), value: formatCount(summary.total) },
+    { id: 'pending', label: i18n.t('statusLabels.pending'), value: formatCount(summary.by_status.pending ?? 0) },
+    { id: 'running', label: i18n.t('statusLabels.running'), value: formatCount(summary.by_status.running ?? 0) },
+    { id: 'failed', label: i18n.t('statusLabels.failed'), value: formatCount(summary.by_status.failed ?? 0) },
+    { id: 'dead-letter', label: i18n.t('platform.jobs.summary.deadLetter'), value: formatCount(deadLetter.length) },
+    { id: 'visible', label: i18n.t('platform.jobs.summary.visibleQueueRows'), value: formatCount(pending.length) },
   ];
 }
 
@@ -94,13 +95,13 @@ export function mapPendingJobsToRows(
       status: <JobStatusInline status={job.status} jobId={job.id} />,
       schedule: (
         <div className="dashboard-table-shell__cell-stack">
-          <span>Run: {formatUtcDateTime(job.run_at)}</span>
-          <span>Retry: {formatUtcDateTime(job.retry_at)}</span>
+          <span>{i18n.t('platform.jobs.rows.runAt', { value: formatUtcDateTime(job.run_at) })}</span>
+          <span>{i18n.t('platform.jobs.rows.retryAt', { value: formatUtcDateTime(job.retry_at) })}</span>
         </div>
       ),
       attempts: `${job.attempts}/${job.max_attempts}`,
-      lock: job.locked_by ?? 'unlocked',
-      error: job.last_error ?? 'n/a',
+      lock: job.locked_by ?? i18n.t('platform.jobs.rows.unlocked'),
+      error: job.last_error ?? i18n.t('common.na'),
       actions:
         job.status === 'failed' ? (
           <button
@@ -109,10 +110,10 @@ export function mapPendingJobsToRows(
             disabled={activeRetryJobId === job.id}
             onClick={() => onRetry(job.id)}
           >
-            Retry failed job
+            {i18n.t('platform.jobs.actions.retryFailedJob')}
           </button>
         ) : (
-          'n/a'
+          i18n.t('common.na')
         ),
     },
   }));
@@ -129,13 +130,13 @@ export function mapDeadLetterRows(
       job: (
         <div className="dashboard-table-shell__cell-stack">
           <strong>{row.type}</strong>
-          <span>Dead-letter #{row.id}</span>
-          <span>Source job: {row.source_job_id ?? 'n/a'}</span>
+          <span>{i18n.t('platform.jobs.rows.deadLetterId', { id: row.id })}</span>
+          <span>{i18n.t('platform.jobs.rows.sourceJob', { id: row.source_job_id ?? i18n.t('common.na') })}</span>
         </div>
       ),
       attempts: `${row.attempts}/${row.max_attempts}`,
       failed_at: formatUtcDateTime(row.failed_at),
-      error: row.last_error ?? 'n/a',
+      error: row.last_error ?? i18n.t('common.na'),
       actions: (
         <button
           type="button"
@@ -143,7 +144,7 @@ export function mapDeadLetterRows(
           disabled={activeRetryId === row.id}
           onClick={() => onRetry(row.id)}
         >
-          Retry dead letter
+          {i18n.t('platform.jobs.actions.retryDeadLetter')}
         </button>
       ),
     },
@@ -152,12 +153,12 @@ export function mapDeadLetterRows(
 
 export function mapMonitorSummaryCards(monitor: MonitorFullDto): DashboardSummaryCard[] {
   return [
-    { id: 'health', label: 'Health', value: monitor.health.status },
-    { id: 'alerts', label: 'Alerts', value: formatCount(monitor.alerts.alerts_count) },
-    { id: 'jobs-total', label: 'Jobs tracked', value: formatCount(monitor.jobs.total) },
-    { id: 'dead-letter', label: 'Dead-letter', value: formatCount(monitor.jobs.dead_letter_count) },
-    { id: 'posts-24h', label: 'Posts 24h', value: formatCount(monitor.activity_24h.posts_last_hours) },
-    { id: 'comments-24h', label: 'Comments 24h', value: formatCount(monitor.activity_24h.comments_last_hours) },
+    { id: 'health', label: i18n.t('platform.monitor.summary.health'), value: monitor.health.status },
+    { id: 'alerts', label: i18n.t('platform.monitor.summary.alerts'), value: formatCount(monitor.alerts.alerts_count) },
+    { id: 'jobs-total', label: i18n.t('platform.monitor.summary.jobsTracked'), value: formatCount(monitor.jobs.total) },
+    { id: 'dead-letter', label: i18n.t('platform.monitor.summary.deadLetter'), value: formatCount(monitor.jobs.dead_letter_count) },
+    { id: 'posts-24h', label: i18n.t('platform.monitor.summary.posts24h'), value: formatCount(monitor.activity_24h.posts_last_hours) },
+    { id: 'comments-24h', label: i18n.t('platform.monitor.summary.comments24h'), value: formatCount(monitor.activity_24h.comments_last_hours) },
   ];
 }
 
@@ -169,9 +170,9 @@ export function mapMonitorDependencyRows(monitor: MonitorFullDto): DashboardTabl
       status: <MonitorStatusBadge status={dependency.status ?? (dependency.ok ? 'ok' : 'degraded')} />,
       details: (
         <div className="dashboard-table-shell__cell-stack">
-          <span>Heartbeat: {formatUtcDateTime(dependency.last_heartbeat_at ?? null)}</span>
-          <span>Next run: {formatUtcDateTime(dependency.next_expected_run_at ?? null)}</span>
-          <span>Latency: {dependency.latency_ms ?? 'n/a'} ms</span>
+          <span>{i18n.t('platform.monitor.rows.heartbeat', { value: formatUtcDateTime(dependency.last_heartbeat_at ?? null) })}</span>
+          <span>{i18n.t('platform.monitor.rows.nextRun', { value: formatUtcDateTime(dependency.next_expected_run_at ?? null) })}</span>
+          <span>{i18n.t('platform.monitor.rows.latency', { value: dependency.latency_ms ?? i18n.t('common.na') })}</span>
         </div>
       ),
     },
@@ -184,8 +185,8 @@ export function mapMonitorAlertRows(monitor: MonitorFullDto): DashboardTableRow[
     cells: {
       metric: alert.metric,
       severity: <MonitorStatusBadge status={alert.severity} />,
-      current: alert.current === null ? 'n/a' : String(alert.current),
-      threshold: alert.threshold === null ? 'n/a' : String(alert.threshold),
+      current: alert.current === null ? i18n.t('common.na') : String(alert.current),
+      threshold: alert.threshold === null ? i18n.t('common.na') : String(alert.threshold),
       message: alert.message,
     },
   }));
@@ -197,47 +198,47 @@ export function mapMonitorOverview(monitor: MonitorFullDto) {
     overview: [
       {
         id: 'overall-health',
-        label: 'Overall health',
+        label: i18n.t('platform.monitor.overview.overallHealth'),
         value: <MonitorStatusBadge status={monitor.health.status} />,
       },
       {
         id: 'alerts-status',
-        label: 'Alerts status',
+        label: i18n.t('platform.monitor.overview.alertsStatus'),
         value: <MonitorStatusBadge status={monitor.alerts.status} />,
       },
       {
         id: 'scheduler',
-        label: 'Scheduler',
+        label: i18n.t('platform.monitor.overview.scheduler'),
         value: <MonitorStatusBadge status={monitor.scheduler.status} />,
       },
       {
         id: 'pending-lag',
-        label: 'Pending lag',
+        label: i18n.t('platform.monitor.overview.pendingLag'),
         value: formatSeconds(monitor.jobs.pending_lag_seconds),
       },
       {
         id: 'retry-lag',
-        label: 'Retry lag',
+        label: i18n.t('platform.monitor.overview.retryLag'),
         value: formatSeconds(monitor.jobs.retry_lag_seconds),
       },
       {
         id: 'db-size',
-        label: 'Database size',
-        value: monitor.database.pretty ?? 'n/a',
+        label: i18n.t('platform.monitor.overview.databaseSize'),
+        value: monitor.database.pretty ?? i18n.t('common.na'),
       },
       {
         id: 'disk',
-        label: 'Disk used',
+        label: i18n.t('platform.monitor.overview.diskUsed'),
         value: formatPercent(monitor.system.disk.used_percent),
       },
       {
         id: 'memory',
-        label: 'Memory used',
+        label: i18n.t('platform.monitor.overview.memoryUsed'),
         value: formatPercent(monitor.system.memory.used_percent),
       },
       {
         id: 'backlog',
-        label: 'Backlog delta 1h',
+        label: i18n.t('platform.monitor.overview.backlogDelta'),
         value: formatCount(monitor.pipeline.backlog.delta_1h),
       },
     ],

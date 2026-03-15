@@ -1,4 +1,5 @@
 import { Link, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 import { useSession } from '@app/providers/SessionProvider';
 import { ApiError } from '@shared/api/client';
@@ -46,6 +47,7 @@ function ActionPanel({
 }
 
 export function PostDetailsPage() {
+  const { t } = useTranslation();
   const { postId: postIdParam = '' } = useParams();
   const postId = Number(postIdParam);
   const { user } = useSession();
@@ -54,7 +56,7 @@ export function PostDetailsPage() {
   const canGenerateReport = canPerformAction('reports.generate', roles);
 
   if (!Number.isFinite(postId) || postId <= 0) {
-    return <ErrorState title="Invalid post id" description="The requested post id is not valid." />;
+    return <ErrorState title={t('posts.detail.invalidTitle')} description={t('posts.detail.invalidDescription')} />;
   }
 
   const { postQuery, commentsQuery, reportQuery, linksQuery } = usePostDetailQueries(postId);
@@ -62,32 +64,27 @@ export function PostDetailsPage() {
   const updateReportAction = useUpdateReportAction(postId);
 
   if (postQuery.isLoading) {
-    return <LoadingState title="Loading post detail" description="Fetching the post detail screen and related blocks." />;
+    return <LoadingState title={t('posts.detail.loadingTitle')} description={t('posts.detail.loadingDescription')} />;
   }
 
   if (postQuery.isError) {
     const error = postQuery.error;
 
     if (error instanceof ApiError && error.status === 403) {
-      return (
-        <ForbiddenState
-          title="Post detail is restricted"
-          description="Your role can open the route, but the backend denied access to this post detail."
-        />
-      );
+      return <ForbiddenState title={t('posts.detail.forbiddenTitle')} description={t('posts.detail.forbiddenDescription')} />;
     }
 
     if (error instanceof ApiError && error.status === 404) {
-      return <ErrorState title="Post not found" description="The requested post does not exist or is no longer available." />;
+      return <ErrorState title={t('posts.detail.notFoundTitle')} description={t('posts.detail.notFoundDescription')} />;
     }
 
-    return <ErrorState title="Post detail failed to load" description="The main post detail request failed." />;
+    return <ErrorState title={t('posts.detail.errorTitle')} description={t('posts.detail.errorDescription')} />;
   }
 
   const post = postQuery.data;
 
   if (!post) {
-    return <ErrorState title="Post detail failed to load" description="The main post detail request returned no data." />;
+    return <ErrorState title={t('posts.detail.errorTitle')} description={t('posts.detail.noDataDescription')} />;
   }
 
   const viewModel = mapPostDetailBundleToViewModel({
@@ -101,27 +98,27 @@ export function PostDetailsPage() {
     <div className="post-detail-page">
       <header className="post-detail-page__header">
         <div>
-          <span className="state-card__eyebrow">post detail</span>
-          <h1>Post #{viewModel.post.id}</h1>
+          <span className="state-card__eyebrow">{t('posts.detail.eyebrow')}</span>
+          <h1>{t('posts.detail.title', { id: viewModel.post.id })}</h1>
           <p>{viewModel.post.text}</p>
         </div>
 
         <div className="post-detail-page__meta">
           <span>{viewModel.post.date}</span>
-          <span>{viewModel.post.commentsCount} comments</span>
-          <span>{viewModel.post.views} views</span>
-          <span>{viewModel.post.involvement} involvement</span>
+          <span>{t('posts.detail.commentsCount', { value: viewModel.post.commentsCount })}</span>
+          <span>{t('posts.detail.viewsCount', { value: viewModel.post.views })}</span>
+          <span>{t('posts.detail.involvementValue', { value: viewModel.post.involvement })}</span>
           <Link className="table-link" to="/dashboard/posts">
-            Back to posts dashboard
+            {t('posts.detail.backToDashboard')}
           </Link>
         </div>
       </header>
 
       {!canRefreshComments || !canGenerateReport ? (
         <ReadOnlyNotice
-          title="Viewer access has no post mutations"
-          description="Detail data remains visible, but comment refresh and report generation actions are hidden."
-          ariaLabel="Read only detail notice"
+          title={t('posts.detail.readOnlyTitle')}
+          description={t('posts.detail.readOnlyDescription')}
+          ariaLabel={t('posts.detail.readOnlyAria')}
         />
       ) : null}
 
@@ -139,15 +136,15 @@ export function PostDetailsPage() {
                   disabled={refreshCommentsAction.isSubmitting || refreshCommentsAction.jobStatus === 'running'}
                   onClick={() => refreshCommentsAction.run(undefined)}
                 >
-                  Refresh comments
+                  {t('posts.detail.refreshComments')}
                 </button>
               ) : null
             }
           />
 
           <ActionPanel
-            title="Comments refresh job"
-            description="Async comments refresh runs through the jobs API and invalidates post detail queries after completion."
+            title={t('posts.detail.commentsJobTitle')}
+            description={t('posts.detail.commentsJobDescription')}
             status={refreshCommentsAction.jobStatus}
             jobId={refreshCommentsAction.activeJob?.job_id ?? refreshCommentsAction.terminalState?.jobId}
             resultSummary={refreshCommentsAction.resultSummary}
@@ -170,15 +167,15 @@ export function PostDetailsPage() {
                   disabled={updateReportAction.isSubmitting || updateReportAction.jobStatus === 'running'}
                   onClick={() => updateReportAction.run(undefined)}
                 >
-                  {viewModel.report ? 'Update report' : 'Generate report'}
+                  {viewModel.report ? t('posts.detail.updateReport') : t('actions.generateReport')}
                 </button>
               ) : null
             }
           />
 
           <ActionPanel
-            title="Report job"
-            description="Report generation uses mutation enqueue, jobs polling and query invalidation on success."
+            title={t('posts.detail.reportJobTitle')}
+            description={t('posts.detail.reportJobDescription')}
             status={updateReportAction.jobStatus}
             jobId={updateReportAction.activeJob?.job_id ?? updateReportAction.terminalState?.jobId}
             resultSummary={updateReportAction.resultSummary}

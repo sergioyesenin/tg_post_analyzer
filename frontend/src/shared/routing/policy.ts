@@ -1,4 +1,5 @@
 import type { UserRole } from '@shared/auth/roles';
+import { i18n } from '@shared/i18n/i18n';
 
 export type RoutePolicyId =
   | 'login'
@@ -21,7 +22,7 @@ export type AccessResolution = 'allowed' | 'redirected' | 'forbidden';
 export type RouteCapability = 'read-only' | 'read-write';
 
 type NavigationPolicy = {
-  label: string;
+  labelKey: string;
   section: NavigationSection;
 };
 
@@ -56,7 +57,7 @@ export const routePolicies: readonly RoutePolicy[] = [
     access: 'protected',
     allowedRoles: ['admin', 'analyst', 'viewer'],
     unauthorizedBehavior: 'forbidden',
-    navigation: { label: 'Posts', section: 'dashboard' },
+    navigation: { labelKey: 'navigation.posts', section: 'dashboard' },
     capabilities: {
       admin: 'read-write',
       analyst: 'read-write',
@@ -69,7 +70,7 @@ export const routePolicies: readonly RoutePolicy[] = [
     access: 'protected',
     allowedRoles: ['admin', 'analyst', 'viewer'],
     unauthorizedBehavior: 'forbidden',
-    navigation: { label: 'Events', section: 'dashboard' },
+    navigation: { labelKey: 'navigation.events', section: 'dashboard' },
     capabilities: {
       admin: 'read-write',
       analyst: 'read-write',
@@ -82,7 +83,7 @@ export const routePolicies: readonly RoutePolicy[] = [
     access: 'protected',
     allowedRoles: ['admin', 'analyst', 'viewer'],
     unauthorizedBehavior: 'forbidden',
-    navigation: { label: 'Processes', section: 'dashboard' },
+    navigation: { labelKey: 'navigation.processes', section: 'dashboard' },
     capabilities: {
       admin: 'read-write',
       analyst: 'read-write',
@@ -131,7 +132,7 @@ export const routePolicies: readonly RoutePolicy[] = [
     access: 'protected',
     allowedRoles: ['admin', 'analyst', 'viewer'],
     unauthorizedBehavior: 'forbidden',
-    navigation: { label: 'Reports', section: 'primary' },
+    navigation: { labelKey: 'navigation.reports', section: 'primary' },
     capabilities: {
       admin: 'read-write',
       analyst: 'read-write',
@@ -144,7 +145,7 @@ export const routePolicies: readonly RoutePolicy[] = [
     access: 'protected',
     allowedRoles: ['admin', 'analyst'],
     unauthorizedBehavior: 'forbidden',
-    navigation: { label: 'Keyword graph', section: 'primary' },
+    navigation: { labelKey: 'navigation.keywordGraph', section: 'primary' },
     capabilities: {
       admin: 'read-write',
       analyst: 'read-write',
@@ -156,7 +157,7 @@ export const routePolicies: readonly RoutePolicy[] = [
     access: 'protected',
     allowedRoles: ['admin', 'analyst'],
     unauthorizedBehavior: 'forbidden',
-    navigation: { label: 'Settings', section: 'secondary' },
+    navigation: { labelKey: 'navigation.settings', section: 'secondary' },
     capabilities: {
       admin: 'read-write',
       analyst: 'read-only',
@@ -168,7 +169,7 @@ export const routePolicies: readonly RoutePolicy[] = [
     access: 'protected',
     allowedRoles: ['admin'],
     unauthorizedBehavior: 'forbidden',
-    navigation: { label: 'Channels', section: 'secondary' },
+    navigation: { labelKey: 'navigation.channels', section: 'secondary' },
     capabilities: {
       admin: 'read-write',
     },
@@ -179,7 +180,7 @@ export const routePolicies: readonly RoutePolicy[] = [
     access: 'protected',
     allowedRoles: ['admin'],
     unauthorizedBehavior: 'forbidden',
-    navigation: { label: 'Users', section: 'secondary' },
+    navigation: { labelKey: 'navigation.users', section: 'secondary' },
     capabilities: {
       admin: 'read-write',
     },
@@ -190,7 +191,7 @@ export const routePolicies: readonly RoutePolicy[] = [
     access: 'protected',
     allowedRoles: ['admin'],
     unauthorizedBehavior: 'forbidden',
-    navigation: { label: 'Monitor', section: 'secondary' },
+    navigation: { labelKey: 'navigation.monitor', section: 'secondary' },
     capabilities: {
       admin: 'read-only',
     },
@@ -201,7 +202,7 @@ export const routePolicies: readonly RoutePolicy[] = [
     access: 'protected',
     allowedRoles: ['admin'],
     unauthorizedBehavior: 'forbidden',
-    navigation: { label: 'Jobs', section: 'secondary' },
+    navigation: { labelKey: 'navigation.jobs', section: 'secondary' },
     capabilities: {
       admin: 'read-write',
     },
@@ -318,7 +319,7 @@ export function getNavigationItems(section: NavigationSection, roles: readonly U
     .map((policy) => ({
       id: policy.id,
       to: policy.path,
-      label: policy.navigation!.label,
+      label: i18n.t(policy.navigation!.labelKey),
     }));
 }
 

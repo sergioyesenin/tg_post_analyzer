@@ -1,11 +1,15 @@
+﻿import { useTranslation } from 'react-i18next';
+
 import { RoutePlaceholder } from '@shared/ui/placeholders/RoutePlaceholder';
 
 export function ChannelsPlaceholderPage() {
+  const { t } = useTranslation();
+
   return (
     <RoutePlaceholder
       eyebrow="channels"
-      title="Channels admin placeholder"
-      description="The admin route and role guard are ready. CRUD UI is explicitly deferred."
+      title={t('placeholders.channels.title')}
+      description={t('placeholders.channels.description')}
     />
   );
 }

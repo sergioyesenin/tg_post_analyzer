@@ -1,3 +1,5 @@
+﻿import { useTranslation } from 'react-i18next';
+
 import { useSession } from '@app/providers/SessionProvider';
 import { JobsTableSection } from '@modules/platform/components/JobsTableSection';
 import { useDeadLetterJobsQuery, useJobsFilters, useJobsRetryMutations, useJobsSummaryQuery, usePendingJobsQuery } from '@modules/platform/hooks';
@@ -18,6 +20,7 @@ import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
 
 export function JobsPage() {
+  const { t } = useTranslation();
   const { user } = useSession();
   const roles = user?.roles ?? [];
   const canRetry = canPerformAction('jobs.retry', roles);
@@ -31,15 +34,15 @@ export function JobsPage() {
   const error = summaryQuery.error ?? pendingQuery.error ?? deadLetterQuery.error;
 
   if (isLoading) {
-    return <LoadingState title="Loading jobs management" description="Fetching queue summary, pending jobs, and dead-letter rows." />;
+    return <LoadingState title={t('platform.jobs.loadingTitle')} description={t('platform.jobs.loadingDescription')} />;
   }
 
   if (error) {
     if (error instanceof ApiError && error.status === 403) {
-      return <ForbiddenState title="Jobs module is restricted" description="Jobs visibility and retry actions are limited to admin users." />;
+      return <ForbiddenState title={t('platform.jobs.forbiddenTitle')} description={t('platform.jobs.forbiddenDescription')} />;
     }
 
-    return <ErrorState title="Jobs module failed to load" description="One or more jobs management requests failed." />;
+    return <ErrorState title={t('platform.jobs.errorTitle')} description={t('platform.jobs.errorDescription')} />;
   }
 
   const summary = summaryQuery.data;
@@ -47,14 +50,14 @@ export function JobsPage() {
   const deadLetter = deadLetterQuery.data ?? [];
 
   if (!summary) {
-    return <EmptyState title="Jobs summary is empty" description="The jobs summary endpoint returned no payload." />;
+    return <EmptyState title={t('platform.jobs.emptyTitle')} description={t('platform.jobs.emptyDescription')} />;
   }
 
   const summaryCards = mapJobsSummaryToCards(summary, pending, deadLetter);
   const pendingRows = mapPendingJobsToRows(
     pending,
     (jobId) => {
-      if (!window.confirm(`Retry failed job #${jobId}?`)) {
+      if (!window.confirm(t('platform.jobs.confirmRetryFailed', { id: jobId }))) {
         return;
       }
       mutations.retryFailed.mutate(jobId);
@@ -64,7 +67,7 @@ export function JobsPage() {
   const deadLetterRows = mapDeadLetterRows(
     deadLetter,
     (deadLetterId) => {
-      if (!window.confirm(`Retry dead-letter row #${deadLetterId}?`)) {
+      if (!window.confirm(t('platform.jobs.confirmRetryDeadLetter', { id: deadLetterId }))) {
         return;
       }
       mutations.retryDeadLetter.mutate(deadLetterId);
@@ -76,16 +79,16 @@ export function JobsPage() {
     <div className="dashboard-page">
       <section className="dashboard-page__hero">
         <div>
-          <span className="state-card__eyebrow">jobs</span>
-          <h2>Jobs management</h2>
-          <p>Admin-only queue inspection with confirmed retry flows for failed jobs and dead-letter rows.</p>
+          <span className="state-card__eyebrow">{t('states.jobs')}</span>
+          <h2>{t('platform.jobs.heroTitle')}</h2>
+          <p>{t('platform.jobs.heroDescription')}</p>
         </div>
 
         <div className="dashboard-page__meta">
           <label>
-            <span>Limit</span>
+            <span>{t('fields.limit')}</span>
             <input
-              aria-label="Jobs limit"
+              aria-label={t('platform.jobs.limitAria')}
               type="number"
               min={1}
               max={200}
@@ -103,19 +106,19 @@ export function JobsPage() {
 
       {!canRetry ? (
         <ReadOnlyNotice
-          title="Retry actions are hidden for this role"
-          description="Queue inspection remains visible, but retry actions require confirmed admin permissions."
-          ariaLabel="Read only jobs notice"
+          title={t('platform.jobs.readOnlyTitle')}
+          description={t('platform.jobs.readOnlyDescription')}
+          ariaLabel={t('platform.jobs.readOnlyAria')}
         />
       ) : null}
 
       <section className="dashboard-page__content dashboard-page__content--workspace">
         <div className="dashboard-page__primary">
           <JobsTableSection
-            title="Pending and running jobs"
-            description="Queue rows from GET /api/jobs/pending."
-            emptyTitle="No pending jobs"
-            emptyDescription="The pending jobs endpoint returned an empty list for the current limit."
+            title={t('platform.jobs.pendingTitle')}
+            description={t('platform.jobs.pendingDescription')}
+            emptyTitle={t('platform.jobs.pendingEmptyTitle')}
+            emptyDescription={t('platform.jobs.pendingEmptyDescription')}
             columns={pendingJobsColumns}
             rows={
               canRetry
@@ -124,7 +127,7 @@ export function JobsPage() {
                     ...row,
                     cells: {
                       ...row.cells,
-                      actions: 'n/a',
+                      actions: t('common.na'),
                     },
                   }))
             }
@@ -133,10 +136,10 @@ export function JobsPage() {
 
         <div className="dashboard-page__secondary">
           <JobsTableSection
-            title="Dead-letter queue"
-            description="Rows from GET /api/jobs/dead-letter."
-            emptyTitle="No dead-letter jobs"
-            emptyDescription="The dead-letter endpoint returned an empty list for the current limit."
+            title={t('platform.jobs.deadLetterTitle')}
+            description={t('platform.jobs.deadLetterDescription')}
+            emptyTitle={t('platform.jobs.deadLetterEmptyTitle')}
+            emptyDescription={t('platform.jobs.deadLetterEmptyDescription')}
             columns={deadLetterColumns}
             rows={
               canRetry
@@ -145,7 +148,7 @@ export function JobsPage() {
                     ...row,
                     cells: {
                       ...row.cells,
-                      actions: 'n/a',
+                      actions: t('common.na'),
                     },
                   }))
             }

@@ -23,9 +23,9 @@ describe('Shared UI components', () => {
       />,
     );
 
-    expect(screen.getByLabelText(/Dashboard system alerts/i)).toBeInTheDocument();
-    expect(screen.getByText(/Snapshot includes non-blocking warnings/i)).toBeInTheDocument();
-    expect(screen.getByText(/Screen stays usable with partially enriched data/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Системные уведомления дашборда/i)).toBeInTheDocument();
+    expect(screen.getByText(/Снимок содержит неблокирующие предупреждения/i)).toBeInTheDocument();
+    expect(screen.getByText(/Экран остается доступным при частично обогащенных данных/i)).toBeInTheDocument();
   });
 
   it('keeps shared table shells accessible by title and description', () => {
@@ -56,7 +56,7 @@ describe('Shared UI components', () => {
   it('uses one shared read-only notice pattern across modules', () => {
     render(<ReadOnlyNotice title="Viewer access is read-only" description="Mutations stay hidden while data remains visible." />);
 
-    expect(screen.getByLabelText(/Read only notice/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Только чтение/i)).toBeInTheDocument();
     expect(screen.getByText(/Viewer access is read-only/i)).toBeInTheDocument();
   });
 
@@ -69,8 +69,8 @@ describe('Shared UI components', () => {
       </div>,
     );
 
-    expect(screen.getByLabelText(/Report status: Ready/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Job status: Running/i)).toHaveTextContent('Running #42');
-    expect(screen.getByLabelText(/Monitor status: Critical/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Статус отчета: Готов/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Задания: Выполняется/i)).toHaveTextContent('Выполняется #42');
+    expect(screen.getByLabelText(/Мониторинг: Критично/i)).toBeInTheDocument();
   });
 });

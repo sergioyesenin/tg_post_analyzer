@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 
+import { i18n } from '@shared/i18n/i18n';
 import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
 import { ReportStatusBadge } from '@shared/ui/status/ReportStatusBadge';
 import { formatUtcDateTime } from '@shared/utils/formatters';
@@ -11,29 +12,31 @@ import type {
   ReportsListResponseByType,
 } from '@modules/reports/contracts';
 
-export const reportsColumnsByType: Record<ReportType, DashboardTableColumn[]> = {
-  posts: [
-    { id: 'entity', label: 'Post' },
-    { id: 'context', label: 'Context' },
-    { id: 'status', label: 'Status' },
-    { id: 'created_at', label: 'Created' },
-    { id: 'actions', label: 'Actions' },
-  ],
-  events: [
-    { id: 'entity', label: 'Event' },
-    { id: 'version', label: 'Version' },
-    { id: 'status', label: 'Status' },
-    { id: 'created_at', label: 'Created' },
-    { id: 'actions', label: 'Actions' },
-  ],
-  processes: [
-    { id: 'entity', label: 'Process' },
-    { id: 'version', label: 'Version' },
-    { id: 'status', label: 'Status' },
-    { id: 'created_at', label: 'Created' },
-    { id: 'actions', label: 'Actions' },
-  ],
-};
+export function getReportsColumnsByType(): Record<ReportType, DashboardTableColumn[]> {
+  return {
+    posts: [
+      { id: 'entity', label: i18n.t('reports.columns.post', { defaultValue: 'Пост' }) },
+      { id: 'context', label: i18n.t('reports.columns.context', { defaultValue: 'Контекст' }) },
+      { id: 'status', label: i18n.t('fields.status') },
+      { id: 'created_at', label: i18n.t('reports.columns.created', { defaultValue: 'Создан' }) },
+      { id: 'actions', label: i18n.t('reports.columns.actions', { defaultValue: 'Действия' }) },
+    ],
+    events: [
+      { id: 'entity', label: i18n.t('reports.columns.event', { defaultValue: 'Событие' }) },
+      { id: 'version', label: i18n.t('reports.columns.version', { defaultValue: 'Версия' }) },
+      { id: 'status', label: i18n.t('fields.status') },
+      { id: 'created_at', label: i18n.t('reports.columns.created', { defaultValue: 'Создан' }) },
+      { id: 'actions', label: i18n.t('reports.columns.actions', { defaultValue: 'Действия' }) },
+    ],
+    processes: [
+      { id: 'entity', label: i18n.t('reports.columns.process', { defaultValue: 'Процесс' }) },
+      { id: 'version', label: i18n.t('reports.columns.version', { defaultValue: 'Версия' }) },
+      { id: 'status', label: i18n.t('fields.status') },
+      { id: 'created_at', label: i18n.t('reports.columns.created', { defaultValue: 'Создан' }) },
+      { id: 'actions', label: i18n.t('reports.columns.actions', { defaultValue: 'Действия' }) },
+    ],
+  };
+}
 
 function mapPostRow(item: PostReportListItemDto): DashboardTableRow {
   return {
@@ -41,14 +44,14 @@ function mapPostRow(item: PostReportListItemDto): DashboardTableRow {
     cells: {
       entity: (
         <div className="dashboard-table-shell__cell-stack">
-          <strong>Post #{item.post_id}</strong>
+          <strong>{i18n.t('reports.rows.postLabel', { id: item.post_id, defaultValue: `Пост #${item.post_id}` })}</strong>
           <span>{formatUtcDateTime(item.post_date)}</span>
         </div>
       ),
       context: (
         <div className="dashboard-table-shell__cell-stack">
-          <span>{item.channel_username ? `@${item.channel_username}` : `Channel #${item.channel_id}`}</span>
-          <span>{item.channel_category ?? 'n/a'}</span>
+          <span>{item.channel_username ? `@${item.channel_username}` : i18n.t('reports.rows.channelLabel', { id: item.channel_id, defaultValue: `Канал #${item.channel_id}` })}</span>
+          <span>{item.channel_category ?? i18n.t('common.na')}</span>
         </div>
       ),
       status: <ReportStatusBadge status={item.status} />,
@@ -56,7 +59,7 @@ function mapPostRow(item: PostReportListItemDto): DashboardTableRow {
       actions: (
         <div className="dashboard-table-shell__actions">
           <Link className="table-link" to={`/posts/${item.post_id}`}>
-            Open post
+            {i18n.t('reports.rows.openPost', { defaultValue: 'Открыть пост' })}
           </Link>
         </div>
       ),
@@ -70,17 +73,17 @@ function mapEventRow(item: EventReportListItemDto): DashboardTableRow {
     cells: {
       entity: (
         <div className="dashboard-table-shell__cell-stack">
-          <strong>{item.event_title ?? `Event ${item.event_id}`}</strong>
-          <span>Event #{item.event_id}</span>
+          <strong>{item.event_title ?? i18n.t('reports.rows.eventFallback', { id: item.event_id, defaultValue: `Событие ${item.event_id}` })}</strong>
+          <span>{i18n.t('reports.rows.eventLabel', { id: item.event_id, defaultValue: `Событие #${item.event_id}` })}</span>
         </div>
       ),
-      version: item.version ?? 'n/a',
+      version: item.version ?? i18n.t('common.na'),
       status: <ReportStatusBadge status={item.status} />,
       created_at: formatUtcDateTime(item.created_at),
       actions: (
         <div className="dashboard-table-shell__actions">
           <Link className="table-link" to={`/events/${item.event_id}`}>
-            Open event
+            {i18n.t('reports.rows.openEvent', { defaultValue: 'Открыть событие' })}
           </Link>
         </div>
       ),
@@ -94,17 +97,17 @@ function mapProcessRow(item: ProcessReportListItemDto): DashboardTableRow {
     cells: {
       entity: (
         <div className="dashboard-table-shell__cell-stack">
-          <strong>{item.process_title ?? `Process ${item.process_id}`}</strong>
-          <span>Process #{item.process_id}</span>
+          <strong>{item.process_title ?? i18n.t('reports.rows.processFallback', { id: item.process_id, defaultValue: `Процесс ${item.process_id}` })}</strong>
+          <span>{i18n.t('reports.rows.processLabel', { id: item.process_id, defaultValue: `Процесс #${item.process_id}` })}</span>
         </div>
       ),
-      version: item.version ?? 'n/a',
+      version: item.version ?? i18n.t('common.na'),
       status: <ReportStatusBadge status={item.status} />,
       created_at: formatUtcDateTime(item.created_at),
       actions: (
         <div className="dashboard-table-shell__actions">
           <Link className="table-link" to={`/processes/${item.process_id}`}>
-            Open process
+            {i18n.t('reports.rows.openProcess', { defaultValue: 'Открыть процесс' })}
           </Link>
         </div>
       ),
@@ -127,23 +130,31 @@ export function mapReportsRowsToTableRows<TType extends ReportType>(
   return (items as ReportsListResponseByType['processes']).map(mapProcessRow);
 }
 
-export const reportsCopyByType: Record<ReportType, { title: string; description: string; emptyTitle: string; emptyDescription: string }> = {
-  posts: {
-    title: 'Post reports',
-    description: 'Post report catalog stays filterable by channel/date and supports batch draft generation for supported roles.',
-    emptyTitle: 'No post reports match the current filters',
-    emptyDescription: 'The report list loaded successfully, but no post reports matched the current filter set.',
-  },
-  events: {
-    title: 'Event reports',
-    description: 'Event report catalog focuses on generated drafts and ready reports for event-level review.',
-    emptyTitle: 'No event reports match the current filters',
-    emptyDescription: 'The report list loaded successfully, but no event reports matched the current filter set.',
-  },
-  processes: {
-    title: 'Process reports',
-    description: 'Process report catalog keeps process-level report versions and direct navigation to process detail available.',
-    emptyTitle: 'No process reports match the current filters',
-    emptyDescription: 'The report list loaded successfully, but no process reports matched the current filter set.',
-  },
-};
+export function getReportsCopyByType(): Record<
+  ReportType,
+  { title: string; tableTitle: string; description: string; emptyTitle: string; emptyDescription: string }
+> {
+  return {
+    posts: {
+      title: i18n.t('reports.types.posts.title', { defaultValue: 'Отчеты по постам' }),
+      tableTitle: i18n.t('reports.types.posts.tableTitle', { defaultValue: 'Таблица отчетов по постам' }),
+      description: i18n.t('reports.types.posts.description', { defaultValue: 'Каталог отчетов по постам поддерживает фильтрацию по каналу и дате, а также пакетную генерацию черновиков для доступных ролей.' }),
+      emptyTitle: i18n.t('reports.types.posts.emptyTitle', { defaultValue: 'Нет отчетов по постам для текущих фильтров' }),
+      emptyDescription: i18n.t('reports.types.posts.emptyDescription', { defaultValue: 'Список отчетов успешно загрузился, но по текущему набору фильтров подходящих отчетов нет.' }),
+    },
+    events: {
+      title: i18n.t('reports.types.events.title', { defaultValue: 'Отчеты по событиям' }),
+      tableTitle: i18n.t('reports.types.events.tableTitle', { defaultValue: 'Таблица отчетов по событиям' }),
+      description: i18n.t('reports.types.events.description', { defaultValue: 'Каталог отчетов по событиям помогает просматривать черновики и готовые отчеты на уровне событий.' }),
+      emptyTitle: i18n.t('reports.types.events.emptyTitle', { defaultValue: 'Нет отчетов по событиям для текущих фильтров' }),
+      emptyDescription: i18n.t('reports.types.events.emptyDescription', { defaultValue: 'Список отчетов успешно загрузился, но по текущему набору фильтров подходящих отчетов нет.' }),
+    },
+    processes: {
+      title: i18n.t('reports.types.processes.title', { defaultValue: 'Отчеты по процессам' }),
+      tableTitle: i18n.t('reports.types.processes.tableTitle', { defaultValue: 'Таблица отчетов по процессам' }),
+      description: i18n.t('reports.types.processes.description', { defaultValue: 'Каталог отчетов по процессам хранит версии процессных отчетов и быстрые переходы в детали процесса.' }),
+      emptyTitle: i18n.t('reports.types.processes.emptyTitle', { defaultValue: 'Нет отчетов по процессам для текущих фильтров' }),
+      emptyDescription: i18n.t('reports.types.processes.emptyDescription', { defaultValue: 'Список отчетов успешно загрузился, но по текущему набору фильтров подходящих отчетов нет.' }),
+    },
+  };
+}

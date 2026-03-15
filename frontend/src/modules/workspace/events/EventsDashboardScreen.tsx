@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 import { ApiError } from '@shared/api/client';
 import { DashboardFilterBar } from '@shared/dashboard/components/DashboardFilterBar';
 import { DashboardGeneratedAt } from '@shared/dashboard/components/DashboardGeneratedAt';
@@ -29,6 +31,7 @@ import {
 } from '@modules/workspace/events/mappers';
 
 export function EventsDashboardScreen() {
+  const { t } = useTranslation();
   const { filters, applyFilters, resetFilters } = useDashboardFilters('events');
   const { user, primaryRole } = useSession();
   const roles = user?.roles ?? [];
@@ -47,15 +50,12 @@ export function EventsDashboardScreen() {
       <div className="dashboard-page">
         <section className="dashboard-page__hero">
           <div>
-            <h2>Events workspace</h2>
-            <p>Primary source: `/api/dashboard/events`. Selection auto-stabilizes against the current snapshot.</p>
+            <h2>{t('events.dashboard.heroTitle')}</h2>
+            <p>{t('events.dashboard.sourceDescription')}</p>
           </div>
         </section>
         <DashboardFilterBar mode="events" filters={filters} onApply={applyFilters} onReset={resetFilters} />
-        <LoadingState
-          title="Loading events dashboard"
-          description="The dashboard snapshot is being loaded from /api/dashboard/events."
-        />
+        <LoadingState title={t('events.dashboard.loadingTitle')} description={t('events.dashboard.loadingDescription')} />
       </div>
     );
   }
@@ -68,21 +68,15 @@ export function EventsDashboardScreen() {
       <div className="dashboard-page">
         <section className="dashboard-page__hero">
           <div>
-            <h2>Events workspace</h2>
-            <p>Primary source: `/api/dashboard/events`. Selection auto-stabilizes against the current snapshot.</p>
+            <h2>{t('events.dashboard.heroTitle')}</h2>
+            <p>{t('events.dashboard.sourceDescription')}</p>
           </div>
         </section>
         <DashboardFilterBar mode="events" filters={filters} onApply={applyFilters} onReset={resetFilters} />
         {isForbidden ? (
-          <ForbiddenState
-            title="Events dashboard is not available for this role"
-            description="The route is visible, but the backend denied access to the events dashboard snapshot."
-          />
+          <ForbiddenState title={t('events.dashboard.forbiddenTitle')} description={t('events.dashboard.forbiddenDescription')} />
         ) : (
-          <ErrorState
-            title="Events dashboard failed to load"
-            description="The snapshot request failed. Retry when the dashboard backend becomes available."
-          />
+          <ErrorState title={t('events.dashboard.errorTitle')} description={t('events.dashboard.errorDescription')} />
         )}
       </div>
     );
@@ -93,15 +87,12 @@ export function EventsDashboardScreen() {
       <div className="dashboard-page">
         <section className="dashboard-page__hero">
           <div>
-            <h2>Events workspace</h2>
-            <p>Primary source: `/api/dashboard/events`. Selection auto-stabilizes against the current snapshot.</p>
+            <h2>{t('events.dashboard.heroTitle')}</h2>
+            <p>{t('events.dashboard.sourceDescription')}</p>
           </div>
         </section>
         <DashboardFilterBar mode="events" filters={filters} onApply={applyFilters} onReset={resetFilters} />
-        <ErrorState
-          title="Events dashboard returned no data"
-          description="The request finished without a dashboard payload. Retry when the backend snapshot is available."
-        />
+        <ErrorState title={t('events.dashboard.noDataTitle')} description={t('events.dashboard.noDataDescription')} />
       </div>
     );
   }
@@ -109,20 +100,13 @@ export function EventsDashboardScreen() {
   if (!viewModel) {
     return (
       <div className="dashboard-page">
-        <ErrorState
-          title="Events dashboard mapping failed"
-          description="The dashboard payload is present, but the UI view model could not be constructed."
-        />
+        <ErrorState title={t('events.dashboard.mappingTitle')} description={t('events.dashboard.mappingDescription')} />
       </div>
     );
   }
 
   const eventsViewModel = viewModel;
-
-  const graphPartialHint =
-    selectedEvent && (!selectedEvent.graphReady || eventsViewModel.isPartial)
-      ? 'Warnings and partial state do not block graph exploration. Related posts and selected-event metadata stay visible.'
-      : null;
+  const graphPartialHint = selectedEvent && (!selectedEvent.graphReady || eventsViewModel.isPartial) ? t('events.dashboard.partialHint') : null;
 
   return (
     <div className="dashboard-page">
@@ -130,8 +114,8 @@ export function EventsDashboardScreen() {
 
       <section className="dashboard-page__hero">
         <div>
-          <h2>Events workspace</h2>
-          <p>List, graph, and selected-event detail panel stay synchronized around `/api/dashboard/events` and graph-by-selection.</p>
+          <h2>{t('events.dashboard.heroTitle')}</h2>
+          <p>{t('events.dashboard.heroDescription')}</p>
         </div>
         <DashboardGeneratedAt generatedAt={viewModel.generatedAt} />
       </section>
@@ -141,23 +125,17 @@ export function EventsDashboardScreen() {
       <DashboardFilterBar mode="events" filters={filters} onApply={applyFilters} onReset={resetFilters} />
 
       {primaryRole === 'viewer' ? (
-        <ReadOnlyNotice
-          title="Viewer access hides event report mutations"
-          description="Selection, graph exploration, and related posts remain available while report draft actions stay hidden."
-        />
+        <ReadOnlyNotice title={t('events.dashboard.readOnlyTitle')} description={t('events.dashboard.readOnlyDescription')} />
       ) : null}
 
       {eventsViewModel.rows.length === 0 ? (
-        <EmptyState
-          title="No events match the current filters"
-          description="The dashboard loaded successfully, but the snapshot contains no event rows for these filters."
-        />
+        <EmptyState title={t('events.dashboard.emptyTitle')} description={t('events.dashboard.emptyDescription')} />
       ) : (
         <section className="dashboard-page__content dashboard-page__content--workspace">
           <div className="dashboard-page__primary">
             <DashboardTableShell
-              title="Events table"
-              description="Dense event list with stable selection, report status, and root-post entry points."
+              title={t('events.dashboard.tableTitle')}
+              description={t('events.dashboard.tableDescription')}
               columns={[...eventsDashboardColumns]}
               rows={mapEventsRowsToTableRows(eventsViewModel.rows, selectedEventId, selectEvent, primaryRole)}
             />
@@ -187,7 +165,7 @@ export function EventsDashboardScreen() {
                     disabled={reportAction.isSubmitting || reportAction.jobStatus === 'running'}
                     onClick={() => reportAction.run(undefined)}
                   >
-                    {selectedEvent.reportStatus === 'draft' ? 'Update draft report' : 'Generate draft report'}
+                    {selectedEvent.reportStatus === 'draft' ? t('actions.updateDraftReport') : t('actions.generateDraftReport')}
                   </button>
                 ) : null
               }
@@ -195,8 +173,8 @@ export function EventsDashboardScreen() {
 
             {canMutate && selectedEvent && reportAction.jobStatus ? (
               <AsyncActionIndicator
-                title="Event report job"
-                description="Draft report generation uses jobs polling and invalidates both dashboard rows and selected graph snapshot."
+                title={t('events.rows.reportJobTitle')}
+                description={t('events.rows.reportJobDescription')}
                 status={reportAction.jobStatus}
                 jobId={reportAction.activeJob?.job_id ?? reportAction.terminalState?.jobId}
                 resultSummary={reportAction.resultSummary}

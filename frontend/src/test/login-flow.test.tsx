@@ -54,12 +54,12 @@ describe('Login flow', () => {
       authApi,
     });
 
-    await user.type(screen.getByLabelText(/Username/i), 'analyst');
-    await user.type(screen.getByLabelText(/Password/i), 'AnalystPass123!');
-    await user.click(screen.getByRole('button', { name: /Sign in/i }));
+    await user.type(screen.getByLabelText(/Имя пользователя/i), 'analyst');
+    await user.type(screen.getByLabelText(/Пароль/i), 'AnalystPass123!');
+    await user.click(screen.getByRole('button', { name: /Войти/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Posts workspace/i)).toBeInTheDocument();
+      expect(screen.getByText(/Дашборд: Посты/i)).toBeInTheDocument();
     });
 
     expect(screen.getByText(/analyst@example.com/i)).toBeInTheDocument();
@@ -76,12 +76,12 @@ describe('Login flow', () => {
       authApi,
     });
 
-    await user.type(screen.getByLabelText(/Username/i), 'bad-user');
-    await user.type(screen.getByLabelText(/Password/i), 'bad-password');
-    await user.click(screen.getByRole('button', { name: /Sign in/i }));
+    await user.type(screen.getByLabelText(/Имя пользователя/i), 'bad-user');
+    await user.type(screen.getByLabelText(/Пароль/i), 'bad-password');
+    await user.click(screen.getByRole('button', { name: /Войти/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Invalid credentials/i)).toBeInTheDocument();
+      expect(screen.getByText(/Неверные учетные данные/i)).toBeInTheDocument();
     });
   });
 
@@ -96,12 +96,12 @@ describe('Login flow', () => {
       authApi,
     });
 
-    await user.type(screen.getByLabelText(/Username/i), 'admin');
-    await user.type(screen.getByLabelText(/Password/i), 'AdminPass123!');
-    await user.click(screen.getByRole('button', { name: /Sign in/i }));
+    await user.type(screen.getByLabelText(/Имя пользователя/i), 'admin');
+    await user.type(screen.getByLabelText(/Пароль/i), 'AdminPass123!');
+    await user.click(screen.getByRole('button', { name: /Войти/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Authentication service is unavailable/i)).toBeInTheDocument();
+      expect(screen.getByText(/Сервис аутентификации недоступен/i)).toBeInTheDocument();
     });
   });
 });

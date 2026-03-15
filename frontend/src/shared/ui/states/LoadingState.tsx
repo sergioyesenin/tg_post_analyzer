@@ -1,4 +1,5 @@
 import { StateCard } from '@shared/ui/states/StateCard';
+import { useTranslation } from 'react-i18next';
 
 type LoadingStateProps = {
   title?: string;
@@ -6,8 +7,16 @@ type LoadingStateProps = {
 };
 
 export function LoadingState({
-  title = 'Loading workspace shell',
-  description = 'Bootstrap providers and route dependencies are still resolving.',
+  title,
+  description,
 }: LoadingStateProps) {
-  return <StateCard eyebrow="loading" title={title} description={description} />;
+  const { t } = useTranslation();
+
+  return (
+    <StateCard
+      eyebrow="states.loading"
+      title={title ?? t('loading.workspaceShell.title', { defaultValue: 'Loading workspace shell' })}
+      description={description ?? t('loading.workspaceShell.description', { defaultValue: 'Bootstrap providers and route dependencies are still resolving.' })}
+    />
+  );
 }

@@ -1,5 +1,6 @@
-import { Link } from 'react-router-dom';
+﻿import { Link } from 'react-router-dom';
 
+import { i18n } from '@shared/i18n/i18n';
 import type { UserRole } from '@shared/auth/roles';
 import type { DashboardSummaryCard } from '@shared/dashboard/components/DashboardSummaryCards';
 import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
@@ -33,14 +34,14 @@ export type EventsDashboardViewModel = {
 };
 
 export const eventsDashboardColumns: DashboardTableColumn[] = [
-  { id: 'event', label: 'Event' },
-  { id: 'status', label: 'Status' },
-  { id: 'started_at', label: 'Started at' },
-  { id: 'posts_count', label: 'Posts', align: 'right' },
-  { id: 'comments_count', label: 'Comments', align: 'right' },
-  { id: 'involvement', label: 'Involvement', align: 'right' },
-  { id: 'report_status', label: 'Report status' },
-  { id: 'actions', label: 'Actions' },
+  { id: 'event', label: i18n.t('events.table.event') },
+  { id: 'status', label: i18n.t('events.table.status') },
+  { id: 'started_at', label: i18n.t('events.table.startedAt') },
+  { id: 'posts_count', label: i18n.t('events.table.posts'), align: 'right' },
+  { id: 'comments_count', label: i18n.t('events.table.comments'), align: 'right' },
+  { id: 'involvement', label: i18n.t('events.table.involvement'), align: 'right' },
+  { id: 'report_status', label: i18n.t('events.table.reportStatus') },
+  { id: 'actions', label: i18n.t('events.table.actions') },
 ];
 
 export function mapEventsDashboardToViewModel(response: EventsDashboardResponse): EventsDashboardViewModel {
@@ -49,12 +50,12 @@ export function mapEventsDashboardToViewModel(response: EventsDashboardResponse)
     isPartial: response.partial,
     warnings: response.warnings,
     summaryCards: [
-      { id: 'events_count', label: 'Events', value: String(response.summary.events_count) },
-      { id: 'linked_posts', label: 'Linked posts', value: String(response.summary.total_linked_posts) },
-      { id: 'comments', label: 'Comments', value: String(response.summary.total_comments) },
-      { id: 'avg_involvement', label: 'Avg involvement', value: formatNullableRatio(response.summary.avg_involvement) },
-      { id: 'draft_reports', label: 'Draft reports', value: String(response.summary.draft_reports) },
-      { id: 'ready_reports', label: 'Ready reports', value: String(response.summary.ready_reports) },
+      { id: 'events_count', label: i18n.t('events.table.events'), value: String(response.summary.events_count) },
+      { id: 'linked_posts', label: i18n.t('events.table.linkedPosts'), value: String(response.summary.total_linked_posts) },
+      { id: 'comments', label: i18n.t('events.table.comments'), value: String(response.summary.total_comments) },
+      { id: 'avg_involvement', label: i18n.t('events.table.avgInvolvement'), value: formatNullableRatio(response.summary.avg_involvement) },
+      { id: 'draft_reports', label: i18n.t('events.table.draftReports'), value: String(response.summary.draft_reports) },
+      { id: 'ready_reports', label: i18n.t('events.table.readyReports'), value: String(response.summary.ready_reports) },
     ],
     rows: response.items.map((item) => mapEventItemToRow(item)),
   };
@@ -63,7 +64,7 @@ export function mapEventsDashboardToViewModel(response: EventsDashboardResponse)
 function mapEventItemToRow(item: EventsDashboardItemDto): EventDashboardRowViewModel {
   return {
     eventId: item.event_id,
-    title: item.title ?? `Event ${item.event_id}`,
+    title: item.title ?? i18n.t('events.rows.eventFallback', { id: item.event_id }),
     status: item.status,
     startedAt: formatUtcDateTime(item.started_at),
     endedAt: formatUtcDateTime(item.ended_at),
@@ -73,7 +74,7 @@ function mapEventItemToRow(item: EventsDashboardItemDto): EventDashboardRowViewM
     postsCount: String(item.posts_count),
     postIds: item.post_ids,
     rootPostId: item.root_post_id,
-    channels: item.channels.map((channel) => channel.channel_username ?? `#${channel.channel_id}`).join(', ') || 'n/a',
+    channels: item.channels.map((channel) => channel.channel_username ?? i18n.t('events.rows.channelFallback', { id: channel.channel_id })).join(', ') || i18n.t('common.na'),
     reportStatus: item.report_status,
     graphReady: item.graph_ready,
   };
@@ -101,13 +102,13 @@ export function mapEventsRowsToTableRows(
         status: (
           <div className="dashboard-table-shell__cell-stack">
             <span>{row.status}</span>
-            <span>confidence {row.confidence}</span>
+            <span>{i18n.t('events.rows.confidence', { value: row.confidence })}</span>
           </div>
         ),
         started_at: (
           <div className="dashboard-table-shell__cell-stack">
             <span>{row.startedAt}</span>
-            <span>{row.endedAt === 'n/a' ? 'open event' : `ended ${row.endedAt}`}</span>
+            <span>{row.endedAt === i18n.t('common.na') ? i18n.t('events.rows.openEvent') : i18n.t('events.rows.endedAt', { value: row.endedAt })}</span>
           </div>
         ),
         posts_count: row.postsCount,
@@ -121,17 +122,17 @@ export function mapEventsRowsToTableRows(
               className={`dashboard-button ${isSelected ? 'dashboard-button--ghost' : ''}`.trim()}
               onClick={() => onSelect(row.eventId)}
             >
-              {isSelected ? 'Selected' : 'Inspect'}
+              {isSelected ? i18n.t('events.rows.selected') : i18n.t('events.rows.inspect')}
             </button>
             <Link className="table-link" to={`/events/${row.eventId}`}>
-              Event detail
+              {i18n.t('events.rows.eventDetail')}
             </Link>
             {row.rootPostId ? (
               <Link className="table-link" to={`/posts/${row.rootPostId}`}>
-                Root post
+                {i18n.t('events.rows.rootPost')}
               </Link>
             ) : null}
-            {role === 'viewer' ? <span className="table-link table-link--muted">Read only</span> : null}
+            {role === 'viewer' ? <span className="table-link table-link--muted">{i18n.t('states.readOnly')}</span> : null}
           </div>
         ),
       },
@@ -171,7 +172,7 @@ export type EventGraphPanelViewModel = {
 export function mapEventGraphToViewModel(response: EventGraphResponse): EventGraphPanelViewModel {
   return {
     event: {
-      title: response.event.title ?? `Event ${response.event.event_id}`,
+      title: response.event.title ?? i18n.t('events.rows.eventFallback', { id: response.event.event_id }),
       status: response.event.status,
       reportStatus: response.event.report_status,
       postsCount: String(response.event.posts_count),
@@ -181,10 +182,10 @@ export function mapEventGraphToViewModel(response: EventGraphResponse): EventGra
     nodes: response.nodes.map((node) => ({
       id: String(node.post_id),
       postId: node.post_id,
-      title: node.text_preview ?? `Post #${node.post_id}`,
+      title: node.text_preview ?? i18n.t('reports.rows.postLabel', { id: node.post_id }),
       date: formatUtcDateTime(node.date),
       commentsCount: String(node.comments_count),
-      views: node.views === null ? 'n/a' : String(node.views),
+      views: node.views === null ? i18n.t('common.na') : String(node.views),
       involvement: formatNullableRatio(node.involvement),
       isRoot: node.is_root,
     })),
@@ -194,7 +195,7 @@ export function mapEventGraphToViewModel(response: EventGraphResponse): EventGra
       targetPostId: edge.dst_post_id,
       label: edge.link_type,
       status: edge.status,
-      score: edge.score === null ? 'n/a' : edge.score.toFixed(2),
+      score: edge.score === null ? i18n.t('common.na') : edge.score.toFixed(2),
     })),
   };
 }

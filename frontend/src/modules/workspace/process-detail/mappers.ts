@@ -1,3 +1,4 @@
+import { i18n } from '@shared/i18n/i18n';
 import type { DashboardSummaryCard } from '@shared/dashboard/components/DashboardSummaryCards';
 import type { ProcessGraphResponse } from '@shared/dashboard/contracts';
 import {
@@ -50,12 +51,12 @@ export function mapProcessDetailToViewModel(
 
     return {
       eventId: event.event_id,
-      title: graphEvent?.title ?? `Event ${event.event_id}`,
+      title: graphEvent?.title ?? i18n.t('processes.detail.fallbackEvent', { id: event.event_id }),
       status: graphEvent?.status ?? event.status,
       relationType: graphEvent?.relationType ?? event.relation_type,
       direction: graphEvent?.direction ?? event.direction,
-      score: graphEvent?.score ?? (event.score === null ? 'n/a' : event.score.toFixed(2)),
-      startedAt: graphEvent?.startedAt ?? 'n/a',
+      score: graphEvent?.score ?? (event.score === null ? i18n.t('common.na') : event.score.toFixed(2)),
+      startedAt: graphEvent?.startedAt ?? i18n.t('common.na'),
       postIds: graphEvent?.postIds ?? [],
     };
   });
@@ -65,7 +66,7 @@ export function mapProcessDetailToViewModel(
   return {
     process: {
       processId: detail.process.id,
-      title: detail.process.title ?? `Process ${detail.process.id}`,
+      title: detail.process.title ?? i18n.t('processes.rows.processFallback', { id: detail.process.id }),
       status: detail.process.status,
       startedAt: formatUtcDateTime(detail.process.started_at),
       endedAt: formatUtcDateTime(detail.process.ended_at),
@@ -74,15 +75,15 @@ export function mapProcessDetailToViewModel(
       involvement: formatNullableRatio(detail.process.involvement),
       eventsCount: String(detail.events.length),
       eventIds: detail.events.map((event) => event.event_id),
-      createdBy: detail.process.created_by ?? 'n/a',
+      createdBy: detail.process.created_by ?? i18n.t('common.na'),
       reportStatus: graph?.summary.report_status ?? 'missing',
       graphReady: graph ? true : null,
     },
     summaryCards: [
-      { id: 'status', label: 'Status', value: detail.process.status },
-      { id: 'events_count', label: 'Related events', value: String(detail.events.length) },
-      { id: 'comments_count', label: 'Comments', value: String(detail.process.comments_count) },
-      { id: 'involvement', label: 'Involvement', value: formatNullableRatio(detail.process.involvement) },
+      { id: 'status', label: i18n.t('processes.detail.status'), value: detail.process.status },
+      { id: 'events_count', label: i18n.t('processes.detail.events'), value: String(detail.events.length) },
+      { id: 'comments_count', label: i18n.t('processes.table.comments'), value: String(detail.process.comments_count) },
+      { id: 'involvement', label: i18n.t('processes.table.involvement'), value: formatNullableRatio(detail.process.involvement) },
     ],
     relatedEvents,
     confirmedPostIds,

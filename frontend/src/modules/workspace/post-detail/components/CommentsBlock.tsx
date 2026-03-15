@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { CommentViewModel } from '@modules/workspace/post-detail/mappers';
 import { DetailBlockShell } from '@modules/workspace/post-detail/components/DetailBlockShell';
@@ -14,22 +15,24 @@ type CommentsBlockProps = {
 };
 
 export function CommentsBlock({ comments, isLoading, isError, actionSlot }: CommentsBlockProps) {
+  const { t } = useTranslation();
+
   return (
-    <DetailBlockShell eyebrow="comments" title="Comments" actionSlot={actionSlot}>
+    <DetailBlockShell eyebrow={t('posts.comments.eyebrow')} title={t('posts.comments.title')} actionSlot={actionSlot}>
       {isLoading ? (
-        <LoadingState title="Loading comments" description="Fetching post comments and thread metadata." />
+        <LoadingState title={t('posts.comments.loadingTitle')} description={t('posts.comments.loadingDescription')} />
       ) : isError ? (
-        <ErrorState title="Comments failed to load" description="Comments block could not be loaded for this post." />
+        <ErrorState title={t('posts.comments.errorTitle')} description={t('posts.comments.errorDescription')} />
       ) : comments.length === 0 ? (
-        <EmptyState title="No comments available" description="This post currently has no stored comments." />
+        <EmptyState title={t('posts.comments.emptyTitle')} description={t('posts.comments.emptyDescription')} />
       ) : (
         <div className="comment-thread-list">
           {comments.map((comment) => (
             <article key={comment.id} className="comment-thread-item" style={{ marginLeft: `${comment.depth * 18}px` }}>
               <div className="comment-thread-item__meta">
-                <strong>Message #{comment.tgMessageId}</strong>
+                <strong>{t('posts.comments.messageTitle', { id: comment.tgMessageId })}</strong>
                 <span>{comment.date}</span>
-                {comment.threadModeHint ? <span>thread-aware</span> : null}
+                {comment.threadModeHint ? <span>{t('posts.comments.threadAware')}</span> : null}
               </div>
               <p>{comment.text}</p>
             </article>

@@ -1,4 +1,4 @@
-import type { DashboardMode } from '@shared/dashboard/contracts';
+﻿import type { DashboardMode } from '@shared/dashboard/contracts';
 import { DashboardFilterBar } from '@shared/dashboard/components/DashboardFilterBar';
 import { DashboardGeneratedAt } from '@shared/dashboard/components/DashboardGeneratedAt';
 import { PartialDataNotice } from '@shared/dashboard/components/PartialDataNotice';
@@ -8,12 +8,14 @@ import { DashboardWarningsBanner } from '@shared/dashboard/components/DashboardW
 import { useDashboardFilters } from '@shared/dashboard/hooks';
 import { buildDashboardPlaceholderResponse } from '@shared/dashboard/placeholders';
 import { mapDashboardTransportToScreenViewModel } from '@shared/dashboard/view-models';
+import { useTranslation } from 'react-i18next';
 
 type DashboardModePageProps = {
   mode: DashboardMode;
 };
 
 export function DashboardModePage({ mode }: DashboardModePageProps) {
+  const { t } = useTranslation();
   const { filters, applyFilters, resetFilters } = useDashboardFilters(mode);
   const transport = buildDashboardPlaceholderResponse(mode, filters);
   const viewModel = mapDashboardTransportToScreenViewModel(transport);
@@ -49,7 +51,7 @@ export function DashboardModePage({ mode }: DashboardModePageProps) {
 
         <aside className="dashboard-page__secondary">
           <section className="dashboard-side-panel">
-            <span className="state-card__eyebrow">split container foundation</span>
+            <span className="state-card__eyebrow">{t('dashboard.foundation.eyebrow')}</span>
             <strong>{viewModel.secondaryPanelTitle}</strong>
             <p>{viewModel.secondaryPanelDescription}</p>
           </section>

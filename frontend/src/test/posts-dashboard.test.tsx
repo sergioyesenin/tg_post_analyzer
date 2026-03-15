@@ -12,6 +12,8 @@ import {
 } from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
 
+const ru = (value: string) => JSON.parse('"' + value + '"') as string;
+
 function createAuthApiMock(roles: string[] = ['analyst']) {
   return {
     login: vi.fn(),
@@ -67,15 +69,15 @@ describe('Posts dashboard', () => {
     renderPostsDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText(/Dense list from \/api\/dashboard\/posts items/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041f\u043b\u043e\u0442\u043d\u044b\u0439 \u0441\u043f\u0438\u0441\u043e\u043a \u044d\u043b\u0435\u043c\u0435\u043d\u0442\u043e\u0432 /api/dashboard/posts'), { exact: false })).toBeInTheDocument();
     });
 
     expect(screen.getByText('537')).toBeInTheDocument();
     expect(screen.getByText(/Signal Watch/i)).toBeInTheDocument();
     expect(screen.getByText(/media/i)).toBeInTheDocument();
     expect(screen.getByText(/Top post preview for posts dashboard rendering/i)).toBeInTheDocument();
-    expect(screen.getByText('Ready')).toBeInTheDocument();
-    expect(screen.getByText('Pending')).toBeInTheDocument();
+    expect(screen.getByText(ru('\u0413\u043e\u0442\u043e\u0432'))).toBeInTheDocument();
+    expect(screen.getByText(ru('\u0412 \u043e\u0436\u0438\u0434\u0430\u043d\u0438\u0438'))).toBeInTheDocument();
   });
 
   it('renders loading state while snapshot request is pending', async () => {
@@ -84,7 +86,7 @@ describe('Posts dashboard', () => {
     renderPostsDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText(/Loading posts dashboard/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u0434\u0430\u0448\u0431\u043e\u0440\u0434\u0430 \u043f\u043e\u0441\u0442\u043e\u0432'))).toBeInTheDocument();
     });
   });
 
@@ -108,7 +110,7 @@ describe('Posts dashboard', () => {
     renderPostsDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText(/No posts match the current filters/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041d\u0435\u0442 \u043f\u043e\u0441\u0442\u043e\u0432, \u043f\u043e\u0434\u0445\u043e\u0434\u044f\u0449\u0438\u0445 \u043f\u043e\u0434 \u0442\u0435\u043a\u0443\u0449\u0438\u0435 \u0444\u0438\u043b\u044c\u0442\u0440\u044b'))).toBeInTheDocument();
     });
   });
 
@@ -118,7 +120,7 @@ describe('Posts dashboard', () => {
     renderPostsDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText(/Posts dashboard failed to load/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0434\u0430\u0448\u0431\u043e\u0440\u0434 \u043f\u043e\u0441\u0442\u043e\u0432'))).toBeInTheDocument();
     });
   });
 
@@ -128,7 +130,7 @@ describe('Posts dashboard', () => {
     renderPostsDashboard('/dashboard/posts?limit=10');
 
     await waitFor(() => {
-      expect(screen.getByText(/Posts dashboard is not available for this role/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0414\u0430\u0448\u0431\u043e\u0440\u0434 \u043f\u043e\u0441\u0442\u043e\u0432 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d \u0434\u043b\u044f \u044d\u0442\u043e\u0439 \u0440\u043e\u043b\u0438'))).toBeInTheDocument();
     });
   });
 
@@ -149,11 +151,11 @@ describe('Posts dashboard', () => {
     renderPostsDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText(/Snapshot includes non-blocking warnings/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0421\u043d\u0438\u043c\u043e\u043a \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u0442 \u043d\u0435\u0431\u043b\u043e\u043a\u0438\u0440\u0443\u044e\u0449\u0438\u0435 \u043f\u0440\u0435\u0434\u0443\u043f\u0440\u0435\u0436\u0434\u0435\u043d\u0438\u044f'), { exact: false })).toBeInTheDocument();
     });
 
     expect(screen.getByText(/Comments enrichment is incomplete/i)).toBeInTheDocument();
-    expect(screen.getByText(/Screen stays usable with partially enriched data/i)).toBeInTheDocument();
+    expect(screen.getByText(ru('\u042d\u043a\u0440\u0430\u043d \u043e\u0441\u0442\u0430\u0435\u0442\u0441\u044f \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u043c \u043f\u0440\u0438 \u0447\u0430\u0441\u0442\u0438\u0447\u043d\u043e \u043e\u0431\u043e\u0433\u0430\u0449\u0435\u043d\u043d\u044b\u0445 \u0434\u0430\u043d\u043d\u044b\u0445'))).toBeInTheDocument();
   });
 
   it('navigates to post detail entry point from table actions', async () => {
@@ -185,13 +187,13 @@ describe('Posts dashboard', () => {
     renderPostsDashboard();
 
     await waitFor(() => {
-      expect(screen.getAllByRole('link', { name: 'Open post' })[0]).toBeInTheDocument();
+      expect(screen.getAllByRole('link', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u043f\u043e\u0441\u0442') })[0]).toBeInTheDocument();
     });
 
-    await user.click(screen.getAllByRole('link', { name: 'Open post' })[0]);
+    await user.click(screen.getAllByRole('link', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u043f\u043e\u0441\u0442') })[0]);
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /Post #4012/i })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: ru('\u041f\u043e\u0441\u0442 #4012') })).toBeInTheDocument();
     });
   });
 
@@ -201,11 +203,11 @@ describe('Posts dashboard', () => {
     renderPostsDashboard('/dashboard/posts', ['viewer']);
 
     await waitFor(() => {
-      expect(screen.getByText(/Viewer access hides mutation entry points/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0414\u043b\u044f viewer \u0441\u043a\u0440\u044b\u0442\u044b \u0442\u043e\u0447\u043a\u0438 \u0432\u0445\u043e\u0434\u0430 \u0432 \u043c\u0443\u0442\u0430\u0446\u0438\u0438'))).toBeInTheDocument();
     });
 
-    expect(screen.getAllByRole('link', { name: 'Open post' })).toHaveLength(2);
-    expect(screen.queryByRole('link', { name: 'Comments' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Report' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u043f\u043e\u0441\u0442') })).toHaveLength(2);
+    expect(screen.queryByRole('link', { name: ru('\u041a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0438') })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: ru('\u041e\u0442\u0447\u0435\u0442') })).not.toBeInTheDocument();
   });
 });

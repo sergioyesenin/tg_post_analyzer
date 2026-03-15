@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 
+import { i18n } from '@shared/i18n/i18n';
 import type { UserRole } from '@shared/auth/roles';
 import type { DashboardSummaryCard } from '@shared/dashboard/components/DashboardSummaryCards';
 import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
@@ -31,13 +32,13 @@ export type ProcessesDashboardViewModel = {
 };
 
 export const processesDashboardColumns: DashboardTableColumn[] = [
-  { id: 'process', label: 'Process' },
-  { id: 'timeline', label: 'Timeline' },
-  { id: 'events_count', label: 'Events', align: 'right' },
-  { id: 'comments_count', label: 'Comments', align: 'right' },
-  { id: 'involvement', label: 'Involvement', align: 'right' },
-  { id: 'report_status', label: 'Report status' },
-  { id: 'actions', label: 'Actions' },
+  { id: 'process', label: i18n.t('processes.table.process') },
+  { id: 'timeline', label: i18n.t('processes.table.timeline') },
+  { id: 'events_count', label: i18n.t('processes.table.events'), align: 'right' },
+  { id: 'comments_count', label: i18n.t('processes.table.comments'), align: 'right' },
+  { id: 'involvement', label: i18n.t('processes.table.involvement'), align: 'right' },
+  { id: 'report_status', label: i18n.t('processes.table.reportStatus') },
+  { id: 'actions', label: i18n.t('processes.table.actions') },
 ];
 
 export function mapProcessesDashboardToViewModel(response: ProcessesDashboardResponse): ProcessesDashboardViewModel {
@@ -46,12 +47,12 @@ export function mapProcessesDashboardToViewModel(response: ProcessesDashboardRes
     isPartial: response.partial,
     warnings: response.warnings,
     summaryCards: [
-      { id: 'processes_count', label: 'Processes', value: String(response.summary.processes_count) },
-      { id: 'total_events', label: 'Linked events', value: String(response.summary.total_events) },
-      { id: 'comments', label: 'Comments', value: String(response.summary.total_comments) },
-      { id: 'avg_involvement', label: 'Avg involvement', value: formatNullableRatio(response.summary.avg_involvement) },
-      { id: 'draft_reports', label: 'Draft reports', value: String(response.summary.draft_reports) },
-      { id: 'failed_reports', label: 'Failed reports', value: String(response.summary.failed_reports) },
+      { id: 'processes_count', label: i18n.t('processes.table.processes'), value: String(response.summary.processes_count) },
+      { id: 'total_events', label: i18n.t('processes.table.linkedEvents'), value: String(response.summary.total_events) },
+      { id: 'comments', label: i18n.t('processes.table.comments'), value: String(response.summary.total_comments) },
+      { id: 'avg_involvement', label: i18n.t('processes.table.avgInvolvement'), value: formatNullableRatio(response.summary.avg_involvement) },
+      { id: 'draft_reports', label: i18n.t('processes.table.draftReports'), value: String(response.summary.draft_reports) },
+      { id: 'failed_reports', label: i18n.t('processes.table.failedReports'), value: String(response.summary.failed_reports) },
     ],
     rows: response.items.map((item) => mapProcessItemToRow(item)),
   };
@@ -60,7 +61,7 @@ export function mapProcessesDashboardToViewModel(response: ProcessesDashboardRes
 function mapProcessItemToRow(item: ProcessesDashboardItemDto): ProcessDashboardRowViewModel {
   return {
     processId: item.process_id,
-    title: item.title ?? `Process ${item.process_id}`,
+    title: item.title ?? i18n.t('processes.rows.processFallback', { id: item.process_id }),
     status: item.status,
     startedAt: formatUtcDateTime(item.started_at),
     endedAt: formatUtcDateTime(item.ended_at),
@@ -91,14 +92,14 @@ export function mapProcessesRowsToTableRows(
           <div className="dashboard-table-shell__cell-stack">
             <strong>{row.title}</strong>
             <span>
-              {row.status} • confidence {row.confidence}
+              {row.status} | {i18n.t('processes.rows.confidence', { value: row.confidence })}
             </span>
           </div>
         ),
         timeline: (
           <div className="dashboard-table-shell__cell-stack">
             <span>{row.startedAt}</span>
-            <span>{row.endedAt === 'n/a' ? 'process still active' : `ended ${row.endedAt}`}</span>
+            <span>{row.endedAt === i18n.t('common.na') ? i18n.t('processes.rows.active') : i18n.t('processes.rows.endedAt', { value: row.endedAt })}</span>
           </div>
         ),
         events_count: row.eventsCount,
@@ -112,14 +113,14 @@ export function mapProcessesRowsToTableRows(
               className={`dashboard-button ${isSelected ? 'dashboard-button--ghost' : ''}`.trim()}
               onClick={() => onSelect(row.processId)}
             >
-              {isSelected ? 'Selected' : 'Inspect'}
+              {isSelected ? i18n.t('processes.rows.selected') : i18n.t('processes.rows.inspect')}
             </button>
             {row.eventIds[0] ? (
               <Link className="table-link" to={`/events/${row.eventIds[0]}`}>
-                Lead event
+                {i18n.t('processes.rows.leadEvent')}
               </Link>
             ) : null}
-            {role === 'viewer' ? <span className="table-link table-link--muted">Read only</span> : null}
+            {role === 'viewer' ? <span className="table-link table-link--muted">{i18n.t('states.readOnly')}</span> : null}
           </div>
         ),
       },
@@ -180,7 +181,7 @@ export function mapProcessGraphToViewModel(response: ProcessGraphResponse): Proc
   return {
     summary: {
       processId: response.summary.process_id,
-      title: response.summary.title ?? `Process ${response.summary.process_id}`,
+      title: response.summary.title ?? i18n.t('processes.rows.processFallback', { id: response.summary.process_id }),
       status: response.summary.status,
       reportStatus: response.summary.report_status,
       eventsCount: String(response.summary.events_count),
@@ -190,20 +191,20 @@ export function mapProcessGraphToViewModel(response: ProcessGraphResponse): Proc
     },
     events: response.events.map((event) => ({
       eventId: event.event_id,
-      title: event.title ?? `Event ${event.event_id}`,
+      title: event.title ?? i18n.t('reports.rows.eventFallback', { id: event.event_id }),
       status: event.status,
       relationType: event.relation_type,
       direction: event.direction,
-      score: event.score === null ? 'n/a' : event.score.toFixed(2),
+      score: event.score === null ? i18n.t('common.na') : event.score.toFixed(2),
       startedAt: formatUtcDateTime(event.started_at),
       postIds: event.post_ids,
     })),
     nodes: response.nodes.map((node) => ({
       id: String(node.post_id),
       postId: node.post_id,
-      title: node.text_preview ?? `Post #${node.post_id}`,
+      title: node.text_preview ?? i18n.t('processes.graph.postTitle', { id: node.post_id }),
       date: formatUtcDateTime(node.date),
-      channel: node.channel_username ?? `#${node.channel_id}`,
+      channel: node.channel_username ?? i18n.t('reports.rows.channelLabel', { id: node.channel_id }),
       eventIds: eventIdsByPostId.get(node.post_id) ?? [],
       isRoot: node.is_root,
     })),
@@ -213,7 +214,7 @@ export function mapProcessGraphToViewModel(response: ProcessGraphResponse): Proc
       targetPostId: edge.dst_post_id,
       label: edge.link_type,
       status: edge.status,
-      score: edge.score === null ? 'n/a' : edge.score.toFixed(2),
+      score: edge.score === null ? i18n.t('common.na') : edge.score.toFixed(2),
     })),
   };
 }

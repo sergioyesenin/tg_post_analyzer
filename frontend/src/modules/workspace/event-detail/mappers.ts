@@ -1,3 +1,4 @@
+﻿import { i18n } from '@shared/i18n/i18n';
 import type { DashboardSummaryCard } from '@shared/dashboard/components/DashboardSummaryCards';
 import type { EventGraphResponse } from '@shared/dashboard/contracts';
 import { mapEventGraphToViewModel, type EventGraphPanelViewModel } from '@modules/workspace/events/mappers';
@@ -29,23 +30,13 @@ export type EventDetailPageViewModel = {
 export function mapEventDetailToViewModel(detail: EventDetailDto, graph: EventGraphResponse | null): EventDetailPageViewModel {
   const graphViewModel = graph ? mapEventGraphToViewModel(graph) : null;
   const rootPostId = graphViewModel?.nodes.find((node) => node.isRoot)?.postId ?? null;
-  const channelLabels =
-    graph && graph.nodes.length > 0
-      ? Array.from(
-          new Set(
-            graph.nodes
-              .map((node) => node.channel_username ?? null)
-              .filter((value): value is string => Boolean(value)),
-          ),
-        )
-      : [];
-
+  const channelLabels = graph && graph.nodes.length > 0 ? Array.from(new Set(graph.nodes.map((node) => node.channel_username ?? null).filter((value): value is string => Boolean(value)))) : [];
   const postsCount = graphViewModel ? graphViewModel.event.postsCount : String(detail.post_ids.length);
 
   return {
     event: {
       eventId: detail.event.id,
-      title: detail.event.title ?? `Event ${detail.event.id}`,
+      title: detail.event.title ?? i18n.t('events.rows.eventFallback', { id: detail.event.id }),
       status: detail.event.status,
       startedAt: formatUtcDateTime(detail.event.started_at),
       endedAt: formatUtcDateTime(detail.event.ended_at),
@@ -55,16 +46,16 @@ export function mapEventDetailToViewModel(detail: EventDetailDto, graph: EventGr
       postsCount,
       postIds: detail.post_ids,
       rootPostId,
-      channels: channelLabels.join(', ') || 'n/a',
-      createdBy: detail.event.created_by ?? 'n/a',
+      channels: channelLabels.join(', ') || i18n.t('common.na'),
+      createdBy: detail.event.created_by ?? i18n.t('common.na'),
       reportStatus: graph?.event.report_status ?? null,
       graphReady: graph ? true : null,
     },
     summaryCards: [
-      { id: 'status', label: 'Status', value: detail.event.status },
-      { id: 'posts_count', label: 'Linked posts', value: postsCount },
-      { id: 'comments_count', label: 'Comments', value: String(detail.event.comments_count) },
-      { id: 'involvement', label: 'Involvement', value: formatNullableRatio(detail.event.involvement) },
+      { id: 'status', label: i18n.t('events.detail.status'), value: detail.event.status },
+      { id: 'posts_count', label: i18n.t('events.table.linkedPosts'), value: postsCount },
+      { id: 'comments_count', label: i18n.t('events.table.comments'), value: String(detail.event.comments_count) },
+      { id: 'involvement', label: i18n.t('events.table.involvement'), value: formatNullableRatio(detail.event.involvement) },
     ],
     graph: graphViewModel,
   };

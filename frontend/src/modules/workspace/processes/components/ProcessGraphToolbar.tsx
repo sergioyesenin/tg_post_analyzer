@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 type ProcessGraphToolbarProps = {
   title: string;
   eventCount: number;
@@ -13,17 +15,19 @@ export function ProcessGraphToolbar({
   isLoading,
   onRefresh,
 }: ProcessGraphToolbarProps) {
+  const { t } = useTranslation();
+
   return (
     <div className="process-graph-toolbar">
       <div>
-        <span className="state-card__eyebrow">hierarchy toolbar</span>
+        <span className="state-card__eyebrow">{t('processes.graph.toolbarEyebrow')}</span>
         <strong>{title}</strong>
       </div>
       <div className="process-graph-toolbar__meta">
-        <span>{eventCount} events</span>
-        <span>{postCount} posts</span>
+        <span>{t('processes.graph.eventsMeta', { value: eventCount })}</span>
+        <span>{t('processes.graph.postsMeta', { value: postCount })}</span>
         <button type="button" className="dashboard-button dashboard-button--ghost" onClick={onRefresh} disabled={isLoading}>
-          Reload graph
+          {t('processes.graph.reload')}
         </button>
       </div>
     </div>

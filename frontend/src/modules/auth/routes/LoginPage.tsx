@@ -1,4 +1,5 @@
 import { FormEvent, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 
 import { useSession } from '@app/providers/SessionProvider';
@@ -7,6 +8,7 @@ import { defaultAuthenticatedRoute } from '@shared/routing/policy';
 import type { LoginState } from '@shared/auth/session-types';
 
 export function LoginPage() {
+  const { t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
   const { login, status } = useSession();
@@ -50,32 +52,30 @@ export function LoginPage() {
     <div className="login-shell">
       <section className="login-panel">
         <div className="login-panel__intro">
-          <span className="state-card__eyebrow">local auth</span>
-          <h1 className="login-panel__title">Sign in to the analytics workspace</h1>
-          <p className="login-panel__description">
-            Sign in to access the shared workspace, reports, and role-based routes.
-          </p>
+          <span className="state-card__eyebrow">{t('auth.login.eyebrow', { defaultValue: 'local auth' })}</span>
+          <h1 className="login-panel__title">{t('auth.login.title', { defaultValue: 'Sign in to the analytics workspace' })}</h1>
+          <p className="login-panel__description">{t('auth.login.description', { defaultValue: 'Sign in to access the shared workspace, reports, and role-based routes.' })}</p>
         </div>
 
         <form className="login-form" onSubmit={handleSubmit}>
           <label className="login-form__field">
-            <span>Username</span>
+            <span>{t('fields.username')}</span>
             <input
               autoComplete="username"
               name="username"
               onChange={(event) => setUsername(event.target.value)}
-              placeholder="admin"
+              placeholder={t('auth.login.usernamePlaceholder', { defaultValue: 'admin' })}
               value={username}
             />
           </label>
 
           <label className="login-form__field">
-            <span>Password</span>
+            <span>{t('fields.password')}</span>
             <input
               autoComplete="current-password"
               name="password"
               onChange={(event) => setPassword(event.target.value)}
-              placeholder="********"
+              placeholder={t('auth.login.passwordPlaceholder', { defaultValue: '********' })}
               type="password"
               value={password}
             />
@@ -84,13 +84,18 @@ export function LoginPage() {
           {errorState ? <div className="login-form__error">{getLoginErrorMessage(errorState)}</div> : null}
 
           <button className="login-form__submit" disabled={loginState === 'loading'} type="submit">
-            {loginState === 'loading' ? 'Signing in...' : 'Sign in'}
+            {loginState === 'loading'
+              ? t('auth.login.signingIn', { defaultValue: 'Signing in...' })
+              : t('auth.login.submit', { defaultValue: 'Sign in' })}
           </button>
 
           <div className="login-form__meta">
             {redirectTarget !== defaultAuthenticatedRoute
-              ? `After sign-in you will be redirected to ${redirectTarget}.`
-              : 'After sign-in the default workspace route will open.'}
+              ? t('auth.login.redirectTarget', {
+                  defaultValue: `After sign-in you will be redirected to ${redirectTarget}.`,
+                  path: redirectTarget,
+                })
+              : t('auth.login.redirectDefault', { defaultValue: 'After sign-in the default workspace route will open.' })}
           </div>
         </form>
       </section>

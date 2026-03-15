@@ -1,5 +1,6 @@
-import { Link } from 'react-router-dom';
+﻿import { Link } from 'react-router-dom';
 
+import { i18n } from '@shared/i18n/i18n';
 import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
 import type { DashboardSummaryCard } from '@shared/dashboard/components/DashboardSummaryCards';
 import { formatNullableRatio, formatUtcDateTime } from '@shared/utils/formatters';
@@ -12,15 +13,15 @@ import type {
 } from '@modules/keyword-graph/contracts';
 
 function formatNullableNumber(value: number | null) {
-  return value === null ? 'n/a' : String(value);
+  return value === null ? i18n.t('common.na') : String(value);
 }
 
 export const keywordSearchColumns: DashboardTableColumn[] = [
-  { id: 'select', label: 'Seed' },
-  { id: 'post', label: 'Post' },
-  { id: 'lemmas', label: 'Matched lemmas' },
-  { id: 'metrics', label: 'Metrics' },
-  { id: 'rank', label: 'Rank' },
+  { id: 'select', label: i18n.t('keywordGraph.table.seed') },
+  { id: 'post', label: i18n.t('keywordGraph.table.post') },
+  { id: 'lemmas', label: i18n.t('keywordGraph.table.lemmas') },
+  { id: 'metrics', label: i18n.t('keywordGraph.table.metrics') },
+  { id: 'rank', label: i18n.t('keywordGraph.table.rank') },
 ];
 
 export function mapKeywordSearchRows(
@@ -45,9 +46,9 @@ export function mapKeywordSearchRows(
                 type="checkbox"
                 checked={isSelected}
                 onChange={() => onToggleSelected(item.post_id)}
-                aria-label={`Select post ${item.post_id}`}
+                aria-label={i18n.t('keywordGraph.rows.selectPostAria', { id: item.post_id })}
               />{' '}
-              Select
+              {i18n.t('keywordGraph.actions.select')}
             </span>
             {isSelected ? (
               <span>
@@ -55,30 +56,30 @@ export function mapKeywordSearchRows(
                   type="checkbox"
                   checked={isExcluded}
                   onChange={() => onToggleExcluded(item.post_id)}
-                  aria-label={`Exclude post ${item.post_id}`}
+                  aria-label={i18n.t('keywordGraph.rows.excludePostAria', { id: item.post_id })}
                 />{' '}
-                Exclude
+                {i18n.t('keywordGraph.actions.exclude')}
               </span>
             ) : null}
           </label>
         ),
         post: (
           <div className="dashboard-table-shell__cell-stack">
-            <strong>Post #{item.post_id}</strong>
+            <strong>{i18n.t('keywordGraph.rows.postLabel', { id: item.post_id })}</strong>
             <span>@{item.channel_username ?? 'unknown_channel'}</span>
             <span>{formatUtcDateTime(item.date)}</span>
-            <span>{item.text_preview ?? 'No preview available.'}</span>
+            <span>{item.text_preview ?? i18n.t('keywordGraph.rows.noPreview')}</span>
             <Link className="table-link" to={`/posts/${item.post_id}`}>
-              Open post
+              {i18n.t('keywordGraph.rows.openPost')}
             </Link>
           </div>
         ),
-        lemmas: item.matched_lemmas.length > 0 ? item.matched_lemmas.join(', ') : 'n/a',
+        lemmas: item.matched_lemmas.length > 0 ? item.matched_lemmas.join(', ') : i18n.t('common.na'),
         metrics: (
           <div className="dashboard-table-shell__cell-stack">
-            <span>{item.comments_count} comments</span>
-            <span>{formatNullableNumber(item.views)} views</span>
-            <span>{formatNullableNumber(item.involvement)} involvement</span>
+            <span>{i18n.t('keywordGraph.rows.comments', { value: item.comments_count })}</span>
+            <span>{i18n.t('keywordGraph.rows.views', { value: formatNullableNumber(item.views) })}</span>
+            <span>{i18n.t('keywordGraph.rows.involvement', { value: formatNullableNumber(item.involvement) })}</span>
           </div>
         ),
         rank: item.rank.toFixed(3),
@@ -93,10 +94,10 @@ export function mapKeywordSearchSummary(response: KeywordSearchResponseDto | nul
   }
 
   return [
-    { id: 'total', label: 'Matches', value: String(response.total) },
-    { id: 'lemmas', label: 'Normalized lemmas', value: String(response.lemmas.length) },
-    { id: 'latency', label: 'Search latency', value: `${response.took_ms} ms` },
-    { id: 'normalized', label: 'Normalized query', value: response.normalized_query },
+    { id: 'total', label: i18n.t('keywordGraph.summary.matches'), value: String(response.total) },
+    { id: 'lemmas', label: i18n.t('keywordGraph.summary.normalizedLemmas'), value: String(response.lemmas.length) },
+    { id: 'latency', label: i18n.t('keywordGraph.summary.searchLatency'), value: `${response.took_ms} ms` },
+    { id: 'normalized', label: i18n.t('keywordGraph.summary.normalizedQuery'), value: response.normalized_query },
   ];
 }
 
@@ -138,7 +139,7 @@ function mapNode(node: KeywordGraphNodeDto): KeywordGraphNodeViewModel {
   return {
     id: String(node.post_id),
     postId: node.post_id,
-    title: node.text_preview ?? 'No preview available.',
+    title: node.text_preview ?? i18n.t('keywordGraph.rows.noPreview'),
     date: formatUtcDateTime(node.date),
     channel: `@${node.channel_username ?? 'unknown_channel'}`,
     commentsCount: node.comments_count,
@@ -156,8 +157,8 @@ function mapEdge(edge: KeywordGraphEdgeDto): KeywordGraphEdgeViewModel {
     label: edge.link_type,
     status: edge.status,
     source: edge.edge_source,
-    score: edge.score === null ? 'n/a' : edge.score.toFixed(3),
-    evidence: edge.evidence ? JSON.stringify(edge.evidence) : 'n/a',
+    score: edge.score === null ? i18n.t('common.na') : edge.score.toFixed(3),
+    evidence: edge.evidence ? JSON.stringify(edge.evidence) : i18n.t('common.na'),
   };
 }
 

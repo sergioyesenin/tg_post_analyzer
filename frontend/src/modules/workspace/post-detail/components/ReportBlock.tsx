@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { DetailBlockShell } from '@modules/workspace/post-detail/components/DetailBlockShell';
 import type { ReportViewModel } from '@modules/workspace/post-detail/mappers';
@@ -15,14 +16,16 @@ type ReportBlockProps = {
 };
 
 export function ReportBlock({ report, isLoading, isError, actionSlot }: ReportBlockProps) {
+  const { t } = useTranslation();
+
   return (
-    <DetailBlockShell eyebrow="report" title="Report" actionSlot={actionSlot}>
+    <DetailBlockShell eyebrow={t('posts.report.eyebrow')} title={t('posts.report.title')} actionSlot={actionSlot}>
       {isLoading ? (
-        <LoadingState title="Loading report" description="Fetching the current report state for this post." />
+        <LoadingState title={t('posts.report.loadingTitle')} description={t('posts.report.loadingDescription')} />
       ) : isError ? (
-        <ErrorState title="Report failed to load" description="Report data could not be loaded for this post." />
+        <ErrorState title={t('posts.report.errorTitle')} description={t('posts.report.errorDescription')} />
       ) : !report ? (
-        <EmptyState title="Report is missing" description="No report exists yet for this post." />
+        <EmptyState title={t('posts.report.emptyTitle')} description={t('posts.report.emptyDescription')} />
       ) : (
         <div className="report-block">
           <div className="report-block__meta">

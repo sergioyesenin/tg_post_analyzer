@@ -1,8 +1,9 @@
-import type { DashboardGeneratedAtProps } from '@shared/dashboard/components/DashboardGeneratedAt';
+﻿import type { DashboardGeneratedAtProps } from '@shared/dashboard/components/DashboardGeneratedAt';
 import type { DashboardSummaryCard } from '@shared/dashboard/components/DashboardSummaryCards';
 import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
 import type { DashboardTransportResponse } from '@shared/dashboard/contracts';
 import type { DashboardFiltersByMode } from '@shared/dashboard/filters';
+import { i18n } from '@shared/i18n/i18n';
 
 export type DashboardScreenViewModel = {
   title: string;
@@ -24,7 +25,7 @@ export type DashboardScreenViewModel = {
 
 function formatMetric(value: number | null) {
   if (value === null) {
-    return 'n/a';
+    return i18n.t('common.na');
   }
 
   return String(value);
@@ -33,26 +34,26 @@ function formatMetric(value: number | null) {
 export function mapDashboardTransportToScreenViewModel(transport: DashboardTransportResponse): DashboardScreenViewModel {
   if (transport.mode === 'posts') {
     return {
-      title: 'Posts workspace',
-      description: 'Reusable dashboard shell anchored to /api/dashboard/posts contract.',
+      title: i18n.t('dashboard.foundation.posts.title'),
+      description: i18n.t('dashboard.foundation.posts.description'),
       generatedAt: transport.generated_at,
       isPartial: transport.partial,
       warnings: transport.warnings,
       filters: transport.filters_applied,
       summaryCards: [
-        { id: 'posts_count', label: 'Posts', value: String(transport.summary.posts_count) },
-        { id: 'comments', label: 'Comments', value: String(transport.summary.total_comments) },
-        { id: 'channels', label: 'Channels', value: String(transport.summary.channels_count) },
-        { id: 'ready_reports', label: 'Ready reports', value: String(transport.summary.reports_ready) },
+        { id: 'posts_count', label: i18n.t('navigation.posts'), value: String(transport.summary.posts_count) },
+        { id: 'comments', label: i18n.t('dashboard.foundation.metrics.comments'), value: String(transport.summary.total_comments) },
+        { id: 'channels', label: i18n.t('navigation.channels'), value: String(transport.summary.channels_count) },
+        { id: 'ready_reports', label: i18n.t('dashboard.foundation.metrics.readyReports'), value: String(transport.summary.reports_ready) },
       ],
       table: {
-        title: 'Posts table',
-        description: 'Foundation shell for table composition and future DataGrid integration.',
+        title: i18n.t('dashboard.foundation.posts.tableTitle'),
+        description: i18n.t('dashboard.foundation.posts.tableDescription'),
         columns: [
-          { id: 'channel', label: 'Channel' },
-          { id: 'preview', label: 'Preview' },
-          { id: 'comments', label: 'Comments' },
-          { id: 'report_status', label: 'Report status' },
+          { id: 'channel', label: i18n.t('dashboard.foundation.columns.channel') },
+          { id: 'preview', label: i18n.t('dashboard.foundation.columns.preview') },
+          { id: 'comments', label: i18n.t('dashboard.foundation.metrics.comments') },
+          { id: 'report_status', label: i18n.t('fields.reportStatus') },
         ],
         rows: transport.items.map((item) => ({
           id: String(item.post_id),
@@ -65,87 +66,85 @@ export function mapDashboardTransportToScreenViewModel(transport: DashboardTrans
           },
         })),
       },
-      secondaryPanelTitle: 'Selection / details rail',
-      secondaryPanelDescription:
-        'Stage 2 keeps the right rail reusable for future details, comments and report blocks without binding to a specific API.',
+      secondaryPanelTitle: i18n.t('dashboard.foundation.posts.secondaryTitle'),
+      secondaryPanelDescription: i18n.t('dashboard.foundation.posts.secondaryDescription'),
     };
   }
 
   if (transport.mode === 'events') {
     return {
-      title: 'Events workspace',
-      description: 'Shell keeps partial data visible and reserves a split panel for graph and detail blocks.',
+      title: i18n.t('dashboard.foundation.events.title'),
+      description: i18n.t('dashboard.foundation.events.description'),
       generatedAt: transport.generated_at,
       isPartial: transport.partial,
       warnings: transport.warnings,
       filters: transport.filters_applied,
       summaryCards: [
-        { id: 'events_count', label: 'Events', value: String(transport.summary.events_count) },
-        { id: 'linked_posts', label: 'Linked posts', value: String(transport.summary.total_linked_posts) },
-        { id: 'comments', label: 'Comments', value: String(transport.summary.total_comments) },
-        { id: 'draft_reports', label: 'Draft reports', value: String(transport.summary.draft_reports) },
+        { id: 'events_count', label: i18n.t('navigation.events'), value: String(transport.summary.events_count) },
+        { id: 'linked_posts', label: i18n.t('dashboard.foundation.metrics.linkedPosts'), value: String(transport.summary.total_linked_posts) },
+        { id: 'comments', label: i18n.t('dashboard.foundation.metrics.comments'), value: String(transport.summary.total_comments) },
+        { id: 'draft_reports', label: i18n.t('dashboard.foundation.metrics.draftReports'), value: String(transport.summary.draft_reports) },
       ],
       table: {
-        title: 'Events table',
-        description: 'Reusable shell for rows, sorting and future detail selection.',
+        title: i18n.t('dashboard.foundation.events.tableTitle'),
+        description: i18n.t('dashboard.foundation.events.tableDescription'),
         columns: [
-          { id: 'title', label: 'Event' },
-          { id: 'status', label: 'Status' },
-          { id: 'posts', label: 'Posts' },
-          { id: 'report_status', label: 'Report status' },
+          { id: 'title', label: i18n.t('navigation.events') },
+          { id: 'status', label: i18n.t('fields.status') },
+          { id: 'posts', label: i18n.t('navigation.posts') },
+          { id: 'report_status', label: i18n.t('fields.reportStatus') },
         ],
         rows: transport.items.map((item) => ({
           id: String(item.event_id),
           href: `/events/${item.event_id}`,
           cells: {
-            title: item.title ?? `Event ${item.event_id}`,
+            title: item.title ?? i18n.t('dashboard.foundation.events.fallbackTitle', { id: item.event_id }),
             status: item.status,
             posts: String(item.posts_count),
             report_status: item.report_status,
           },
         })),
       },
-      secondaryPanelTitle: 'Graph / details foundation',
-      secondaryPanelDescription:
-        'Split container reserves space for event graph, selected event details and related posts without blocking the table.',
+      secondaryPanelTitle: i18n.t('dashboard.foundation.events.secondaryTitle'),
+      secondaryPanelDescription: i18n.t('dashboard.foundation.events.secondaryDescription'),
     };
   }
 
   return {
-    title: 'Processes workspace',
-    description: 'Processes mode shares shell behavior but isolates its mode-specific graph and details rail.',
+    title: i18n.t('dashboard.foundation.processes.title'),
+    description: i18n.t('dashboard.foundation.processes.description'),
     generatedAt: transport.generated_at,
     isPartial: transport.partial,
     warnings: transport.warnings,
     filters: transport.filters_applied,
     summaryCards: [
-      { id: 'processes_count', label: 'Processes', value: String(transport.summary.processes_count) },
-      { id: 'events', label: 'Events', value: String(transport.summary.total_events) },
-      { id: 'comments', label: 'Comments', value: String(transport.summary.total_comments) },
-      { id: 'avg_involvement', label: 'Avg involvement', value: formatMetric(transport.summary.avg_involvement) },
+      { id: 'processes_count', label: i18n.t('navigation.processes'), value: String(transport.summary.processes_count) },
+      { id: 'events', label: i18n.t('navigation.events'), value: String(transport.summary.total_events) },
+      { id: 'comments', label: i18n.t('dashboard.foundation.metrics.comments'), value: String(transport.summary.total_comments) },
+      { id: 'avg_involvement', label: i18n.t('dashboard.foundation.metrics.avgInvolvement'), value: formatMetric(transport.summary.avg_involvement) },
     ],
     table: {
-      title: 'Processes table',
-      description: 'Reusable shell for process rows before graph/detail implementation.',
+      title: i18n.t('dashboard.foundation.processes.tableTitle'),
+      description: i18n.t('dashboard.foundation.processes.tableDescription'),
       columns: [
-        { id: 'title', label: 'Process' },
-        { id: 'status', label: 'Status' },
-        { id: 'events', label: 'Events' },
-        { id: 'report_status', label: 'Report status' },
+        { id: 'title', label: i18n.t('navigation.processes') },
+        { id: 'status', label: i18n.t('fields.status') },
+        { id: 'events', label: i18n.t('navigation.events') },
+        { id: 'report_status', label: i18n.t('fields.reportStatus') },
       ],
       rows: transport.items.map((item) => ({
         id: String(item.process_id),
         href: `/processes/${item.process_id}`,
         cells: {
-          title: item.title ?? `Process ${item.process_id}`,
+          title: item.title ?? i18n.t('dashboard.foundation.processes.fallbackTitle', { id: item.process_id }),
           status: item.status,
           events: String(item.events_count),
           report_status: item.report_status,
         },
       })),
     },
-    secondaryPanelTitle: 'Process graph / linked events rail',
-    secondaryPanelDescription:
-      'Shared split layout remains stable while future process graph and linked event blocks are added.',
+    secondaryPanelTitle: i18n.t('dashboard.foundation.processes.secondaryTitle'),
+    secondaryPanelDescription: i18n.t('dashboard.foundation.processes.secondaryDescription'),
   };
 }
+

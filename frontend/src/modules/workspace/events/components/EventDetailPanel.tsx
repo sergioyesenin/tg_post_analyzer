@@ -1,5 +1,6 @@
-import { Link } from 'react-router-dom';
+﻿import { Link } from 'react-router-dom';
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { ReportStatusBadge } from '@shared/ui/status/ReportStatusBadge';
 import type { EventGraphPanelViewModel } from '@modules/workspace/events/mappers';
@@ -27,16 +28,18 @@ type EventDetailPanelProps = {
 };
 
 export function EventDetailPanel({ event, graph, actionSlot }: EventDetailPanelProps) {
+  const { t } = useTranslation();
+
   if (!event) {
     return (
       <section className="detail-block">
         <div className="detail-block__header">
           <div>
-            <span className="state-card__eyebrow">detail panel</span>
-            <strong>Selected event</strong>
+            <span className="state-card__eyebrow">{t('events.detail.eyebrow')}</span>
+            <strong>{t('events.detail.selectedTitle')}</strong>
           </div>
         </div>
-        <p className="dashboard-panel-copy">Select an event row to keep the detail panel and graph synchronized.</p>
+        <p className="dashboard-panel-copy">{t('events.detail.emptyDescription')}</p>
       </section>
     );
   }
@@ -49,7 +52,7 @@ export function EventDetailPanel({ event, graph, actionSlot }: EventDetailPanelP
     })) ??
     event.postIds.map((postId) => ({
       postId,
-      label: `Post #${postId}`,
+      label: t('events.detail.postTitle', { id: postId }),
       isRoot: event.rootPostId === postId,
     }));
 
@@ -57,7 +60,7 @@ export function EventDetailPanel({ event, graph, actionSlot }: EventDetailPanelP
     <section className="detail-block">
       <div className="detail-block__header">
         <div>
-          <span className="state-card__eyebrow">detail panel</span>
+          <span className="state-card__eyebrow">{t('events.detail.eyebrow')}</span>
           <strong>{event.title}</strong>
         </div>
         {actionSlot}
@@ -65,76 +68,43 @@ export function EventDetailPanel({ event, graph, actionSlot }: EventDetailPanelP
 
       <div className="event-detail-panel">
         <div className="event-detail-panel__summary">
-          <div>
-            <span>Status</span>
-            <strong>{event.status}</strong>
-          </div>
-          <div>
-            <span>Started</span>
-            <strong>{event.startedAt}</strong>
-          </div>
-          <div>
-            <span>Ended</span>
-            <strong>{event.endedAt}</strong>
-          </div>
-          <div>
-            <span>Confidence</span>
-            <strong>{event.confidence}</strong>
-          </div>
-          <div>
-            <span>Comments</span>
-            <strong>{event.commentsCount}</strong>
-          </div>
-          <div>
-            <span>Involvement</span>
-            <strong>{event.involvement}</strong>
-          </div>
-          <div>
-            <span>Posts</span>
-            <strong>{event.postsCount}</strong>
-          </div>
-          <div>
-            <span>Channels</span>
-            <strong>{event.channels}</strong>
-          </div>
-          {'createdBy' in event ? (
-            <div>
-              <span>Created by</span>
-              <strong>{event.createdBy}</strong>
-            </div>
-          ) : null}
+          <div><span>{t('events.detail.status')}</span><strong>{event.status}</strong></div>
+          <div><span>{t('events.detail.started')}</span><strong>{event.startedAt}</strong></div>
+          <div><span>{t('events.detail.ended')}</span><strong>{event.endedAt}</strong></div>
+          <div><span>{t('events.detail.confidence')}</span><strong>{event.confidence}</strong></div>
+          <div><span>{t('events.detail.comments')}</span><strong>{event.commentsCount}</strong></div>
+          <div><span>{t('events.detail.involvement')}</span><strong>{event.involvement}</strong></div>
+          <div><span>{t('events.detail.posts')}</span><strong>{event.postsCount}</strong></div>
+          <div><span>{t('events.detail.channels')}</span><strong>{event.channels}</strong></div>
+          {'createdBy' in event ? <div><span>{t('events.detail.createdBy')}</span><strong>{event.createdBy}</strong></div> : null}
         </div>
 
         <div className="event-detail-panel__report">
           <div className="event-detail-panel__report-header">
-            <span className="state-card__eyebrow">event report</span>
+            <span className="state-card__eyebrow">{t('events.detail.reportEyebrow')}</span>
             {graph?.event.reportStatus ?? event.reportStatus ? (
               <ReportStatusBadge status={graph?.event.reportStatus ?? event.reportStatus ?? ''} />
             ) : (
-              <span className="table-link table-link--muted">Report status becomes available with graph context</span>
+              <span className="table-link table-link--muted">{t('events.detail.reportPending')}</span>
             )}
           </div>
-          <p className="dashboard-panel-copy">
-            Draft report action runs async and refreshes both the events dashboard row and selected event graph snapshot.
-          </p>
+          <p className="dashboard-panel-copy">{t('events.detail.reportDescription')}</p>
         </div>
 
         <div className="event-detail-panel__posts">
           <div className="event-detail-panel__posts-header">
-            <span className="state-card__eyebrow">related posts</span>
-            <strong>{relatedPosts.length} linked posts</strong>
+            <span className="state-card__eyebrow">{t('events.detail.relatedEyebrow')}</span>
+            <strong>{t('events.detail.linkedPosts', { count: relatedPosts.length })}</strong>
           </div>
           <div className="detail-list">
             {relatedPosts.map((post) => (
               <div key={post.postId} className="detail-list__item">
                 <div>
-                  <strong>{post.isRoot ? `Root post #${post.postId}` : `Post #${post.postId}`}</strong>
+                  <strong>{post.isRoot ? t('events.detail.rootPostTitle', { id: post.postId }) : t('events.detail.postTitle', { id: post.postId })}</strong>
                   <p>{post.label}</p>
                 </div>
                 <div className="detail-list__actions">
-                  <Link className="table-link" to={`/posts/${post.postId}`}>
-                    Open post
-                  </Link>
+                  <Link className="table-link" to={`/posts/${post.postId}`}>{t('events.detail.openPost')}</Link>
                 </div>
               </div>
             ))}
@@ -142,14 +112,12 @@ export function EventDetailPanel({ event, graph, actionSlot }: EventDetailPanelP
         </div>
 
         {event.graphReady === false ? (
-          <section className="dashboard-banner dashboard-banner--partial" aria-label="Graph readiness notice">
+          <section className="dashboard-banner dashboard-banner--partial" aria-label={t('events.detail.graphReadyAria')}>
             <div>
-              <span className="dashboard-banner__eyebrow">graph readiness</span>
-              <strong>Graph enrichment is still catching up</strong>
+              <span className="dashboard-banner__eyebrow">{t('events.detail.graphReadyEyebrow')}</span>
+              <strong>{t('events.detail.graphReadyTitle')}</strong>
             </div>
-            <p className="dashboard-banner__text">
-              Selection stays stable and related posts remain explorable even while graph enrichment is incomplete.
-            </p>
+            <p className="dashboard-banner__text">{t('events.detail.graphReadyDescription')}</p>
           </section>
         ) : null}
       </div>

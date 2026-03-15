@@ -1,11 +1,15 @@
+﻿import { useTranslation } from 'react-i18next';
+
 import { RoutePlaceholder } from '@shared/ui/placeholders/RoutePlaceholder';
 
 export function KeywordGraphPlaceholderPage() {
+  const { t } = useTranslation();
+
   return (
     <RoutePlaceholder
       eyebrow="keyword-graph"
-      title="Keyword graph placeholder"
-      description="Advanced search and graph interactions are intentionally out of scope for bootstrap stage."
+      title={t('placeholders.keywordGraph.title')}
+      description={t('placeholders.keywordGraph.description')}
     />
   );
 }

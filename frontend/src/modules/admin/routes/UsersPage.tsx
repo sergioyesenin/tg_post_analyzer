@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useTranslation } from 'react-i18next';
 
 import { AdminDataGrid } from '@modules/admin/components/AdminDataGrid';
 import { useUserMutations, useUsersQuery } from '@modules/admin/hooks';
@@ -20,6 +21,7 @@ import { LoadingState } from '@shared/ui/states/LoadingState';
 const availableRoles = ['admin', 'analyst', 'viewer'] as const;
 
 export function UsersPage() {
+  const { t } = useTranslation();
   const usersQuery = useUsersQuery();
   const mutations = useUserMutations();
   const users = usersQuery.data ?? [];
@@ -54,36 +56,36 @@ export function UsersPage() {
   });
 
   if (usersQuery.isLoading) {
-    return <LoadingState title="Loading users" description="Fetching user administration data." />;
+    return <LoadingState title={t('admin.users.loadingTitle')} description={t('admin.users.loadingDescription')} />;
   }
 
   if (usersQuery.isError) {
     const error = usersQuery.error;
     if (error instanceof ApiError && error.status === 403) {
-      return <ForbiddenState title="Users module is restricted" description="Your role cannot access user administration." />;
+      return <ForbiddenState title={t('admin.users.forbiddenTitle')} description={t('admin.users.forbiddenDescription')} />;
     }
 
-    return <ErrorState title="Users failed to load" description="The users list request failed." />;
+    return <ErrorState title={t('admin.users.errorTitle')} description={t('admin.users.errorDescription')} />;
   }
 
   return (
     <div className="dashboard-page">
       <section className="dashboard-page__hero">
         <div>
-          <span className="state-card__eyebrow">admin</span>
-          <h2>Users</h2>
-          <p>Admin-only user management with create, role update and active state flows.</p>
+          <span className="state-card__eyebrow">{t('states.admin')}</span>
+          <h2>{t('navigation.users')}</h2>
+          <p>{t('admin.users.heroDescription')}</p>
         </div>
       </section>
 
       <section className="dashboard-page__content dashboard-page__content--workspace">
         <div className="dashboard-page__primary">
           {users.length === 0 ? (
-            <EmptyState title="No users available" description="The users endpoint returned an empty list." />
+            <EmptyState title={t('admin.users.emptyTitle')} description={t('admin.users.emptyDescription')} />
           ) : (
             <AdminDataGrid
-              title="Users grid"
-              description="User administration grid with stable selection."
+              title={t('admin.users.gridTitle')}
+              description={t('admin.users.gridDescription')}
               columns={usersColumns}
               rows={mapUsersToRows(users, selectedUserId, setSelectedUserId)}
             />
@@ -94,8 +96,8 @@ export function UsersPage() {
           <section className="detail-block">
             <div className="detail-block__header">
               <div>
-                <span className="state-card__eyebrow">create</span>
-                <strong>Create user</strong>
+                <span className="state-card__eyebrow">{t('states.create')}</span>
+                <strong>{t('admin.users.createTitle')}</strong>
               </div>
             </div>
 
@@ -113,35 +115,35 @@ export function UsersPage() {
               })}
             >
               <label>
-                <span>Username</span>
+                <span>{t('fields.username')}</span>
                 <input {...createForm.register('username')} />
               </label>
               <label>
-                <span>Password</span>
+                <span>{t('fields.password')}</span>
                 <input type="password" {...createForm.register('password')} />
               </label>
               <label>
-                <span>Email</span>
+                <span>{t('fields.email')}</span>
                 <input {...createForm.register('email')} />
               </label>
               <label>
-                <span>Full name</span>
+                <span>{t('fields.fullName')}</span>
                 <input {...createForm.register('full_name')} />
               </label>
               <fieldset>
-                <legend>Roles</legend>
+                <legend>{t('fields.roles')}</legend>
                 {availableRoles.map((role) => (
                   <label key={role}>
                     <span>
                       <input type="checkbox" value={role} {...createForm.register('roles')} />
-                      {role}
+                      {t(`admin.roles.${role}`)}
                     </span>
                   </label>
                 ))}
               </fieldset>
               <div className="dashboard-filter-bar__actions">
                 <button type="submit" className="dashboard-button" disabled={mutations.create.isPending}>
-                  Create user
+                  {t('actions.createUser')}
                 </button>
               </div>
             </form>
@@ -150,8 +152,8 @@ export function UsersPage() {
           <section className="detail-block">
             <div className="detail-block__header">
               <div>
-                <span className="state-card__eyebrow">edit</span>
-                <strong>{selectedUser ? selectedUser.username : 'Selected user'}</strong>
+                <span className="state-card__eyebrow">{t('states.edit')}</span>
+                <strong>{selectedUser ? selectedUser.username : t('admin.users.selectedUser')}</strong>
               </div>
             </div>
 
@@ -159,19 +161,19 @@ export function UsersPage() {
               <form
                 className="dashboard-filter-grid"
                 onSubmit={rolesForm.handleSubmit(async (values) => {
-                  if (!window.confirm(`Update roles for ${selectedUser.username}?`)) {
+                  if (!window.confirm(t('admin.users.confirmRoles', { username: selectedUser.username }))) {
                     return;
                   }
                   await mutations.updateRoles.mutateAsync({ userId: selectedUser.id, payload: { roles: values.roles } });
                 })}
               >
                 <fieldset>
-                  <legend>Roles</legend>
+                  <legend>{t('fields.roles')}</legend>
                   {availableRoles.map((role) => (
                     <label key={role}>
                       <span>
                         <input type="checkbox" value={role} {...rolesForm.register('roles')} />
-                        {role}
+                        {t(`admin.roles.${role}`)}
                       </span>
                     </label>
                   ))}
@@ -179,25 +181,25 @@ export function UsersPage() {
                 {rolesForm.formState.errors.roles ? <small>{rolesForm.formState.errors.roles.message}</small> : null}
                 <div className="dashboard-filter-bar__actions">
                   <button type="submit" className="dashboard-button" disabled={mutations.updateRoles.isPending}>
-                    Save roles
+                    {t('actions.saveRoles')}
                   </button>
                   <button
                     type="button"
                     className="dashboard-button dashboard-button--ghost"
                     onClick={async () => {
                       const nextActive = !selectedUser.is_active;
-                      if (!window.confirm(`Change active status for ${selectedUser.username}?`)) {
+                      if (!window.confirm(t('admin.users.confirmToggle', { username: selectedUser.username }))) {
                         return;
                       }
                       await mutations.setActive.mutateAsync({ userId: selectedUser.id, active: nextActive });
                     }}
                   >
-                    {selectedUser.is_active ? 'Deactivate' : 'Activate'}
+                    {selectedUser.is_active ? t('actions.deactivate') : t('actions.activate')}
                   </button>
                 </div>
               </form>
             ) : (
-              <p className="dashboard-panel-copy">Select a user row to update roles and active state.</p>
+              <p className="dashboard-panel-copy">{t('admin.users.selectionHint')}</p>
             )}
           </section>
         </div>

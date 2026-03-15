@@ -75,10 +75,10 @@ describe('Dashboard workspace shell', () => {
       renderWorkspace(route);
 
       await waitFor(() => {
-        expect(screen.getByText(/Generated at/i)).toBeInTheDocument();
+        expect(screen.getByText(/Сформировано/i)).toBeInTheDocument();
       });
 
-      expect(screen.getByText(/Mar 13, 2026, 8:45 AM UTC/i)).toBeInTheDocument();
+      expect(screen.getByText(/13 мар. 2026 г., 08:45 UTC/i)).toBeInTheDocument();
     }
   });
 
@@ -86,10 +86,10 @@ describe('Dashboard workspace shell', () => {
     renderWorkspace('/dashboard/processes');
 
     await waitFor(() => {
-      expect(screen.getByText(/Screen stays usable with partially enriched data/i)).toBeInTheDocument();
+      expect(screen.getByText(/Экран остается доступным при частично обогащенных данных/i)).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/Snapshot includes non-blocking warnings/i)).toBeInTheDocument();
+    expect(screen.getByText(/Снимок содержит неблокирующие предупреждения/i)).toBeInTheDocument();
     expect(screen.getByText(/Process graph snapshot is incomplete/i)).toBeInTheDocument();
   });
 
@@ -97,10 +97,10 @@ describe('Dashboard workspace shell', () => {
     renderWorkspace('/dashboard/events?date_from=2026-03-01&channel_ids=7&status=active&sort_by=posts_count&sort_order=asc');
 
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'Processes' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Процессы' })).toBeInTheDocument();
     });
 
-    expect(screen.getByRole('link', { name: 'Processes' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'Процессы' })).toHaveAttribute(
       'href',
       '/dashboard/processes?date_from=2026-03-01&sort_order=asc',
     );
@@ -110,12 +110,12 @@ describe('Dashboard workspace shell', () => {
     renderWorkspace('/dashboard/posts', ['viewer']);
 
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'Workspace' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Рабочее пространство' })).toBeInTheDocument();
     });
 
-    expect(screen.getByRole('link', { name: 'Reports' })).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Keyword graph' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Channels' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Отчеты' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Граф ключевых слов' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Каналы' })).not.toBeInTheDocument();
   });
 
   it('applies filter edits back into URL-owned state', async () => {
@@ -123,13 +123,13 @@ describe('Dashboard workspace shell', () => {
     renderWorkspace('/dashboard/posts');
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Apply filters/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Применить фильтры/i })).toBeInTheDocument();
     });
 
-    await user.clear(screen.getByLabelText(/Date from/i));
-    await user.type(screen.getByLabelText(/Date from/i), '2026-03-01');
-    await user.selectOptions(screen.getByLabelText(/Sort order/i), 'asc');
-    await user.click(screen.getByRole('button', { name: /Apply filters/i }));
+    await user.clear(screen.getByLabelText(/Дата от/i));
+    await user.type(screen.getByLabelText(/Дата от/i), '2026-03-01');
+    await user.selectOptions(screen.getByLabelText(/Порядок/i), 'asc');
+    await user.click(screen.getByRole('button', { name: /Применить фильтры/i }));
 
     expect(screen.getByText('date_from=2026-03-01&sort_order=asc')).toBeInTheDocument();
   });

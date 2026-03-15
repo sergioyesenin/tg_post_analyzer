@@ -1,11 +1,15 @@
+﻿import { useTranslation } from 'react-i18next';
+
 import { RoutePlaceholder } from '@shared/ui/placeholders/RoutePlaceholder';
 
 export function MonitorPlaceholderPage() {
+  const { t } = useTranslation();
+
   return (
     <RoutePlaceholder
       eyebrow="monitor"
-      title="Monitor placeholder"
-      description="Health and monitor tabs are deferred. Route ownership and guard policy are fixed now."
+      title={t('placeholders.monitor.title')}
+      description={t('placeholders.monitor.description')}
     />
   );
 }

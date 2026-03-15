@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import type { DashboardMode } from '@shared/dashboard/contracts';
 import {
@@ -24,6 +25,7 @@ export function DashboardFilterBar<TMode extends DashboardMode>({
   onApply,
   onReset,
 }: DashboardFilterBarProps<TMode>) {
+  const { t } = useTranslation();
   const config = getDashboardFilterConfig(mode);
   const buildFormState = () => ({
     date_from: String(filters.date_from ?? ''),
@@ -97,30 +99,30 @@ export function DashboardFilterBar<TMode extends DashboardMode>({
   };
 
   return (
-    <section className="dashboard-filter-bar" aria-label="Dashboard filters">
+    <section className="dashboard-filter-bar" aria-label={t('dashboard.filters.ariaLabel', { defaultValue: 'Dashboard filters' })}>
       <div className="dashboard-filter-bar__header">
         <div>
-          <span className="state-card__eyebrow">filters</span>
-          <strong>URL-driven filter state</strong>
+          <span className="state-card__eyebrow">{t('states.filters')}</span>
+          <strong>{t('dashboard.filters.title', { defaultValue: 'URL-driven filter state' })}</strong>
         </div>
-        <code>{previewQuery || 'default dashboard filters'}</code>
+        <code>{previewQuery || t('common.defaultDashboardFilters')}</code>
       </div>
 
       <div className="dashboard-filter-grid">
         <label>
-          <span>Date from</span>
+          <span>{t('fields.dateFrom')}</span>
           <input type="date" value={formState.date_from} onChange={(event) => updateField('date_from', event.target.value)} />
         </label>
         <label>
-          <span>Date to</span>
+          <span>{t('fields.dateTo')}</span>
           <input type="date" value={formState.date_to} onChange={(event) => updateField('date_to', event.target.value)} />
         </label>
         <label>
-          <span>Limit</span>
+          <span>{t('fields.limit')}</span>
           <input type="number" min="1" value={formState.limit} onChange={(event) => updateField('limit', event.target.value)} />
         </label>
         <label>
-          <span>Min comments</span>
+          <span>{t('fields.minComments')}</span>
           <input
             type="number"
             min="0"
@@ -129,7 +131,7 @@ export function DashboardFilterBar<TMode extends DashboardMode>({
           />
         </label>
         <label>
-          <span>Sort by</span>
+          <span>{t('fields.sortBy')}</span>
           <select value={formState.sort_by} onChange={(event) => updateField('sort_by', event.target.value)}>
             {config.sortOptions.map((option) => (
               <option key={option} value={option}>
@@ -139,33 +141,33 @@ export function DashboardFilterBar<TMode extends DashboardMode>({
           </select>
         </label>
         <label>
-          <span>Sort order</span>
+          <span>{t('fields.sortOrder')}</span>
           <select value={formState.sort_order} onChange={(event) => updateField('sort_order', event.target.value)}>
-            <option value="desc">desc</option>
-            <option value="asc">asc</option>
+            <option value="desc">{t('common.desc')}</option>
+            <option value="asc">{t('common.asc')}</option>
           </select>
         </label>
         {'channel_ids' in filters ? (
           <label>
-            <span>Channel ids</span>
+            <span>{t('fields.channelIds')}</span>
             <input value={formState.channel_ids} onChange={(event) => updateField('channel_ids', event.target.value)} />
           </label>
         ) : null}
         {'categories' in filters ? (
           <label>
-            <span>Categories</span>
+            <span>{t('fields.categories')}</span>
             <input value={formState.categories} onChange={(event) => updateField('categories', event.target.value)} />
           </label>
         ) : null}
         {'status' in filters ? (
           <label>
-            <span>Status</span>
+            <span>{t('fields.status')}</span>
             <input value={formState.status} onChange={(event) => updateField('status', event.target.value)} />
           </label>
         ) : null}
         {'report_status' in filters ? (
           <label>
-            <span>Report status</span>
+            <span>{t('fields.reportStatus')}</span>
             <input value={formState.report_status} onChange={(event) => updateField('report_status', event.target.value)} />
           </label>
         ) : null}
@@ -173,10 +175,10 @@ export function DashboardFilterBar<TMode extends DashboardMode>({
 
       <div className="dashboard-filter-bar__actions">
         <button type="button" className="dashboard-button dashboard-button--ghost" onClick={onReset}>
-          Reset filters
+          {t('actions.resetFilters')}
         </button>
         <button type="button" className="dashboard-button" onClick={handleApply}>
-          Apply filters
+          {t('actions.applyFilters')}
         </button>
       </div>
     </section>

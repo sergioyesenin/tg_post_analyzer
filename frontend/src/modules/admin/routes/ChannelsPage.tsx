@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useTranslation } from 'react-i18next';
 
 import { useChannelsQuery, useChannelMutations } from '@modules/admin/hooks';
 import { mapChannelsToRows, channelsColumns } from '@modules/admin/mappers';
@@ -13,6 +14,7 @@ import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
 
 export function ChannelsPage() {
+  const { t } = useTranslation();
   const channelsQuery = useChannelsQuery();
   const mutations = useChannelMutations();
   const channels = channelsQuery.data ?? [];
@@ -43,36 +45,36 @@ export function ChannelsPage() {
   });
 
   if (channelsQuery.isLoading) {
-    return <LoadingState title="Loading channels" description="Fetching channel administration data." />;
+    return <LoadingState title={t('admin.channels.loadingTitle')} description={t('admin.channels.loadingDescription')} />;
   }
 
   if (channelsQuery.isError) {
     const error = channelsQuery.error;
     if (error instanceof ApiError && error.status === 403) {
-      return <ForbiddenState title="Channels module is restricted" description="Your role cannot access channel administration." />;
+      return <ForbiddenState title={t('admin.channels.forbiddenTitle')} description={t('admin.channels.forbiddenDescription')} />;
     }
 
-    return <ErrorState title="Channels failed to load" description="The channels list request failed." />;
+    return <ErrorState title={t('admin.channels.errorTitle')} description={t('admin.channels.errorDescription')} />;
   }
 
   return (
     <div className="dashboard-page">
       <section className="dashboard-page__hero">
         <div>
-          <span className="state-card__eyebrow">admin</span>
-          <h2>Channels</h2>
-          <p>Admin-only channel registry with add, edit, active toggle and delete flows.</p>
+          <span className="state-card__eyebrow">{t('states.admin')}</span>
+          <h2>{t('navigation.channels')}</h2>
+          <p>{t('admin.channels.heroDescription')}</p>
         </div>
       </section>
 
       <section className="dashboard-page__content dashboard-page__content--workspace">
         <div className="dashboard-page__primary">
           {channels.length === 0 ? (
-            <EmptyState title="No channels available" description="The channels endpoint returned an empty list." />
+            <EmptyState title={t('admin.channels.emptyTitle')} description={t('admin.channels.emptyDescription')} />
           ) : (
             <AdminDataGrid
-              title="Channels grid"
-              description="Channel administration grid with stable selection."
+              title={t('admin.channels.gridTitle')}
+              description={t('admin.channels.gridDescription')}
               columns={channelsColumns}
               rows={mapChannelsToRows(channels, selectedChannelId, setSelectedChannelId)}
             />
@@ -83,8 +85,8 @@ export function ChannelsPage() {
           <section className="detail-block">
             <div className="detail-block__header">
               <div>
-                <span className="state-card__eyebrow">create</span>
-                <strong>Add channel</strong>
+                <span className="state-card__eyebrow">{t('states.create')}</span>
+                <strong>{t('admin.channels.createTitle')}</strong>
               </div>
             </div>
 
@@ -96,13 +98,13 @@ export function ChannelsPage() {
               })}
             >
               <label>
-                <span>Username</span>
+                <span>{t('fields.username')}</span>
                 <input {...addForm.register('username')} placeholder="@channel_name" />
                 {addForm.formState.errors.username ? <small>{addForm.formState.errors.username.message}</small> : null}
               </label>
               <div className="dashboard-filter-bar__actions">
                 <button type="submit" className="dashboard-button" disabled={mutations.add.isPending}>
-                  Add channel
+                  {t('actions.addChannel')}
                 </button>
               </div>
               {mutations.add.data ? <p className="dashboard-panel-copy">{mutations.add.data}</p> : null}
@@ -112,8 +114,8 @@ export function ChannelsPage() {
           <section className="detail-block">
             <div className="detail-block__header">
               <div>
-                <span className="state-card__eyebrow">edit</span>
-                <strong>{selectedChannel ? `@${selectedChannel.username}` : 'Selected channel'}</strong>
+                <span className="state-card__eyebrow">{t('states.edit')}</span>
+                <strong>{selectedChannel ? `@${selectedChannel.username}` : t('admin.channels.selectedChannel')}</strong>
               </div>
             </div>
 
@@ -132,52 +134,52 @@ export function ChannelsPage() {
                 })}
               >
                 <label>
-                  <span>Title</span>
+                  <span>{t('fields.title')}</span>
                   <input {...editForm.register('title')} />
                 </label>
                 <label>
-                  <span>Category</span>
+                  <span>{t('fields.category')}</span>
                   <input {...editForm.register('category')} />
                 </label>
                 <label>
                   <span>
                     <input type="checkbox" {...editForm.register('is_active')} />
-                    Active
+                    {t('fields.active')}
                   </span>
                 </label>
                 <div className="dashboard-filter-bar__actions">
                   <button type="submit" className="dashboard-button" disabled={mutations.update.isPending}>
-                    Save channel
+                    {t('actions.saveChannel')}
                   </button>
                   <button
                     type="button"
                     className="dashboard-button dashboard-button--ghost"
                     onClick={async () => {
                       const next = !selectedChannel.is_active;
-                      if (!window.confirm(`Change active status for @${selectedChannel.username}?`)) {
+                      if (!window.confirm(t('admin.channels.confirmToggle', { username: selectedChannel.username }))) {
                         return;
                       }
                       await mutations.setActive.mutateAsync({ channelId: selectedChannel.id, isActive: next });
                     }}
                   >
-                    {selectedChannel.is_active ? 'Deactivate' : 'Activate'}
+                    {selectedChannel.is_active ? t('actions.deactivate') : t('actions.activate')}
                   </button>
                   <button
                     type="button"
                     className="dashboard-button dashboard-button--ghost"
                     onClick={async () => {
-                      if (!window.confirm(`Delete @${selectedChannel.username}?`)) {
+                      if (!window.confirm(t('admin.channels.confirmDelete', { username: selectedChannel.username }))) {
                         return;
                       }
                       await mutations.remove.mutateAsync(selectedChannel.id);
                     }}
                   >
-                    Delete
+                    {t('actions.delete')}
                   </button>
                 </div>
               </form>
             ) : (
-              <p className="dashboard-panel-copy">Select a channel row to edit its metadata and active state.</p>
+              <p className="dashboard-panel-copy">{t('admin.channels.selectionHint')}</p>
             )}
           </section>
         </div>

@@ -1,11 +1,15 @@
+﻿import { useTranslation } from 'react-i18next';
+
 import { RoutePlaceholder } from '@shared/ui/placeholders/RoutePlaceholder';
 
 export function SettingsPlaceholderPage() {
+  const { t } = useTranslation();
+
   return (
     <RoutePlaceholder
       eyebrow="settings"
-      title="Settings placeholder"
-      description="Read-only and admin editing states will be implemented on top of this route skeleton."
+      title={t('placeholders.settings.title')}
+      description={t('placeholders.settings.description')}
     />
   );
 }

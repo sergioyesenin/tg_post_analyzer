@@ -5,6 +5,7 @@ import type {
   PostDetailQueryBundle,
   ReportDto,
 } from '@modules/workspace/post-detail/contracts';
+import { i18n } from '@shared/i18n/i18n';
 
 export type PostDetailViewModel = {
   id: number;
@@ -44,7 +45,7 @@ export type LinkViewModel = {
 };
 
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat('en', {
+  return new Intl.DateTimeFormat(i18n.language === 'ru' ? 'ru' : 'en', {
     dateStyle: 'medium',
     timeStyle: 'short',
     timeZone: 'UTC',
@@ -52,19 +53,19 @@ function formatDate(value: string) {
 }
 
 function formatNullableNumber(value: number | null) {
-  return value === null ? '—' : new Intl.NumberFormat('en').format(value);
+  return value === null ? i18n.t('common.na') : new Intl.NumberFormat(i18n.language === 'ru' ? 'ru' : 'en').format(value);
 }
 
 function formatNullableRatio(value: number | null) {
-  return value === null ? '—' : value.toFixed(2);
+  return value === null ? i18n.t('common.na') : value.toFixed(2);
 }
 
 export function mapPostDetailToViewModel(dto: PostDetailDto): PostDetailViewModel {
   return {
     id: dto.id,
-    text: dto.text ?? 'Post text is unavailable.',
+    text: dto.text ?? i18n.t('posts.mapper.textUnavailable'),
     date: formatDate(dto.date),
-    commentsCount: new Intl.NumberFormat('en').format(dto.comments_count),
+    commentsCount: new Intl.NumberFormat(i18n.language === 'ru' ? 'ru' : 'en').format(dto.comments_count),
     views: formatNullableNumber(dto.views),
     involvement: formatNullableRatio(dto.involvement),
   };
@@ -91,7 +92,7 @@ export function mapReportToViewModel(dto: ReportDto | null): ReportViewModel | n
   return {
     id: dto.id,
     status: dto.status,
-    content: dto.content ?? 'Report content is empty.',
+    content: dto.content ?? i18n.t('posts.report.emptyContent'),
     createdAt: formatDate(dto.created_at),
   };
 }
@@ -104,7 +105,7 @@ export function mapLinkToViewModel(dto: LinkDto, currentPostId: number): LinkVie
     route: `/posts/${otherPostId}`,
     type: dto.link_type,
     direction: dto.direction,
-    score: dto.score === null ? '—' : dto.score.toFixed(2),
+    score: dto.score === null ? i18n.t('common.na') : dto.score.toFixed(2),
     status: dto.status,
     updatedAt: formatDate(dto.updated_at),
   };

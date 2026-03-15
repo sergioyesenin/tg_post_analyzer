@@ -6,5 +6,5 @@ type ErrorStateProps = {
 };
 
 export function ErrorState({ title, description }: ErrorStateProps) {
-  return <StateCard eyebrow="error" tone="danger" title={title} description={description} />;
+  return <StateCard eyebrow="states.error" tone="danger" title={title} description={description} />;
 }

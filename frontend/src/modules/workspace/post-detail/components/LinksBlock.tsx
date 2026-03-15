@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 import { DetailBlockShell } from '@modules/workspace/post-detail/components/DetailBlockShell';
 import type { LinkViewModel } from '@modules/workspace/post-detail/mappers';
@@ -13,14 +14,16 @@ type LinksBlockProps = {
 };
 
 export function LinksBlock({ links, isLoading, isError }: LinksBlockProps) {
+  const { t } = useTranslation();
+
   return (
-    <DetailBlockShell eyebrow="links" title="Links">
+    <DetailBlockShell eyebrow={t('posts.links.eyebrow')} title={t('posts.links.title')}>
       {isLoading ? (
-        <LoadingState title="Loading links" description="Fetching related post links for this post." />
+        <LoadingState title={t('posts.links.loadingTitle')} description={t('posts.links.loadingDescription')} />
       ) : isError ? (
-        <ErrorState title="Links failed to load" description="Related links are unavailable for this post." />
+        <ErrorState title={t('posts.links.errorTitle')} description={t('posts.links.errorDescription')} />
       ) : links.length === 0 ? (
-        <EmptyState title="No links found" description="The backend returned no related post links for this post." />
+        <EmptyState title={t('posts.links.emptyTitle')} description={t('posts.links.emptyDescription')} />
       ) : (
         <div className="detail-list">
           {links.map((link) => (
@@ -28,13 +31,13 @@ export function LinksBlock({ links, isLoading, isError }: LinksBlockProps) {
               <div>
                 <strong>{link.type}</strong>
                 <p>
-                  {link.direction} · score {link.score} · status {link.status}
+                  {link.direction} | {t('posts.links.score', { value: link.score })} | {t('posts.links.status', { value: link.status })}
                 </p>
               </div>
               <div className="detail-list__actions">
                 <span>{link.updatedAt}</span>
                 <Link className="table-link" to={link.route}>
-                  Open linked post
+                  {t('posts.links.openLinkedPost')}
                 </Link>
               </div>
             </div>

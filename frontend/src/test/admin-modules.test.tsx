@@ -1,4 +1,4 @@
-import { cleanup, screen, waitFor } from '@testing-library/react';
+﻿import { cleanup, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,6 +10,8 @@ import {
   createUsersResponse,
 } from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
+
+const ru = (value: string) => JSON.parse('"' + value + '"') as string;
 
 function createAuthenticatedUser(roles: string[]) {
   return {
@@ -55,7 +57,7 @@ describe('Admin modules', () => {
     renderAdmin('/channels', ['analyst']);
 
     await waitFor(() => {
-      expect(screen.getByText(/Route is restricted/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041c\u0430\u0440\u0448\u0440\u0443\u0442 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d'))).toBeInTheDocument();
     });
 
     cleanup();
@@ -63,7 +65,7 @@ describe('Admin modules', () => {
     renderAdmin('/users', ['viewer']);
 
     await waitFor(() => {
-      expect(screen.getByText(/Route is restricted/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041c\u0430\u0440\u0448\u0440\u0443\u0442 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d'))).toBeInTheDocument();
     });
   });
 
@@ -112,7 +114,7 @@ describe('Admin modules', () => {
     });
 
     await user.type(screen.getByPlaceholderText(/@channel_name/i), '@new_channel');
-    await user.click(screen.getByRole('button', { name: /Add channel/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043a\u0430\u043d\u0430\u043b') }));
 
     await waitFor(() => {
       expect(postSpy).toHaveBeenCalledWith('/api/channels/add', { username: '@new_channel' });
@@ -121,7 +123,7 @@ describe('Admin modules', () => {
     const titleInput = screen.getByDisplayValue(/Signal Watch/i);
     await user.clear(titleInput);
     await user.type(titleInput, 'Updated Signal Watch');
-    await user.click(screen.getByRole('button', { name: /Save channel/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043a\u0430\u043d\u0430\u043b') }));
 
     await waitFor(() => {
       expect(patchSpy).toHaveBeenCalledWith('/api/channels/1', {
@@ -131,13 +133,13 @@ describe('Admin modules', () => {
       });
     });
 
-    await user.click(screen.getByRole('button', { name: /Activate/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u0410\u043a\u0442\u0438\u0432\u0438\u0440\u043e\u0432\u0430\u0442\u044c') }));
 
     await waitFor(() => {
       expect(putSpy).toHaveBeenCalledWith('/api/channels/1/active?is_active=true');
     });
 
-    await user.click(screen.getByRole('button', { name: /Delete/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u0423\u0434\u0430\u043b\u0438\u0442\u044c') }));
 
     await waitFor(() => {
       expect(deleteSpy).toHaveBeenCalledWith('/api/channels/1');
@@ -186,22 +188,22 @@ describe('Admin modules', () => {
     renderAdmin('/users');
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Create user/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: ru('\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f') })).toBeInTheDocument();
     });
 
-    await user.type(screen.getByLabelText(/Username/i), 'new_user');
-    await user.type(screen.getByLabelText(/Password/i), 'password123');
+    await user.type(screen.getByLabelText(ru('\u0418\u043c\u044f \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f')), 'new_user');
+    await user.type(screen.getByLabelText(ru('\u041f\u0430\u0440\u043e\u043b\u044c')), 'password123');
     await user.type(screen.getByLabelText(/Email/i), 'new@example.com');
-    await user.type(screen.getByLabelText(/Full name/i), 'New User');
-    await user.click(screen.getAllByRole('checkbox', { name: /viewer/i })[0]!);
-    await user.click(screen.getByRole('button', { name: /Create user/i }));
+    await user.type(screen.getByLabelText(ru('\u041f\u043e\u043b\u043d\u043e\u0435 \u0438\u043c\u044f')), 'New User');
+    await user.click(screen.getAllByRole('checkbox', { name: /^viewer$/i })[0]!);
+    await user.click(screen.getByRole('button', { name: ru('\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f') }));
 
     await waitFor(() => {
       expect(postSpy).toHaveBeenCalled();
     });
 
     await user.click(screen.getAllByRole('checkbox', { name: /^viewer$/i })[1]!);
-    await user.click(screen.getByRole('button', { name: /Save roles/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0440\u043e\u043b\u0438') }));
 
     await waitFor(() => {
       expect(putSpy).toHaveBeenCalledWith(
@@ -210,7 +212,7 @@ describe('Admin modules', () => {
       );
     });
 
-    await user.click(screen.getByRole('button', { name: /Deactivate/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u0414\u0435\u0430\u043a\u0442\u0438\u0432\u0438\u0440\u043e\u0432\u0430\u0442\u044c') }));
 
     await waitFor(() => {
       expect(putSpy).toHaveBeenCalledWith('/api/auth/users/1/active?active=false');
@@ -229,10 +231,10 @@ describe('Admin modules', () => {
     renderAdmin('/settings', ['analyst']);
 
     await waitFor(() => {
-      expect(screen.getByText(/Analyst access is limited to effective settings/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0414\u043b\u044f \u0430\u043d\u0430\u043b\u0438\u0442\u0438\u043a\u0430 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b \u0442\u043e\u043b\u044c\u043a\u043e \u044d\u0444\u0444\u0435\u043a\u0442\u0438\u0432\u043d\u044b\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438'))).toBeInTheDocument();
     });
 
-    expect(screen.queryByRole('button', { name: /Save setting/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: ru('\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0443') })).not.toBeInTheDocument();
     expect(analystGetSpy).not.toHaveBeenCalledWith('/api/settings/');
 
     cleanup();
@@ -263,7 +265,7 @@ describe('Admin modules', () => {
     const jsonField = screen.getByDisplayValue(/"ai_poll_seconds": 30/i);
     await settingsUser.clear(jsonField);
     await settingsUser.paste('{"ai_poll_seconds":60,"ai_scheduler_limit":20}');
-    await settingsUser.click(screen.getByRole('button', { name: /Save setting/i }));
+    await settingsUser.click(screen.getByRole('button', { name: ru('\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0443') }));
 
     await waitFor(() => {
       expect(putSpy).toHaveBeenCalledWith('/api/settings/jobs', {
@@ -288,7 +290,7 @@ describe('Admin modules', () => {
     renderAdmin('/settings', ['analyst']);
 
     await waitFor(() => {
-      expect(screen.getByText(/Settings module is restricted/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041c\u043e\u0434\u0443\u043b\u044c \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d'))).toBeInTheDocument();
     });
   });
 });

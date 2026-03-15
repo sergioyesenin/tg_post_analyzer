@@ -1,4 +1,5 @@
 import { NavLink, useParams } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 import { useSession } from '@app/providers/SessionProvider';
 import { ApiError } from '@shared/api/client';
@@ -12,23 +13,24 @@ import { ReportsFilterBar } from '@modules/reports/components/ReportsFilterBar';
 import { ReportsTableSection } from '@modules/reports/components/ReportsTableSection';
 import type { ReportType, ReportsFiltersByType } from '@modules/reports/contracts';
 import { useGeneratePostReportsByFilterAction, useReportsFilters, useReportsListQuery } from '@modules/reports/hooks';
-import { reportsCopyByType } from '@modules/reports/mappers';
+import { getReportsCopyByType } from '@modules/reports/mappers';
 
 function isReportType(value: string | undefined): value is ReportType {
   return value === 'posts' || value === 'events' || value === 'processes';
 }
 
 export function ReportsPage() {
+  const { t } = useTranslation();
   const { reportType } = useParams();
   const { user, primaryRole } = useSession();
   const roles = user?.roles ?? [];
 
   if (!isReportType(reportType)) {
-    return <ErrorState title="Unknown report catalog" description="The requested report route is not supported." />;
+    return <ErrorState title={t('reports.invalidTitle', { defaultValue: 'Неизвестный каталог отчетов' })} description={t('reports.invalidDescription', { defaultValue: 'Запрошенный маршрут отчетов не поддерживается.' })} />;
   }
 
   const type = reportType;
-  const copy = reportsCopyByType[type];
+  const copy = getReportsCopyByType()[type];
   const { filters, applyFilters, resetFilters } = useReportsFilters(type);
   const listQuery = useReportsListQuery(type, filters);
   const canGenerateBatch = type === 'posts' && canPerformAction('reports.generate', roles);
@@ -40,7 +42,7 @@ export function ReportsPage() {
   const batchAction = type === 'posts' ? postBatchAction : null;
 
   if (listQuery.isLoading) {
-    return <LoadingState title={`Loading ${copy.title.toLowerCase()}`} description="Fetching the selected reports catalog." />;
+    return <LoadingState title={t('reports.loadingTitle', { defaultValue: 'Загрузка каталога отчетов' })} description={t('reports.loadingDescription', { defaultValue: 'Получаем выбранный каталог отчетов.' })} />;
   }
 
   if (listQuery.isError) {
@@ -49,13 +51,13 @@ export function ReportsPage() {
     if (error instanceof ApiError && error.status === 403) {
       return (
         <ForbiddenState
-          title="Reports catalog is restricted"
-          description="The route is visible, but the backend denied access to this reports catalog."
+          title={t('reports.restrictedTitle', { defaultValue: 'Каталог отчетов недоступен' })}
+          description={t('reports.restrictedDescription', { defaultValue: 'Маршрут виден, но backend отклонил доступ к этому каталогу отчетов.' })}
         />
       );
     }
 
-    return <ErrorState title="Reports catalog failed to load" description="The reports list request failed." />;
+    return <ErrorState title={t('reports.errorTitle', { defaultValue: 'Не удалось загрузить каталог отчетов' })} description={t('reports.errorDescription', { defaultValue: 'Запрос списка отчетов завершился ошибкой.' })} />;
   }
 
   const items = listQuery.data ?? [];
@@ -64,20 +66,20 @@ export function ReportsPage() {
     <div className="dashboard-page">
       <section className="dashboard-page__hero">
         <div>
-          <span className="state-card__eyebrow">reports</span>
+          <span className="state-card__eyebrow">{t('states.reports')}</span>
           <h2>{copy.title}</h2>
           <p>{copy.description}</p>
         </div>
         <div className="dashboard-page__meta">
-          <nav className="process-graph-toolbar__meta" aria-label="Report type navigation">
+          <nav className="process-graph-toolbar__meta" aria-label={t('navigation.reportTypes')}>
             <NavLink className="table-link" to="/reports/posts">
-              Posts
+              {t('navigation.posts')}
             </NavLink>
             <NavLink className="table-link" to="/reports/events">
-              Events
+              {t('navigation.events')}
             </NavLink>
             <NavLink className="table-link" to="/reports/processes">
-              Processes
+              {t('navigation.processes')}
             </NavLink>
           </nav>
         </div>
@@ -87,9 +89,9 @@ export function ReportsPage() {
 
       {primaryRole === 'viewer' ? (
         <ReadOnlyNotice
-          title="Viewer access keeps report catalogs readable"
-          description="List inspection and export stay available while batch generation and other draft mutations remain hidden."
-          ariaLabel="Read only reports notice"
+          title={t('reports.readOnlyTitle', { defaultValue: 'Для viewer каталог отчетов доступен только для чтения' })}
+          description={t('reports.readOnlyDescription', { defaultValue: 'Просмотр списка и экспорт доступны, а пакетная генерация и другие мутации скрыты.' })}
+          ariaLabel="reports.readOnly"
         />
       ) : null}
 

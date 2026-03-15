@@ -1,4 +1,4 @@
-import { cleanup, screen, waitFor } from '@testing-library/react';
+﻿import { cleanup, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -10,6 +10,8 @@ import {
   createKeywordSearchResponse,
 } from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
+
+const ru = (value: string) => JSON.parse('"' + value + '"') as string;
 
 function createAuthenticatedUser(roles: string[]) {
   return {
@@ -54,7 +56,7 @@ describe('Keyword graph page', () => {
     renderKeywordGraph('/keyword-graph', ['viewer']);
 
     await waitFor(() => {
-      expect(screen.getByText(/Route is restricted/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041c\u0430\u0440\u0448\u0440\u0443\u0442 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d'))).toBeInTheDocument();
     });
   });
 
@@ -85,12 +87,12 @@ describe('Keyword graph page', () => {
     renderKeywordGraph('/keyword-graph');
 
     await waitFor(() => {
-      expect(screen.getByText(/Separate analytical tool for keyword-driven post search/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041e\u0442\u0434\u0435\u043b\u044c\u043d\u044b\u0439 \u0430\u043d\u0430\u043b\u0438\u0442\u0438\u0447\u0435\u0441\u043a\u0438\u0439 \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442 \u0434\u043b\u044f \u043f\u043e\u0438\u0441\u043a\u0430 \u043f\u043e\u0441\u0442\u043e\u0432 \u043f\u043e \u043a\u043b\u044e\u0447\u0435\u0432\u044b\u043c \u0441\u043b\u043e\u0432\u0430\u043c, \u043f\u043e\u0441\u0442\u0440\u043e\u0435\u043d\u0438\u044f \u0433\u0440\u0430\u0444\u0430 \u0438 \u043d\u0435\u043e\u0431\u044f\u0437\u0430\u0442\u0435\u043b\u044c\u043d\u043e\u0439 \u0433\u0435\u043d\u0435\u0440\u0430\u0446\u0438\u0438 \u043e\u0442\u0447\u0435\u0442\u0430. \u041e\u043d \u043d\u0435 \u0432\u0445\u043e\u0434\u0438\u0442 \u0432 \u043e\u0441\u043d\u043e\u0432\u043d\u044b\u0435 \u0440\u0435\u0436\u0438\u043c\u044b \u0434\u0430\u0448\u0431\u043e\u0440\u0434\u0430.'))).toBeInTheDocument();
     });
 
-    await user.type(screen.getByLabelText(/Keyword query/i), 'policy shift');
-    await user.click(screen.getByLabelText(/Channel Signal Watch \(@signal_watch\)/i));
-    await user.click(screen.getByRole('button', { name: /Search posts/i }));
+    await user.type(screen.getByLabelText(ru('\u0417\u0430\u043f\u0440\u043e\u0441 \u043a\u043b\u044e\u0447\u0435\u0432\u044b\u0445 \u0441\u043b\u043e\u0432')), 'policy shift');
+    await user.click(screen.getByLabelText(ru('\u041a\u0430\u043d\u0430\u043b Signal Watch (@signal_watch)')));
+    await user.click(screen.getByRole('button', { name: ru('\u041d\u0430\u0439\u0442\u0438 \u043f\u043e\u0441\u0442\u044b') }));
 
     await waitFor(() => {
       expect(postSpy).toHaveBeenCalledWith(
@@ -99,9 +101,9 @@ describe('Keyword graph page', () => {
       );
     });
 
-    expect(screen.getByText(/Matched posts for the analytical query/i)).toBeInTheDocument();
+    expect(screen.getByText(/\u041d\u0430\u0439\u0434\u0435\u043d\u043d\u044b\u0435 \u043f\u043e\u0441\u0442\u044b \u0434\u043b\u044f \u0430\u043d\u0430\u043b\u0438\u0442\u0438\u0447\u0435\u0441\u043a\u043e\u0433\u043e \u0437\u0430\u043f\u0440\u043e\u0441\u0430/u)).toBeInTheDocument();
     expect(screen.getByText(/Policy shift discussion spikes/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Select post 4012/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(ru('\u0412\u044b\u0431\u0440\u0430\u0442\u044c \u043f\u043e\u0441\u0442 4012'))).toBeInTheDocument();
   });
 
   it('builds graph and generates a report from selected posts', async () => {
@@ -151,15 +153,15 @@ describe('Keyword graph page', () => {
       expect(screen.getByText(/Policy shift discussion spikes/i)).toBeInTheDocument();
     });
 
-    await user.click(screen.getByLabelText(/Select post 4012/i));
-    await user.click(screen.getByRole('button', { name: /Build graph/i }));
+    await user.click(screen.getByLabelText(ru('\u0412\u044b\u0431\u0440\u0430\u0442\u044c \u043f\u043e\u0441\u0442 4012')));
+    await user.click(screen.getByRole('button', { name: ru('\u041f\u043e\u0441\u0442\u0440\u043e\u0438\u0442\u044c \u0433\u0440\u0430\u0444') }));
 
     await waitFor(() => {
-      expect(screen.getByText(/2 nodes and 1 edges/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('2 \u0443\u0437\u043b\u043e\u0432 \u0438 1 \u0440\u0435\u0431\u0435\u0440'))).toBeInTheDocument();
     });
 
-    await user.type(screen.getByLabelText(/Graph report title/i), 'Policy graph report');
-    await user.click(screen.getByRole('button', { name: /Generate report/i }));
+    await user.type(screen.getByLabelText(ru('\u041d\u0430\u0437\u0432\u0430\u043d\u0438\u0435 \u043e\u0442\u0447\u0435\u0442\u0430 \u043f\u043e \u0433\u0440\u0430\u0444\u0443')), 'Policy graph report');
+    await user.click(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043e\u0442\u0447\u0435\u0442') }));
 
     await waitFor(() => {
       expect(screen.getByText(/Analytical report content for the keyword graph seed set/i)).toBeInTheDocument();
@@ -187,14 +189,14 @@ describe('Keyword graph page', () => {
     renderKeywordGraph('/keyword-graph');
 
     await waitFor(() => {
-      expect(screen.getByText(/Separate analytical tool for keyword-driven post search/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041e\u0442\u0434\u0435\u043b\u044c\u043d\u044b\u0439 \u0430\u043d\u0430\u043b\u0438\u0442\u0438\u0447\u0435\u0441\u043a\u0438\u0439 \u0438\u043d\u0441\u0442\u0440\u0443\u043c\u0435\u043d\u0442 \u0434\u043b\u044f \u043f\u043e\u0438\u0441\u043a\u0430 \u043f\u043e\u0441\u0442\u043e\u0432 \u043f\u043e \u043a\u043b\u044e\u0447\u0435\u0432\u044b\u043c \u0441\u043b\u043e\u0432\u0430\u043c, \u043f\u043e\u0441\u0442\u0440\u043e\u0435\u043d\u0438\u044f \u0433\u0440\u0430\u0444\u0430 \u0438 \u043d\u0435\u043e\u0431\u044f\u0437\u0430\u0442\u0435\u043b\u044c\u043d\u043e\u0439 \u0433\u0435\u043d\u0435\u0440\u0430\u0446\u0438\u0438 \u043e\u0442\u0447\u0435\u0442\u0430. \u041e\u043d \u043d\u0435 \u0432\u0445\u043e\u0434\u0438\u0442 \u0432 \u043e\u0441\u043d\u043e\u0432\u043d\u044b\u0435 \u0440\u0435\u0436\u0438\u043c\u044b \u0434\u0430\u0448\u0431\u043e\u0440\u0434\u0430.'))).toBeInTheDocument();
     });
 
-    await user.type(screen.getByLabelText(/Keyword query/i), 'zz');
-    await user.click(screen.getByRole('button', { name: /Search posts/i }));
+    await user.type(screen.getByLabelText(ru('\u0417\u0430\u043f\u0440\u043e\u0441 \u043a\u043b\u044e\u0447\u0435\u0432\u044b\u0445 \u0441\u043b\u043e\u0432')), 'zz');
+    await user.click(screen.getByRole('button', { name: ru('\u041d\u0430\u0439\u0442\u0438 \u043f\u043e\u0441\u0442\u044b') }));
 
     await waitFor(() => {
-      expect(screen.getByText(/No posts matched the query/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041f\u043e \u0437\u0430\u043f\u0440\u043e\u0441\u0443 \u043d\u0438\u0447\u0435\u0433\u043e \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e'))).toBeInTheDocument();
     });
 
     cleanup();
@@ -205,7 +207,7 @@ describe('Keyword graph page', () => {
     renderKeywordGraph('/keyword-graph?query=policy');
 
     await waitFor(() => {
-      expect(screen.getByText(/Keyword search failed/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041f\u043e\u0438\u0441\u043a \u043f\u043e \u043a\u043b\u044e\u0447\u0435\u0432\u044b\u043c \u0441\u043b\u043e\u0432\u0430\u043c \u0437\u0430\u0432\u0435\u0440\u0448\u0438\u043b\u0441\u044f \u043e\u0448\u0438\u0431\u043a\u043e\u0439'))).toBeInTheDocument();
     });
   });
 
@@ -216,7 +218,9 @@ describe('Keyword graph page', () => {
     renderKeywordGraph('/keyword-graph?query=policy');
 
     await waitFor(() => {
-      expect(screen.getByText(/Keyword graph is unavailable/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0413\u0440\u0430\u0444 \u043a\u043b\u044e\u0447\u0435\u0432\u044b\u0445 \u0441\u043b\u043e\u0432 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d \u0434\u043b\u044f \u044d\u0442\u043e\u0439 \u0443\u0447\u0435\u0442\u043d\u043e\u0439 \u0437\u0430\u043f\u0438\u0441\u0438 \u0438\u043b\u0438 \u043e\u043a\u0440\u0443\u0436\u0435\u043d\u0438\u044f. Backend feature flag \u0438\u043b\u0438 rollout gate \u0437\u0430\u043f\u0440\u0435\u0442\u0438\u043b \u0437\u0430\u043f\u0440\u043e\u0441.'))).toBeInTheDocument();
     });
   });
 });
+
+

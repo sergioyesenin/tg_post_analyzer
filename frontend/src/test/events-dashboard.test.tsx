@@ -12,6 +12,8 @@ import {
 } from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
 
+const ru = (value: string) => JSON.parse('"' + value + '"') as string;
+
 function createAuthenticatedUser(roles: string[]) {
   return {
     id: 11,
@@ -92,23 +94,18 @@ function installEventsApiMock(options?: {
     if (path.startsWith('/api/dashboard/events?') || path === '/api/dashboard/events') {
       return dashboard;
     }
-
     if (path === '/api/dashboard/events/81/graph') {
       return graph;
     }
-
     if (path === '/api/dashboard/events/82/graph') {
       return secondaryGraph;
     }
-
     if (path === '/api/jobs/501') {
       return jobStatus;
     }
-
     if (path === '/api/jobs/501/result') {
       return jobResult;
     }
-
     throw new Error(`Unhandled GET path in events test: ${path}`);
   });
 }
@@ -120,7 +117,6 @@ describe('Events dashboard', () => {
 
   it('renders events dashboard summary, table, graph area, and detail panel', async () => {
     installEventsApiMock();
-
     renderWorkspace();
 
     await waitFor(() => {
@@ -132,10 +128,10 @@ describe('Events dashboard', () => {
     });
 
     expect(screen.getAllByText(/Election coverage spike/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Linked posts/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(ru('\u0441\u0432\u044f\u0437\u0430\u043d\u043d\u044b\u0435 \u043f\u043e\u0441\u0442\u044b'), { exact: false }).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Root post drives the event graph/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Draft report action runs async/i)).toBeInTheDocument();
-    expect(screen.getAllByRole('link', { name: /Open post/i }).length).toBeGreaterThan(0);
+    expect(screen.getByText(ru('\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u0441 \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a\u043e\u043c \u0432\u044b\u043f\u043e\u043b\u043d\u044f\u0435\u0442\u0441\u044f \u0430\u0441\u0438\u043d\u0445\u0440\u043e\u043d\u043d\u043e'), { exact: false })).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u043f\u043e\u0441\u0442') }).length).toBeGreaterThan(0);
   });
 
   it('keeps selection stable and loads the graph for the selected event', async () => {
@@ -148,7 +144,7 @@ describe('Events dashboard', () => {
       expect(screen.getAllByText(/Root post drives the event graph/i).length).toBeGreaterThan(0);
     });
 
-    await user.click(screen.getByRole('button', { name: /Inspect/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c') }));
 
     await waitFor(() => {
       expect(screen.getAllByText(/Official statement root post/i).length).toBeGreaterThan(0);
@@ -178,7 +174,7 @@ describe('Events dashboard', () => {
     renderWorkspace();
 
     await waitFor(() => {
-      expect(screen.getByText(/Loading event graph/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u0433\u0440\u0430\u0444\u0430 \u0441\u043e\u0431\u044b\u0442\u0438\u044f'))).toBeInTheDocument();
     });
 
     if (resolveGraph) {
@@ -223,13 +219,13 @@ describe('Events dashboard', () => {
     renderWorkspace();
 
     await waitFor(() => {
-      expect(screen.getByText(/No graph nodes are available/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0412 \u0433\u0440\u0430\u0444\u0435 \u043d\u0435\u0442 \u0443\u0437\u043b\u043e\u0432'))).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: /Inspect/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c') }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Graph has no edges/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0412 \u0433\u0440\u0430\u0444\u0435 \u043d\u0435\u0442 \u0440\u0435\u0431\u0435\u0440'))).toBeInTheDocument();
     });
 
     expect(screen.getAllByText(/Official statement root post/i).length).toBeGreaterThan(0);
@@ -251,11 +247,11 @@ describe('Events dashboard', () => {
     renderWorkspace();
 
     await waitFor(() => {
-      expect(screen.getByText(/Event graph failed to load/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0433\u0440\u0430\u0444 \u0441\u043e\u0431\u044b\u0442\u0438\u044f'))).toBeInTheDocument();
     });
 
     expect(screen.getAllByText(/Election coverage spike/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/Draft report action runs async/i)).toBeInTheDocument();
+    expect(screen.getByText(ru('\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u0441 \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a\u043e\u043c \u0432\u044b\u043f\u043e\u043b\u043d\u044f\u0435\u0442\u0441\u044f \u0430\u0441\u0438\u043d\u0445\u0440\u043e\u043d\u043d\u043e'), { exact: false })).toBeInTheDocument();
   });
 
   it('runs the event report action flow and renders the async job result', async () => {
@@ -304,18 +300,18 @@ describe('Events dashboard', () => {
     renderWorkspace();
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Generate draft report/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a \u043e\u0442\u0447\u0435\u0442\u0430') })).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: /Generate draft report/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a \u043e\u0442\u0447\u0435\u0442\u0430') }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Event report job/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0417\u0430\u0434\u0430\u043d\u0438\u0435 \u043e\u0442\u0447\u0435\u0442\u0430 \u043f\u043e \u0441\u043e\u0431\u044b\u0442\u0438\u044e'))).toBeInTheDocument();
       expect(screen.getByText(/report_id: 23/i)).toBeInTheDocument();
     });
 
     await waitFor(() => {
-      expect(screen.getAllByText(/Draft/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(ru('\u0427\u0435\u0440\u043d\u043e\u0432\u0438\u043a')).length).toBeGreaterThan(0);
     });
   });
 
@@ -346,8 +342,8 @@ describe('Events dashboard', () => {
       expect(screen.getByText(/Graph enrichment is partially unavailable/i)).toBeInTheDocument();
     });
 
-    expect(screen.getByText(/Screen stays usable with partially enriched data/i)).toBeInTheDocument();
-    expect(screen.getByText(/Graph data is partially available/i)).toBeInTheDocument();
+    expect(screen.getByText(ru('\u042d\u043a\u0440\u0430\u043d \u043e\u0441\u0442\u0430\u0435\u0442\u0441\u044f \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u043c \u043f\u0440\u0438 \u0447\u0430\u0441\u0442\u0438\u0447\u043d\u043e \u043e\u0431\u043e\u0433\u0430\u0449\u0435\u043d\u043d\u044b\u0445 \u0434\u0430\u043d\u043d\u044b\u0445'))).toBeInTheDocument();
+    expect(screen.getByText(ru('\u0414\u0430\u043d\u043d\u044b\u0435 \u0433\u0440\u0430\u0444\u0430 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b \u0447\u0430\u0441\u0442\u0438\u0447\u043d\u043e'))).toBeInTheDocument();
   });
 
   it('shows graph loading feedback during manual graph refresh', async () => {
@@ -362,11 +358,9 @@ describe('Events dashboard', () => {
 
       if (path === '/api/dashboard/events/81/graph') {
         graphRequests += 1;
-
         if (graphRequests === 1) {
           return createEventGraphResponse();
         }
-
         return await new Promise<ReturnType<typeof createEventGraphResponse>>((resolve) => {
           resolveRefresh = resolve;
         });
@@ -381,10 +375,10 @@ describe('Events dashboard', () => {
       expect(screen.getAllByText(/Root post drives the event graph/i).length).toBeGreaterThan(0);
     });
 
-    await user.click(screen.getByRole('button', { name: /Reload graph/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0433\u0440\u0430\u0444') }));
 
     await waitFor(() => {
-      expect(screen.getByText(/Loading event graph/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u0433\u0440\u0430\u0444\u0430 \u0441\u043e\u0431\u044b\u0442\u0438\u044f'))).toBeInTheDocument();
     });
 
     resolveRefresh?.(
@@ -413,15 +407,14 @@ describe('Events dashboard', () => {
 
   it('hides event report mutation for viewer while keeping selection and graph visible', async () => {
     installEventsApiMock();
-
     renderWorkspace('/dashboard/events', ['viewer']);
 
     await waitFor(() => {
-      expect(screen.getByText(/Viewer access hides event report mutations/i)).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0414\u043b\u044f viewer \u0441\u043a\u0440\u044b\u0442\u044b \u043c\u0443\u0442\u0430\u0446\u0438\u0438 \u043e\u0442\u0447\u0435\u0442\u043e\u0432 \u043f\u043e \u0441\u043e\u0431\u044b\u0442\u0438\u044f\u043c'))).toBeInTheDocument();
     });
 
-    expect(screen.queryByRole('button', { name: /Generate draft report/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Update draft report/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a \u043e\u0442\u0447\u0435\u0442\u0430') })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: ru('\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a \u043e\u0442\u0447\u0435\u0442\u0430') })).not.toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getAllByText(/Root post drives the event graph/i).length).toBeGreaterThan(0);
     });

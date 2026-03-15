@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 
 export type DashboardTableColumn = {
   id: string;
@@ -21,13 +22,14 @@ type DashboardTableShellProps = {
 };
 
 export function DashboardTableShell({ title, description, columns, rows }: DashboardTableShellProps) {
+  const { t } = useTranslation();
   const descriptionId = `dashboard-table-description-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
 
   return (
     <section className="dashboard-table-shell">
       <div className="dashboard-table-shell__header">
         <div>
-          <span className="state-card__eyebrow">table shell</span>
+          <span className="state-card__eyebrow">{t('states.tableShell')}</span>
           <strong>{title}</strong>
         </div>
         <span id={descriptionId}>{description}</span>
@@ -53,7 +55,7 @@ export function DashboardTableShell({ title, description, columns, rows }: Dashb
               <tr key={row.id} className={row.isSelected ? 'dashboard-table-shell__row--selected' : undefined}>
                 {columns.map((column) => (
                   <td key={column.id} data-column-id={column.id} style={{ textAlign: column.align ?? 'left' }}>
-                    {row.cells[column.id] ?? '-'}
+                    {row.cells[column.id] ?? t('common.na')}
                   </td>
                 ))}
               </tr>

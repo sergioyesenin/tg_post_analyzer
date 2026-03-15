@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 
+import { i18n } from '@shared/i18n/i18n';
 import type { PostsDashboardResponse } from '@shared/dashboard/contracts';
 import type { DashboardSummaryCard } from '@shared/dashboard/components/DashboardSummaryCards';
 import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
@@ -33,7 +34,7 @@ export type PostsDashboardViewModel = {
 };
 
 function formatDate(value: string) {
-  return new Intl.DateTimeFormat('en', {
+  return new Intl.DateTimeFormat(i18n.language === 'ru' ? 'ru' : 'en', {
     dateStyle: 'medium',
     timeStyle: 'short',
     timeZone: 'UTC',
@@ -41,11 +42,11 @@ function formatDate(value: string) {
 }
 
 function formatNullableNumber(value: number | null) {
-  return value === null ? '—' : new Intl.NumberFormat('en').format(value);
+  return value === null ? i18n.t('common.na') : new Intl.NumberFormat(i18n.language === 'ru' ? 'ru' : 'en').format(value);
 }
 
 function formatNullableRatio(value: number | null) {
-  return value === null ? '—' : value.toFixed(2);
+  return value === null ? i18n.t('common.na') : value.toFixed(2);
 }
 
 function formatChannelLabel(
@@ -54,8 +55,8 @@ function formatChannelLabel(
   channelId: number,
   channelCategory: string | null,
 ) {
-  const base = channelTitle ?? channelUsername ?? `Channel ${channelId}`;
-  return channelCategory ? `${base} · ${channelCategory}` : base;
+  const base = channelTitle ?? channelUsername ?? i18n.t('posts.rows.channelFallback', { id: channelId });
+  return channelCategory ? `${base} | ${channelCategory}` : base;
 }
 
 export function mapPostsDashboardToViewModel(
@@ -67,12 +68,12 @@ export function mapPostsDashboardToViewModel(
     isPartial: response.partial,
     warnings: response.warnings,
     summaryCards: [
-      { id: 'posts', label: 'Posts', value: String(response.summary.posts_count) },
-      { id: 'comments', label: 'Comments', value: String(response.summary.total_comments) },
-      { id: 'channels', label: 'Channels', value: String(response.summary.channels_count) },
-      { id: 'avg_involvement', label: 'Avg involvement', value: formatNullableRatio(response.summary.avg_involvement) },
-      { id: 'reports_ready', label: 'Ready reports', value: String(response.summary.reports_ready) },
-      { id: 'reports_pending', label: 'Pending reports', value: String(response.summary.reports_pending) },
+      { id: 'posts', label: i18n.t('posts.table.posts'), value: String(response.summary.posts_count) },
+      { id: 'comments', label: i18n.t('posts.table.comments'), value: String(response.summary.total_comments) },
+      { id: 'channels', label: i18n.t('posts.table.channels'), value: String(response.summary.channels_count) },
+      { id: 'avg_involvement', label: i18n.t('posts.table.avgInvolvement'), value: formatNullableRatio(response.summary.avg_involvement) },
+      { id: 'reports_ready', label: i18n.t('posts.table.readyReports'), value: String(response.summary.reports_ready) },
+      { id: 'reports_pending', label: i18n.t('posts.table.pendingReports'), value: String(response.summary.reports_pending) },
     ],
     rows: response.items.map((item) => ({
       id: String(item.post_id),
@@ -87,8 +88,8 @@ export function mapPostsDashboardToViewModel(
         item.channel_category,
       ),
       date: formatDate(item.date),
-      preview: item.text_preview ?? 'No preview available',
-      commentsCount: new Intl.NumberFormat('en').format(item.comments_count),
+      preview: item.text_preview ?? i18n.t('posts.rows.noPreview'),
+      commentsCount: new Intl.NumberFormat(i18n.language === 'ru' ? 'ru' : 'en').format(item.comments_count),
       views: formatNullableNumber(item.views),
       involvement: formatNullableRatio(item.involvement),
       linksCount: formatNullableNumber(item.links_count),
@@ -99,15 +100,15 @@ export function mapPostsDashboardToViewModel(
 }
 
 export const postsDashboardColumns: readonly DashboardTableColumn[] = [
-  { id: 'date', label: 'Date' },
-  { id: 'channel', label: 'Channel' },
-  { id: 'preview', label: 'Preview' },
-  { id: 'comments', label: 'Comments' },
-  { id: 'views', label: 'Views' },
-  { id: 'involvement', label: 'Involvement' },
-  { id: 'links', label: 'Links' },
-  { id: 'report_status', label: 'Report status' },
-  { id: 'actions', label: 'Actions' },
+  { id: 'date', label: i18n.t('posts.table.date') },
+  { id: 'channel', label: i18n.t('posts.table.channel') },
+  { id: 'preview', label: i18n.t('posts.table.preview') },
+  { id: 'comments', label: i18n.t('posts.table.comments') },
+  { id: 'views', label: i18n.t('posts.table.views') },
+  { id: 'involvement', label: i18n.t('posts.table.involvement') },
+  { id: 'links', label: i18n.t('posts.table.links') },
+  { id: 'report_status', label: i18n.t('posts.table.reportStatus') },
+  { id: 'actions', label: i18n.t('posts.table.actions') },
 ] as const;
 
 export function mapPostsRowsToTableRows(rows: PostsDashboardRowViewModel[]): DashboardTableRow[] {
@@ -126,15 +127,15 @@ export function mapPostsRowsToTableRows(rows: PostsDashboardRowViewModel[]): Das
       actions: (
         <div className="table-action-group">
           <Link className="table-link" to={row.detailHref}>
-            Open post
+            {i18n.t('posts.rows.openPost')}
           </Link>
           {!row.readOnly ? (
             <>
               <Link className="table-link" to={row.commentsHref}>
-                Comments
+                {i18n.t('posts.rows.comments')}
               </Link>
               <Link className="table-link" to={row.reportHref}>
-                Report
+                {i18n.t('posts.rows.report')}
               </Link>
             </>
           ) : null}

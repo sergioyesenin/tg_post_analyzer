@@ -1,21 +1,25 @@
+import { useTranslation } from 'react-i18next';
+
 export function ProcessGraphLegend() {
+  const { t } = useTranslation();
+
   return (
-    <div className="process-graph-legend" aria-label="Process graph legend">
+    <div className="process-graph-legend" aria-label={t('processes.graph.title')}>
       <span className="process-graph-legend__item">
         <span className="process-graph-legend__swatch process-graph-legend__swatch--process" />
-        Process layer
+        {t('processes.graph.processLayer')}
       </span>
       <span className="process-graph-legend__item">
         <span className="process-graph-legend__swatch process-graph-legend__swatch--event" />
-        Nested event
+        {t('processes.graph.nestedEvent')}
       </span>
       <span className="process-graph-legend__item">
         <span className="process-graph-legend__swatch process-graph-legend__swatch--post" />
-        Context post
+        {t('processes.graph.contextPost')}
       </span>
       <span className="process-graph-legend__item">
         <span className="process-graph-legend__swatch process-graph-legend__swatch--edge" />
-        Post link
+        {t('processes.graph.postLink')}
       </span>
     </div>
   );

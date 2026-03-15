@@ -1,4 +1,5 @@
-import { Link } from 'react-router-dom';
+﻿import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
 import type { KeywordGraphPanelViewModel } from '@modules/keyword-graph/mappers';
 import { EmptyState } from '@shared/ui/states/EmptyState';
@@ -13,38 +14,40 @@ type KeywordGraphPanelProps = {
 };
 
 export function KeywordGraphPanel({ viewModel, isLoading, errorMessage, onRefresh }: KeywordGraphPanelProps) {
+  const { t } = useTranslation();
+
   return (
     <section className="detail-block">
       <div className="detail-block__header">
         <div>
-          <span className="state-card__eyebrow">keyword graph</span>
-          <strong>Graph visualization</strong>
+          <span className="state-card__eyebrow">{t('keywordGraph.panel.eyebrow')}</span>
+          <strong>{t('keywordGraph.panel.title')}</strong>
         </div>
         <button type="button" className="dashboard-button dashboard-button--ghost" onClick={onRefresh} disabled={isLoading}>
-          Refresh graph
+          {t('keywordGraph.panel.refresh')}
         </button>
       </div>
 
-      {isLoading ? <LoadingState title="Building keyword graph" description="Resolving nodes and edges for the selected analytical seed set." /> : null}
+      {isLoading ? <LoadingState title={t('keywordGraph.panel.loadingTitle')} description={t('keywordGraph.panel.loadingDescription')} /> : null}
 
-      {!isLoading && errorMessage ? <ErrorState title="Keyword graph build failed" description={errorMessage} /> : null}
+      {!isLoading && errorMessage ? <ErrorState title={t('keywordGraph.panel.errorTitle')} description={errorMessage} /> : null}
 
       {!isLoading && !errorMessage && !viewModel ? (
         <EmptyState
-          title="Build a graph from selected posts"
-          description="Search for posts, select the analytical seed set, then build the graph to inspect node and edge structure."
+          title={t('keywordGraph.panel.emptyTitle')}
+          description={t('keywordGraph.panel.emptyDescription')}
         />
       ) : null}
 
       {!isLoading && !errorMessage && viewModel ? (
         <div className="process-graph-panel">
           <article className="process-graph-panel__summary">
-            <span className="state-card__eyebrow">graph snapshot</span>
-            <strong>{viewModel.nodeCount} nodes and {viewModel.edgeCount} edges</strong>
+            <span className="state-card__eyebrow">{t('keywordGraph.panel.snapshotEyebrow')}</span>
+            <strong>{t('keywordGraph.panel.graphSummary', { nodes: viewModel.nodeCount, edges: viewModel.edgeCount })}</strong>
             <div className="process-graph-panel__summary-meta">
-              <span>{viewModel.seedCount} seeds</span>
-              <span>{viewModel.excludedCount} excluded</span>
-              <span>{viewModel.tookMs} ms</span>
+              <span>{t('keywordGraph.panel.seeds', { value: viewModel.seedCount })}</span>
+              <span>{t('keywordGraph.panel.excluded', { value: viewModel.excludedCount })}</span>
+              <span>{t('keywordGraph.panel.tookMs', { value: viewModel.tookMs })}</span>
             </div>
             {viewModel.metaEntries.length > 0 ? (
               <div className="process-graph-panel__summary-meta">
@@ -60,15 +63,15 @@ export function KeywordGraphPanel({ viewModel, isLoading, errorMessage, onRefres
           <div className="event-graph-legend">
             <span className="event-graph-legend__item">
               <span className="event-graph-legend__swatch event-graph-legend__swatch--root" />
-              Seed / explicitly included
+              {t('keywordGraph.panel.legend.seed')}
             </span>
             <span className="event-graph-legend__item">
               <span className="event-graph-legend__swatch event-graph-legend__swatch--node" />
-              Neighbor / related post
+              {t('keywordGraph.panel.legend.neighbor')}
             </span>
             <span className="event-graph-legend__item">
               <span className="event-graph-legend__swatch event-graph-legend__swatch--edge" />
-              Persisted or transient link
+              {t('keywordGraph.panel.legend.edge')}
             </span>
           </div>
 
@@ -79,19 +82,19 @@ export function KeywordGraphPanel({ viewModel, isLoading, errorMessage, onRefres
                 className={`event-graph-node ${node.includedBy === 'seed' ? 'event-graph-node--root' : ''}`.trim()}
               >
                 <div className="event-graph-node__meta">
-                  <strong>Post #{node.postId}</strong>
+                  <strong>{t('keywordGraph.rows.postLabel', { id: node.postId })}</strong>
                   <span>{node.date}</span>
                 </div>
                 <p>{node.title}</p>
                 <div className="event-graph-node__stats">
                   <span>{node.channel}</span>
-                  <span>{node.commentsCount} comments</span>
-                  <span>{node.views} views</span>
-                  <span>{node.involvement} involvement</span>
-                  <span>included by {node.includedBy}</span>
+                  <span>{t('keywordGraph.rows.comments', { value: node.commentsCount })}</span>
+                  <span>{t('keywordGraph.rows.views', { value: node.views })}</span>
+                  <span>{t('keywordGraph.rows.involvement', { value: node.involvement })}</span>
+                  <span>{t('keywordGraph.panel.includedBy', { value: node.includedBy })}</span>
                 </div>
                 <Link className="table-link" to={`/posts/${node.postId}`}>
-                  Open post
+                  {t('keywordGraph.rows.openPost')}
                 </Link>
               </article>
             ))}
@@ -99,8 +102,8 @@ export function KeywordGraphPanel({ viewModel, isLoading, errorMessage, onRefres
 
           {viewModel.edges.length === 0 ? (
             <EmptyState
-              title="Graph has no edges"
-              description="Nodes were built for the selected seed set, but no links matched the current graph criteria."
+              title={t('keywordGraph.panel.noEdgesTitle')}
+              description={t('keywordGraph.panel.noEdgesDescription')}
             />
           ) : (
             <div className="process-graph-panel__edges">
@@ -110,7 +113,7 @@ export function KeywordGraphPanel({ viewModel, isLoading, errorMessage, onRefres
                     {edge.sourcePostId} {'->'} {edge.targetPostId}
                   </strong>
                   <span>
-                    {edge.label} | {edge.status} | {edge.source} | score {edge.score}
+                    {edge.label} | {edge.status} | {edge.source} | {t('keywordGraph.panel.score', { value: edge.score })}
                   </span>
                   <span>{edge.evidence}</span>
                 </div>

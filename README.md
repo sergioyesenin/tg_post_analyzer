@@ -871,3 +871,50 @@ Pipeline responsibilities:
 - While the feature flag is disabled, retention jobs continue to be enqueued by `run_telegram_pipeline.py`.
 - Inspect scheduler rollout state via `/api/monitor/scheduler` or `/api/monitor/full`.
 - Monitoring includes scheduler process heartbeat, so it can distinguish a stale/missing scheduler process from a healthy process with a retention enqueue issue.
+
+## Internationalization (i18n)
+
+Frontend localization lives in [frontend/src/shared/i18n](/d:/Projects/tg_post_analyzer/frontend/src/shared/i18n).
+
+- Core setup: [frontend/src/shared/i18n/i18n.ts](/d:/Projects/tg_post_analyzer/frontend/src/shared/i18n/i18n.ts)
+- Russian translations: [frontend/src/shared/i18n/locales/ru/common.json](/d:/Projects/tg_post_analyzer/frontend/src/shared/i18n/locales/ru/common.json)
+- English fallback translations: [frontend/src/shared/i18n/locales/en/common.json](/d:/Projects/tg_post_analyzer/frontend/src/shared/i18n/locales/en/common.json)
+
+Rules:
+
+- Default language is `ru`.
+- Fallback language is `en`.
+- UI text must use `t('translation.key')` or `i18n.t('translation.key')`.
+- Backend DTO names, API fields, and transport contracts must stay unchanged.
+
+Adding a new language:
+
+1. Add a new locale folder under `frontend/src/shared/i18n/locales/`.
+2. Create a `common.json` file with the same key structure as `ru/common.json`.
+3. Register the language in `frontend/src/shared/i18n/i18n.ts` under `resources` and `supportedLngs`.
+4. Extend `LanguageSwitcher` if the language should be user-selectable.
+
+Usage examples:
+
+```tsx
+import { useTranslation } from 'react-i18next';
+
+export function ExampleButton() {
+  const { t } = useTranslation();
+
+  return <button>{t('actions.retry')}</button>;
+}
+```
+
+```ts
+import { i18n } from '@shared/i18n/i18n';
+
+const label = i18n.t('fields.reportStatus');
+```
+
+Adding new keys:
+
+1. Add the key to `ru/common.json`.
+2. Add the matching key to `en/common.json`.
+3. Replace any hardcoded UI string in the component with the new translation key.
+4. Update or add tests for the localized user-facing flow.

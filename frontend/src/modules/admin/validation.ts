@@ -1,7 +1,9 @@
-import { z } from 'zod';
+﻿import { z } from 'zod';
+
+import { i18n } from '@shared/i18n/i18n';
 
 export const addChannelSchema = z.object({
-  username: z.string().trim().min(1, 'Username is required'),
+  username: z.string().trim().min(1, i18n.t('admin.validation.usernameRequired')),
 });
 
 export const updateChannelSchema = z.object({
@@ -11,15 +13,15 @@ export const updateChannelSchema = z.object({
 });
 
 export const createUserSchema = z.object({
-  username: z.string().trim().min(1, 'Username is required'),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
-  email: z.string().email('Email must be valid').optional().or(z.literal('')),
+  username: z.string().trim().min(1, i18n.t('admin.validation.usernameRequired')),
+  password: z.string().min(8, i18n.t('admin.validation.passwordMin')),
+  email: z.string().email(i18n.t('admin.validation.emailInvalid')).optional().or(z.literal('')),
   full_name: z.string().optional().or(z.literal('')),
-  roles: z.array(z.enum(['admin', 'analyst', 'viewer'])).min(1, 'At least one role is required'),
+  roles: z.array(z.enum(['admin', 'analyst', 'viewer'])).min(1, i18n.t('admin.validation.roleRequired')),
 });
 
 export const updateUserRolesSchema = z.object({
-  roles: z.array(z.enum(['admin', 'analyst', 'viewer'])).min(1, 'At least one role is required'),
+  roles: z.array(z.enum(['admin', 'analyst', 'viewer'])).min(1, i18n.t('admin.validation.roleRequired')),
 });
 
 export const updateSettingSchema = z.object({
@@ -27,7 +29,7 @@ export const updateSettingSchema = z.object({
   value_json_text: z
     .string()
     .trim()
-    .min(2, 'JSON payload is required')
+    .min(2, i18n.t('admin.validation.jsonRequired'))
     .refine((value) => {
       try {
         const parsed = JSON.parse(value);
@@ -35,7 +37,7 @@ export const updateSettingSchema = z.object({
       } catch {
         return false;
       }
-    }, 'Value must be a valid JSON object'),
+    }, i18n.t('admin.validation.jsonObjectInvalid')),
 });
 
 export type AddChannelFormValues = z.infer<typeof addChannelSchema>;

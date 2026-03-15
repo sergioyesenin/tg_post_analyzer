@@ -1,3 +1,5 @@
+﻿import { useTranslation } from 'react-i18next';
+
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
@@ -15,116 +17,62 @@ type EventGraphPanelProps = {
   onRefresh: () => void;
 };
 
-export function EventGraphPanel({
-  selectedTitle,
-  isLoading,
-  isError,
-  viewModel,
-  hasSelection,
-  partialHint,
-  onRefresh,
-}: EventGraphPanelProps) {
+export function EventGraphPanel({ selectedTitle, isLoading, isError, viewModel, hasSelection, partialHint, onRefresh }: EventGraphPanelProps) {
+  const { t } = useTranslation();
+
   if (!hasSelection) {
     return (
       <section className="detail-block">
-        <div className="detail-block__header">
-          <div>
-            <span className="state-card__eyebrow">graph</span>
-            <strong>Event graph</strong>
-          </div>
-        </div>
-        <EmptyState
-          title="Select an event to inspect its graph"
-          description="The graph area stays mounted and waits for a stable event selection from the events table."
-        />
+        <div className="detail-block__header"><div><span className="state-card__eyebrow">{t('events.graph.eyebrow')}</span><strong>{t('events.graph.title')}</strong></div></div>
+        <EmptyState title={t('events.graph.noSelectionTitle')} description={t('events.graph.noSelectionDescription')} />
       </section>
     );
   }
 
   return (
     <section className="detail-block">
-      <div className="detail-block__header">
-        <div>
-          <span className="state-card__eyebrow">graph</span>
-          <strong>Event graph</strong>
-        </div>
-      </div>
-
-      <EventGraphToolbar
-        title={selectedTitle ?? 'Selected event'}
-        nodeCount={viewModel?.nodes.length ?? 0}
-        edgeCount={viewModel?.edges.length ?? 0}
-        isLoading={isLoading}
-        onRefresh={onRefresh}
-      />
-
+      <div className="detail-block__header"><div><span className="state-card__eyebrow">{t('events.graph.eyebrow')}</span><strong>{t('events.graph.title')}</strong></div></div>
+      <EventGraphToolbar title={selectedTitle ?? t('events.graph.selectedEvent')} nodeCount={viewModel?.nodes.length ?? 0} edgeCount={viewModel?.edges.length ?? 0} isLoading={isLoading} onRefresh={onRefresh} />
       <EventGraphLegend />
 
       {partialHint ? (
-        <section className="dashboard-banner dashboard-banner--partial" aria-label="Graph partial notice">
-          <div>
-            <span className="dashboard-banner__eyebrow">partial graph</span>
-            <strong>Graph data is partially available</strong>
-          </div>
+        <section className="dashboard-banner dashboard-banner--partial" aria-label={t('events.graph.partialAria')}>
+          <div><span className="dashboard-banner__eyebrow">{t('events.graph.partialEyebrow')}</span><strong>{t('events.graph.partialTitle')}</strong></div>
           <p className="dashboard-banner__text">{partialHint}</p>
         </section>
       ) : null}
 
-      {isLoading ? (
-        <LoadingState title="Loading event graph" description="Fetching /api/dashboard/events/{event_id}/graph for the selected event." />
-      ) : null}
-
-      {!isLoading && isError ? (
-        <ErrorState
-          title="Event graph failed to load"
-          description="The selected event remains visible in the detail panel, but graph data could not be loaded."
-        />
-      ) : null}
-
-      {!isLoading && !isError && viewModel && viewModel.nodes.length === 0 ? (
-        <EmptyState
-          title="No graph nodes are available"
-          description="The selected event has no graph nodes in the current snapshot."
-        />
-      ) : null}
+      {isLoading ? <LoadingState title={t('events.graph.loadingTitle')} description={t('events.graph.loadingDescription')} /> : null}
+      {!isLoading && isError ? <ErrorState title={t('events.graph.errorTitle')} description={t('events.graph.errorDescription')} /> : null}
+      {!isLoading && !isError && viewModel && viewModel.nodes.length === 0 ? <EmptyState title={t('events.graph.noNodesTitle')} description={t('events.graph.noNodesDescription')} /> : null}
 
       {!isLoading && !isError && viewModel && viewModel.nodes.length > 0 ? (
         <div className="event-graph-panel">
           <div className="event-graph-panel__nodes">
             {viewModel.nodes.map((node) => (
-              <article
-                key={node.id}
-                className={`event-graph-node ${node.isRoot ? 'event-graph-node--root' : ''}`.trim()}
-              >
+              <article key={node.id} className={`event-graph-node ${node.isRoot ? 'event-graph-node--root' : ''}`.trim()}>
                 <div className="event-graph-node__meta">
-                  <strong>{node.isRoot ? 'Root' : 'Linked'} post #{node.postId}</strong>
+                  <strong>{node.isRoot ? t('events.graph.rootNode') : t('events.graph.linkedNode')} #{node.postId}</strong>
                   <span>{node.date}</span>
                 </div>
                 <p>{node.title}</p>
                 <div className="event-graph-node__stats">
-                  <span>{node.commentsCount} comments</span>
-                  <span>{node.views} views</span>
-                  <span>{node.involvement} involvement</span>
+                  <span>{t('events.graph.comments', { value: node.commentsCount })}</span>
+                  <span>{t('events.graph.views', { value: node.views })}</span>
+                  <span>{t('events.graph.involvement', { value: node.involvement })}</span>
                 </div>
               </article>
             ))}
           </div>
 
           {viewModel.edges.length === 0 ? (
-            <EmptyState
-              title="Graph has no edges"
-              description="Nodes are available for exploration, but link edges are absent in the current graph snapshot."
-            />
+            <EmptyState title={t('events.graph.noEdgesTitle')} description={t('events.graph.noEdgesDescription')} />
           ) : (
             <div className="event-graph-panel__edges">
               {viewModel.edges.map((edge) => (
                 <div key={edge.id} className="event-graph-edge">
-                  <strong>
-                    {edge.sourcePostId} {'->'} {edge.targetPostId}
-                  </strong>
-                  <span>
-                    {edge.label} | {edge.status} | score {edge.score}
-                  </span>
+                  <strong>{edge.sourcePostId} {'->'} {edge.targetPostId}</strong>
+                  <span>{edge.label} | {edge.status} | {t('events.graph.score', { value: edge.score })}</span>
                 </div>
               ))}
             </div>

@@ -1026,7 +1026,8 @@
       "buildFailedFallback": "Запрос построения графа ключевых слов завершился ошибкой.",
       "reportFailedFallback": "Запрос отчета по графу ключевых слов завершился ошибкой."
     },
-    "resultsDescriptionWithTiming": "Найденные посты для аналитического запроса. Время выполнения: {{tookMs}} ms."
+    "resultsDescriptionWithTiming": "Найденные посты для аналитического запроса. Время выполнения: {{tookMs}} ms.",
+    "queryPlaceholder": "сдвиг повестки"
   },
   "placeholders": {
     "foundationTitle": "Базовые блоки",

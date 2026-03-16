@@ -137,7 +137,7 @@ export function KeywordGraphPage() {
               aria-label={t('keywordGraph.queryAria')}
               value={formState.query}
               onChange={(event) => setFormState((current) => ({ ...current, query: event.target.value }))}
-              placeholder="policy shift"
+              placeholder={t('keywordGraph.queryPlaceholder')}
             />
           </label>
           <label>
@@ -415,4 +415,5 @@ export function KeywordGraphPage() {
     </div>
   );
 }
+
 

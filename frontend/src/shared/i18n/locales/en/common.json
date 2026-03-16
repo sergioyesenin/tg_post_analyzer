@@ -1026,7 +1026,8 @@
       "buildFailedFallback": "The keyword graph build request failed.",
       "reportFailedFallback": "The keyword graph report request failed."
     },
-    "resultsDescriptionWithTiming": "Matched posts for the analytical query. Took {{tookMs}} ms."
+    "resultsDescriptionWithTiming": "Matched posts for the analytical query. Took {{tookMs}} ms.",
+    "queryPlaceholder": "policy shift"
   },
   "placeholders": {
     "foundationTitle": "Foundation blocks",

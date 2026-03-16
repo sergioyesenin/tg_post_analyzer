@@ -78,8 +78,12 @@ dist/
 frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo/
+docs/logs.txt
+docs/posts_*.txt
+docs/*_test_results_*.txt
 
 # =========================
 # Docker
 # =========================
 docker-data/
+

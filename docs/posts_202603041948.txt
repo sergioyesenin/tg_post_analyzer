@@ -1,3 +1,0 @@
-|posts_total|posts_with_search_lemmas|filled_percent|
-|-----------|------------------------|--------------|
-|578        |83                      |14,36         |

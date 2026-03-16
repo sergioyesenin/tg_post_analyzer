@@ -33,19 +33,14 @@ type AuthApiDeps = {
 
 export interface AuthApiContract {
   login: (credentials: LoginCredentials) => Promise<{ tokens: SessionTokens; roles: ReturnType<typeof normalizeRoles> }>;
-  refresh: (refreshToken: string) => Promise<{ tokens: SessionTokens; roles: ReturnType<typeof normalizeRoles> }>;
-  logout: (refreshToken: string) => Promise<LogoutResponse>;
+  refresh: () => Promise<{ tokens: SessionTokens; roles: ReturnType<typeof normalizeRoles> }>;
+  logout: () => Promise<LogoutResponse>;
   me: () => Promise<SessionUser>;
 }
 
 function toSessionTokens(payload: TokenResponse): SessionTokens {
-  if (!payload.refresh_token) {
-    throw new AuthApiError('Refresh token is missing in auth response.', 500);
-  }
-
   return {
     accessToken: payload.access_token,
-    refreshToken: payload.refresh_token,
     expiresInSeconds: payload.expires_in_seconds,
   };
 }
@@ -77,6 +72,7 @@ export class AuthApi implements AuthApiContract {
         body: JSON.stringify(credentials),
         authMode: 'none',
         retryOnUnauthorized: false,
+        credentials: 'include',
       });
 
       return {
@@ -88,13 +84,13 @@ export class AuthApi implements AuthApiContract {
     }
   }
 
-  async refresh(refreshToken: string) {
+  async refresh() {
     try {
       const payload = await this.client.request<TokenResponse>('/api/auth/refresh', {
         method: 'POST',
-        body: JSON.stringify({ refresh_token: refreshToken }),
         authMode: 'none',
         retryOnUnauthorized: false,
+        credentials: 'include',
       });
 
       return {
@@ -106,11 +102,11 @@ export class AuthApi implements AuthApiContract {
     }
   }
 
-  async logout(refreshToken: string) {
+  async logout() {
     return this.client.request<LogoutResponse>('/api/auth/logout', {
       method: 'POST',
-      body: JSON.stringify({ refresh_token: refreshToken }),
       retryOnUnauthorized: true,
+      credentials: 'include',
     });
   }
 

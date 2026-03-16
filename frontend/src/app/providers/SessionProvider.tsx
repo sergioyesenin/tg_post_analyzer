@@ -61,15 +61,12 @@ export function SessionProvider({
       return refreshPromiseRef.current;
     }
 
-    const currentTokens = tokensRef.current;
-    if (!currentTokens?.refreshToken) {
-      clearSession();
-      return null;
-    }
-
-    refreshPromiseRef.current = authApiInstance
-      .refresh(currentTokens.refreshToken)
-      .then(({ tokens: refreshedTokens }) => {
+    refreshPromiseRef.current = Promise.resolve(authApiInstance.refresh())
+      .then((result) => {
+        const refreshedTokens = result?.tokens;
+        if (!refreshedTokens?.accessToken) {
+          throw new Error('Refresh did not return an access token.');
+        }
         storeTokens(refreshedTokens);
         return refreshedTokens.accessToken;
       })
@@ -97,12 +94,28 @@ export function SessionProvider({
     setStatus('bootstrapping');
     const persistedTokens = storage.load();
 
-    if (!persistedTokens) {
+    if (persistedTokens) {
+      storeTokens(persistedTokens);
+      try {
+        const currentUser = await authApiInstance.me();
+        setUser({
+          ...currentUser,
+          roles: normalizeRoles(currentUser.roles),
+        });
+        setStatus('authenticated');
+        return;
+      } catch {
+        storage.clear();
+        tokensRef.current = null;
+        setTokens(null);
+      }
+    }
+
+    const refreshedToken = await refreshAccessToken();
+    if (!refreshedToken) {
       clearSession();
       return;
     }
-
-    storeTokens(persistedTokens);
 
     try {
       const currentUser = await authApiInstance.me();
@@ -136,12 +149,8 @@ export function SessionProvider({
   };
 
   const logout = async () => {
-    const refreshToken = tokensRef.current?.refreshToken;
-
     try {
-      if (refreshToken) {
-        await authApiInstance.logout(refreshToken);
-      }
+      await authApiInstance.logout();
     } catch {
       // Logout should still clear local session when backend revoke fails.
     } finally {
@@ -175,3 +184,4 @@ export function useSession() {
 
   return context;
 }
+

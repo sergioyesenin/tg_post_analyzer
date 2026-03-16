@@ -28,14 +28,6 @@ class UserRolesIn(BaseModel):
     roles: list[str]
 
 
-class RefreshIn(BaseModel):
-    refresh_token: str
-
-
-class LogoutIn(BaseModel):
-    refresh_token: str
-
-
 class UserOut(BaseModel):
     id: int
     username: str

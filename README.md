@@ -1,4 +1,4 @@
-﻿# tg_post_analyzer
+# tg_post_analyzer
 
 ## Overview
 
@@ -105,9 +105,10 @@ Detailed route artifact:
 
 - Local auth is implemented through `POST /api/auth/login`, `POST /api/auth/refresh`, `POST /api/auth/logout`, and `GET /api/auth/me`.
 - Session state is owned by `frontend/src/app/providers/SessionProvider.tsx`.
-- Access/refresh tokens are persisted in local storage.
-- The API client injects the bearer token and performs one refresh attempt on `401`.
-- If refresh fails, local session state is cleared and the user returns to guest mode.
+- Access tokens are kept only in in-memory frontend state; they are not persisted in `localStorage`.
+- Refresh tokens are stored only in an `HttpOnly` cookie managed by the backend.
+- The API client sends bearer auth for protected API calls and performs one cookie-based refresh attempt on `401`.
+- If refresh fails, in-memory session state is cleared and the user returns to guest mode.
 - `/login` is public-only; authenticated users are redirected into the workspace.
 
 ## Data Layer Model
@@ -185,6 +186,7 @@ Behavior rules:
 
 - There is one frontend delivery path: the React SPA in `frontend/`.
 - Local frontend development runs through Vite on `http://localhost:5173` and proxies `/api` to the FastAPI backend.
+- Cross-origin auth relies on `allow_credentials=True` plus explicit allowed origins, because refresh uses an `HttpOnly` cookie on `/api/auth`.
 - Integrated runtime serving uses `frontend/dist`; after `npm run build`, FastAPI serves the SPA shell at `/` and returns `index.html` for client-side routes.
 - `web/` is deprecated and is not mounted or returned from `api/main.py`.
 - If `frontend/dist` is missing, the backend still serves the API, but `/` returns a build-missing error instead of falling back to legacy UI files.
@@ -300,3 +302,6 @@ Stage 15 final quality pass status on 2026-03-16:
 - `npm test` passed in `frontend/`
 - route and RBAC matrix coverage was extended with an explicit policy test
 - handoff/spec documentation was expanded for route map, interactions, mapping, state/status, and copy rules
+
+
+

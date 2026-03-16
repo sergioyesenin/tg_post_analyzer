@@ -32,7 +32,6 @@ describe('Login flow', () => {
     authApi.login.mockResolvedValue({
       tokens: {
         accessToken: 'access-1',
-        refreshToken: 'refresh-1',
         expiresInSeconds: 3600,
       } satisfies SessionTokens,
       roles: ['analyst'],
@@ -105,3 +104,5 @@ describe('Login flow', () => {
     });
   });
 });
+
+

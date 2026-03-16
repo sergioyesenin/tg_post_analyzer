@@ -25,7 +25,7 @@ class _ScalarsResult:
         self._rows = rows
 
     def scalars(self):
-        return type("_Scalars", (), {"all": lambda self_: list(self._rows)})()
+        return type('_Scalars', (), {'all': lambda self_: list(self._rows)})()
 
 
 class _RowsResult:
@@ -43,28 +43,28 @@ class _AuthStore:
         self.users = {
             1: User(
                 id=1,
-                username="admin",
-                email="admin@example.com",
-                full_name="Admin",
-                password_hash=auth_router.hash_password("AdminPass123!"),
+                username='admin',
+                email='admin@example.com',
+                full_name='Admin',
+                password_hash=auth_router.hash_password('AdminPass123!'),
                 is_active=True,
                 is_local=True,
                 created_at=now,
             ),
             2: User(
                 id=2,
-                username="viewer",
-                email="viewer@example.com",
-                full_name="Viewer",
-                password_hash=auth_router.hash_password("ViewerPass123!"),
+                username='viewer',
+                email='viewer@example.com',
+                full_name='Viewer',
+                password_hash=auth_router.hash_password('ViewerPass123!'),
                 is_active=True,
                 is_local=True,
                 created_at=now,
             ),
         }
         self.roles = {
-            1: Role(id=1, name="admin", created_at=now),
-            2: Role(id=2, name="viewer", created_at=now),
+            1: Role(id=1, name='admin', created_at=now),
+            2: Role(id=2, name='viewer', created_at=now),
         }
         self.user_roles = [
             UserRole(user_id=1, role_id=1, created_at=now),
@@ -101,30 +101,30 @@ class _FakeSession:
         self.execute_calls += 1
         sql = str(stmt)
         params = stmt.compile().params
-        if "FROM users" in sql and "WHERE users.username" in sql:
+        if 'FROM users' in sql and 'WHERE users.username' in sql:
             username = next(iter(params.values()))
             user = next((item for item in self.store.users.values() if item.username == username), None)
             return _ScalarOneOrNoneResult(user)
-        if "FROM auth_refresh_tokens" in sql:
+        if 'FROM auth_refresh_tokens' in sql:
             token_hash = next(iter(params.values()))
             row = next((item for item in self.store.refresh_tokens.values() if item.token_hash == token_hash), None)
             return _ScalarOneOrNoneResult(row)
-        if "SELECT users.id, users.username" in sql and "FROM users" in sql:
+        if 'SELECT users.id, users.username' in sql and 'FROM users' in sql:
             users = [self.store.users[user_id] for user_id in sorted(self.store.users)]
             return _ScalarsResult(users)
-        if "SELECT roles.name" in sql and "WHERE user_roles.user_id =" in sql:
+        if 'SELECT roles.name' in sql and 'WHERE user_roles.user_id =' in sql:
             user_id = int(next(iter(params.values())))
             role_names = []
             for link in self.store.user_roles:
                 if link.user_id == user_id:
                     role_names.append((self.store.roles[link.role_id].name,))
             return _RowsResult(role_names)
-        if "SELECT user_roles.user_id, roles.name" in sql:
+        if 'SELECT user_roles.user_id, roles.name' in sql:
             rows = []
             for link in sorted(self.store.user_roles, key=lambda item: (item.user_id, self.store.roles[item.role_id].name)):
                 rows.append((link.user_id, self.store.roles[link.role_id].name))
             return _RowsResult(rows)
-        raise AssertionError(f"Unexpected SQL: {sql}")
+        raise AssertionError(f'Unexpected SQL: {sql}')
 
     async def get(self, model, object_id: int):
         if model is User:
@@ -154,7 +154,7 @@ class _FakeSession:
 
 def _build_client(session: _FakeSession) -> TestClient:
     app = FastAPI()
-    app.include_router(auth_router.router, prefix="/api/auth")
+    app.include_router(auth_router.router, prefix='/api/auth')
 
     async def _fake_get_session():
         yield session
@@ -164,7 +164,15 @@ def _build_client(session: _FakeSession) -> TestClient:
 
 
 def _auth_header(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
+    return {'Authorization': f'Bearer {token}'}
+
+
+def _apply_cookie_settings(monkeypatch):
+    monkeypatch.setattr(auth_router.settings, 'AUTH_REFRESH_COOKIE_NAME', 'tgpa_refresh')
+    monkeypatch.setattr(auth_router.settings, 'AUTH_REFRESH_COOKIE_PATH', '/api/auth')
+    monkeypatch.setattr(auth_router.settings, 'AUTH_REFRESH_COOKIE_DOMAIN', None)
+    monkeypatch.setattr(auth_router.settings, 'AUTH_REFRESH_COOKIE_SAMESITE', 'lax')
+    monkeypatch.setattr(auth_router.settings, 'AUTH_REFRESH_COOKIE_SECURE', False)
 
 
 def test_login_refresh_logout_and_revoked_refresh_flow(monkeypatch):
@@ -172,55 +180,61 @@ def test_login_refresh_logout_and_revoked_refresh_flow(monkeypatch):
     session = _FakeSession(store)
     client = _build_client(session)
 
-    monkeypatch.setattr(auth_router.settings, "AUTH_PROVIDER_MODE", "local")
-    monkeypatch.setattr(auth_router.settings, "AUTH_ACCESS_TTL_MINUTES", 60)
-    monkeypatch.setattr(auth_router.settings, "AUTH_REFRESH_TTL_DAYS", 30)
-    monkeypatch.setattr(auth_service, "_utcnow", lambda: store.now)
-    monkeypatch.setattr(auth_router, "write_audit_log", auth_router.write_audit_log)
+    monkeypatch.setattr(auth_router.settings, 'AUTH_PROVIDER_MODE', 'local')
+    monkeypatch.setattr(auth_router.settings, 'AUTH_ACCESS_TTL_MINUTES', 60)
+    monkeypatch.setattr(auth_router.settings, 'AUTH_REFRESH_TTL_DAYS', 30)
+    monkeypatch.setattr(auth_service, '_utcnow', lambda: store.now)
+    monkeypatch.setattr(auth_router, 'write_audit_log', auth_router.write_audit_log)
+    _apply_cookie_settings(monkeypatch)
 
-    login = client.post("/api/auth/login", json={"username": "admin", "password": "AdminPass123!"})
+    login = client.post('/api/auth/login', json={'username': 'admin', 'password': 'AdminPass123!'})
     assert login.status_code == 200
     login_payload = login.json()
-    assert login_payload["roles"] == ["admin"]
-    assert login_payload["refresh_token"]
+    assert login_payload['roles'] == ['admin']
+    assert login_payload['refresh_token'] is None
+    first_cookie = login.cookies.get('tgpa_refresh')
+    assert first_cookie
 
-    refresh = client.post("/api/auth/refresh", json={"refresh_token": login_payload["refresh_token"]})
+    refresh = client.post('/api/auth/refresh')
     assert refresh.status_code == 200
     refresh_payload = refresh.json()
-    assert refresh_payload["refresh_token"] != login_payload["refresh_token"]
+    assert refresh_payload['refresh_token'] is None
+    second_cookie = refresh.cookies.get('tgpa_refresh')
+    assert second_cookie and second_cookie != first_cookie
     assert len(store.refresh_tokens) == 2
 
     logout = client.post(
-        "/api/auth/logout",
-        json={"refresh_token": refresh_payload["refresh_token"]},
-        headers=_auth_header(refresh_payload["access_token"]),
+        '/api/auth/logout',
+        headers=_auth_header(refresh_payload['access_token']),
     )
     assert logout.status_code == 200
-    assert logout.json() == {"status": "ok", "refresh_revoked": True}
+    assert logout.json() == {'status': 'ok', 'refresh_revoked': True}
 
-    revoked_refresh = client.post("/api/auth/refresh", json={"refresh_token": refresh_payload["refresh_token"]})
+    revoked_refresh = client.post('/api/auth/refresh')
     assert revoked_refresh.status_code == 401
-    assert revoked_refresh.json()["detail"] == "Invalid refresh token"
+    assert revoked_refresh.json()['detail'] == 'Refresh session is missing'
 
 
 def test_refresh_rejects_expired_token(monkeypatch):
     store = _AuthStore()
     expired = store.add_refresh_token(
         user_id=1,
-        raw_token="expired-token",
+        raw_token='expired-token',
         expires_at=store.now - timedelta(seconds=1),
     )
     session = _FakeSession(store)
     client = _build_client(session)
+    client.cookies.set('tgpa_refresh', 'expired-token')
 
-    monkeypatch.setattr(auth_service, "_utcnow", lambda: store.now)
-    monkeypatch.setattr(auth_router, "write_audit_log", auth_router.write_audit_log)
+    monkeypatch.setattr(auth_service, '_utcnow', lambda: store.now)
+    monkeypatch.setattr(auth_router, 'write_audit_log', auth_router.write_audit_log)
+    _apply_cookie_settings(monkeypatch)
 
-    response = client.post("/api/auth/refresh", json={"refresh_token": "expired-token"})
+    response = client.post('/api/auth/refresh')
 
     assert expired.expires_at < store.now
     assert response.status_code == 401
-    assert response.json()["detail"] == "Invalid refresh token"
+    assert response.json()['detail'] == 'Invalid refresh token'
 
 
 def test_rbac_blocks_viewer_and_allows_admin_for_user_listing():
@@ -228,15 +242,15 @@ def test_rbac_blocks_viewer_and_allows_admin_for_user_listing():
     session = _FakeSession(store)
     client = _build_client(session)
 
-    viewer_token = auth_router.create_access_token(user_id=2, username="viewer", roles=["viewer"])
-    forbidden = client.get("/api/auth/users", headers=_auth_header(viewer_token))
+    viewer_token = auth_router.create_access_token(user_id=2, username='viewer', roles=['viewer'])
+    forbidden = client.get('/api/auth/users', headers=_auth_header(viewer_token))
     assert forbidden.status_code == 403
-    assert forbidden.json()["detail"] == "Insufficient permissions"
+    assert forbidden.json()['detail'] == 'Insufficient permissions'
 
-    admin_token = auth_router.create_access_token(user_id=1, username="admin", roles=["admin"])
-    allowed = client.get("/api/auth/users", headers=_auth_header(admin_token))
+    admin_token = auth_router.create_access_token(user_id=1, username='admin', roles=['admin'])
+    allowed = client.get('/api/auth/users', headers=_auth_header(admin_token))
     assert allowed.status_code == 200
-    assert [item["username"] for item in allowed.json()] == ["admin", "viewer"]
+    assert [item['username'] for item in allowed.json()] == ['admin', 'viewer']
 
 
 def test_list_users_uses_bulk_role_loading_without_n_plus_one(monkeypatch):
@@ -245,34 +259,34 @@ def test_list_users_uses_bulk_role_loading_without_n_plus_one(monkeypatch):
     client = _build_client(session)
 
     async def _fake_current_user():
-        return AuthUser(id=1, username="admin", is_active=True, roles=("admin",))
+        return AuthUser(id=1, username='admin', is_active=True, roles=('admin',))
 
     app = client.app
     app.dependency_overrides[get_current_user] = _fake_current_user
 
-    response = client.get("/api/auth/users")
+    response = client.get('/api/auth/users')
 
     assert response.status_code == 200
     assert session.execute_calls == 2
     assert response.json() == [
         {
-            "id": 1,
-            "username": "admin",
-            "email": "admin@example.com",
-            "full_name": "Admin",
-            "is_active": True,
-            "is_local": True,
-            "roles": ["admin"],
-            "created_at": store.now.isoformat().replace("+00:00", "Z"),
+            'id': 1,
+            'username': 'admin',
+            'email': 'admin@example.com',
+            'full_name': 'Admin',
+            'is_active': True,
+            'is_local': True,
+            'roles': ['admin'],
+            'created_at': store.now.isoformat().replace('+00:00', 'Z'),
         },
         {
-            "id": 2,
-            "username": "viewer",
-            "email": "viewer@example.com",
-            "full_name": "Viewer",
-            "is_active": True,
-            "is_local": True,
-            "roles": ["viewer"],
-            "created_at": store.now.isoformat().replace("+00:00", "Z"),
+            'id': 2,
+            'username': 'viewer',
+            'email': 'viewer@example.com',
+            'full_name': 'Viewer',
+            'is_active': True,
+            'is_local': True,
+            'roles': ['viewer'],
+            'created_at': store.now.isoformat().replace('+00:00', 'Z'),
         },
     ]

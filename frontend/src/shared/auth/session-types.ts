@@ -4,7 +4,6 @@ export type SessionStatus = 'bootstrapping' | 'authenticated' | 'guest';
 
 export type SessionTokens = {
   accessToken: string;
-  refreshToken: string;
   expiresInSeconds: number;
 };
 

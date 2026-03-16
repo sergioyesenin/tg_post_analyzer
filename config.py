@@ -60,6 +60,11 @@ class Settings:
         self.AUTH_ACCESS_TTL_MINUTES = self._env_int("AUTH_ACCESS_TTL_MINUTES", default=60, errors=errors)
         self.AUTH_REFRESH_TTL_DAYS = self._env_int("AUTH_REFRESH_TTL_DAYS", default=30, errors=errors)
         self.AUTH_PROVIDER_MODE = self._env_str("AUTH_PROVIDER_MODE", default="local", errors=errors)
+        self.AUTH_REFRESH_COOKIE_NAME = self._env_str("AUTH_REFRESH_COOKIE_NAME", default="tgpa_refresh", errors=errors)
+        self.AUTH_REFRESH_COOKIE_SECURE = self._env_bool("AUTH_REFRESH_COOKIE_SECURE", default=False, errors=errors)
+        self.AUTH_REFRESH_COOKIE_SAMESITE = self._env_str("AUTH_REFRESH_COOKIE_SAMESITE", default="lax", errors=errors)
+        self.AUTH_REFRESH_COOKIE_DOMAIN = self._env_str("AUTH_REFRESH_COOKIE_DOMAIN", default=None, errors=errors)
+        self.AUTH_REFRESH_COOKIE_PATH = self._env_str("AUTH_REFRESH_COOKIE_PATH", default="/api/auth", errors=errors)
 
         if errors:
             ordered = "\n".join(f"- {item}" for item in sorted(errors))

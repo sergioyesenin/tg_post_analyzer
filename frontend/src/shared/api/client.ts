@@ -100,7 +100,7 @@ export class ApiClient {
       init.authMode === 'none' ? null : (this.authConfig.getAccessToken?.() ?? null);
 
     return this.fetchImpl(`${this.baseUrl}${path}`, {
-      credentials: 'include',
+      credentials: init.credentials ?? 'same-origin',
       headers: {
         'Content-Type': 'application/json',
         ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),

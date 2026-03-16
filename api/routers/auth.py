@@ -1,11 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from db.models import Role, User, UserRole
 from deps import get_current_user, get_session, require_roles
-from schemas.auth import LoginIn, LogoutIn, RefreshIn, TokenOut, UserCreateIn, UserOut, UserRolesIn
+from schemas.auth import LoginIn, TokenOut, UserCreateIn, UserOut, UserRolesIn
 from services.auth import (
     AuthUser,
     authenticate_local_user,
@@ -21,6 +21,36 @@ from services.auth import (
 )
 
 router = APIRouter()
+
+
+def _refresh_cookie_kwargs() -> dict:
+    return {
+        "key": settings.AUTH_REFRESH_COOKIE_NAME,
+        "httponly": True,
+        "secure": bool(settings.AUTH_REFRESH_COOKIE_SECURE),
+        "samesite": str(settings.AUTH_REFRESH_COOKIE_SAMESITE),
+        "domain": settings.AUTH_REFRESH_COOKIE_DOMAIN,
+        "path": settings.AUTH_REFRESH_COOKIE_PATH,
+    }
+
+
+def _set_refresh_cookie(response: Response, refresh_token: str) -> None:
+    response.set_cookie(
+        value=refresh_token,
+        max_age=settings.AUTH_REFRESH_TTL_DAYS * 24 * 60 * 60,
+        **_refresh_cookie_kwargs(),
+    )
+
+
+def _clear_refresh_cookie(response: Response) -> None:
+    response.delete_cookie(**_refresh_cookie_kwargs())
+
+
+def _read_refresh_cookie(request: Request) -> str:
+    refresh_token = request.cookies.get(settings.AUTH_REFRESH_COOKIE_NAME)
+    if not refresh_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh session is missing")
+    return refresh_token
 
 
 async def _serialize_user(session: AsyncSession, user: User) -> UserOut:
@@ -42,7 +72,7 @@ def _serialize_user_with_roles(user: User, roles_map: dict[int, list[str]]) -> U
 
 
 @router.post("/login", response_model=TokenOut)
-async def login(data: LoginIn, session: AsyncSession = Depends(get_session)):
+async def login(data: LoginIn, response: Response, session: AsyncSession = Depends(get_session)):
     if settings.AUTH_PROVIDER_MODE.lower() != "local":
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -61,17 +91,18 @@ async def login(data: LoginIn, session: AsyncSession = Depends(get_session)):
         target_id=str(auth_user.id),
     )
     await session.commit()
+    _set_refresh_cookie(response, refresh_token)
     return TokenOut(
         access_token=token,
-        refresh_token=refresh_token,
+        refresh_token=None,
         expires_in_seconds=settings.AUTH_ACCESS_TTL_MINUTES * 60,
         roles=list(auth_user.roles),
     )
 
 
 @router.post("/refresh", response_model=TokenOut)
-async def refresh(data: RefreshIn, session: AsyncSession = Depends(get_session)):
-    auth_user, new_refresh_token = await rotate_refresh_token(session, refresh_token=data.refresh_token)
+async def refresh(request: Request, response: Response, session: AsyncSession = Depends(get_session)):
+    auth_user, new_refresh_token = await rotate_refresh_token(session, refresh_token=_read_refresh_cookie(request))
     token = create_access_token(user_id=auth_user.id, username=auth_user.username, roles=list(auth_user.roles))
     await write_audit_log(
         session,
@@ -81,9 +112,10 @@ async def refresh(data: RefreshIn, session: AsyncSession = Depends(get_session))
         target_id=str(auth_user.id),
     )
     await session.commit()
+    _set_refresh_cookie(response, new_refresh_token)
     return TokenOut(
         access_token=token,
-        refresh_token=new_refresh_token,
+        refresh_token=None,
         expires_in_seconds=settings.AUTH_ACCESS_TTL_MINUTES * 60,
         roles=list(auth_user.roles),
     )
@@ -91,11 +123,13 @@ async def refresh(data: RefreshIn, session: AsyncSession = Depends(get_session))
 
 @router.post("/logout")
 async def logout(
-    data: LogoutIn,
+    request: Request,
+    response: Response,
     current_user: AuthUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    revoked = await revoke_refresh_token(session, refresh_token=data.refresh_token)
+    refresh_token = request.cookies.get(settings.AUTH_REFRESH_COOKIE_NAME)
+    revoked = await revoke_refresh_token(session, refresh_token=refresh_token) if refresh_token else False
     await write_audit_log(
         session,
         action="auth.logout",
@@ -105,6 +139,7 @@ async def logout(
         details={"refresh_revoked": revoked},
     )
     await session.commit()
+    _clear_refresh_cookie(response)
     return {"status": "ok", "refresh_revoked": revoked}
 
 

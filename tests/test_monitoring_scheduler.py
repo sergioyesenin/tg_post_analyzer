@@ -268,3 +268,16 @@ def test_pipeline_snapshot_uses_recent_window_for_collect_comments_rates(monkeyp
     }
     assert payload["runtime"]["telegram_pipeline"]["status"] == "ok"
     assert payload["runtime"]["ai_pipeline"]["status"] == "ok"
+
+
+def test_runtime_topology_expectations_exposes_canonical_roles():
+    payload = monitoring.runtime_topology_expectations()
+
+    assert [role["role"] for role in payload["roles"]] == [
+        "api",
+        "scheduler",
+        "telegram_pipeline",
+        "ai_pipeline",
+    ]
+    assert payload["monitoring_expectations"]["api"].startswith("Use HTTP/API health")
+    assert "runtime.scheduler" in payload["monitoring_expectations"]["scheduler"]

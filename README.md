@@ -50,6 +50,7 @@ frontend/               Canonical React application and Vite build output
 frontend/src/app/       app bootstrap, providers, shell, router, guards
 frontend/src/shared/    shared API client, auth, routing, dashboard system, UI primitives
 frontend/src/modules/   feature route modules (workspace, reports, admin, platform, keyword graph)
+scripts/                Canonical runtime and maintenance entrypoints
 web/                    Deprecated legacy static prototype; no longer served by FastAPI
 tests/                  backend/API tests
 docs/                   requirements, plans, and audit artifacts
@@ -185,6 +186,8 @@ Behavior rules:
 ## Runtime Assumptions
 
 - There is one frontend delivery path: the React SPA in `frontend/`.
+- Canonical process roles are `api`, `scheduler`, `telegram_pipeline`, and `ai_pipeline`.
+- Each runtime role has its own entrypoint under `scripts/`; runtime boundaries are operationally explicit even though the codebase remains a single repo/service.
 - Local frontend development runs through Vite on `http://localhost:5173` and proxies `/api` to the FastAPI backend.
 - Cross-origin auth relies on `allow_credentials=True` plus explicit allowed origins, because refresh uses an `HttpOnly` cookie on `/api/auth`.
 - CORS origins and `allow_credentials` are configured through env-backed settings instead of hardcoded localhost values.
@@ -193,6 +196,11 @@ Behavior rules:
 - `web/` is deprecated and is not mounted or returned from `api/main.py`.
 - If `frontend/dist` is missing, the backend still serves the API, but `/` returns a build-missing error instead of falling back to legacy UI files.
 - Telegram runtime does not support per-channel concurrency on a shared session; the `ingest` settings surface no longer advertises `channel_concurrency`.
+
+Runtime docs:
+
+- [docs/runtime_topology.md](/d:/Projects/tg_post_analyzer/docs/runtime_topology.md)
+- [docs/runtime_runbook.md](/d:/Projects/tg_post_analyzer/docs/runtime_runbook.md)
 
 ## Async Job Flow
 
@@ -275,7 +283,7 @@ Backend:
 ```bash
 copy .env.example .env
 alembic upgrade head
-uvicorn api.main:app --reload
+python scripts/run_api.py --reload
 ```
 
 Frontend:
@@ -293,7 +301,7 @@ cd frontend
 npm install
 npm run build
 cd ..
-uvicorn api.main:app
+python scripts/run_api.py
 ```
 
 ## Quality Gate

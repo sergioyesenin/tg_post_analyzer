@@ -17,6 +17,7 @@ from services.runtime_heartbeat import HEARTBEAT_INTERVAL_SECONDS, persist_runti
 from services.scheduler_dispatch import retention_scheduler_enabled
 from services.scheduler_runtime import build_scheduler, register_periodic_jobs
 from services.settings_store import get_all_settings
+from services.runtime_topology import SCHEDULER_RUNTIME
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -39,7 +40,7 @@ async def main_async() -> None:
     job_ids = sorted(job.id for job in scheduler.get_jobs())
     try:
         await persist_runtime_heartbeat(
-            runtime_name="scheduler",
+            runtime_name=SCHEDULER_RUNTIME.runtime_name,
             status="running",
             details={"jobs": job_ids, "pid": os.getpid()},
         )
@@ -59,7 +60,7 @@ async def main_async() -> None:
         except asyncio.CancelledError:
             pass
         await persist_runtime_heartbeat(
-            runtime_name="scheduler",
+            runtime_name=SCHEDULER_RUNTIME.runtime_name,
             status="stopped",
             details={"jobs": job_ids, "pid": os.getpid()},
         )
@@ -70,7 +71,7 @@ async def _heartbeat_loop(*, job_ids_getter) -> None:
     while True:
         await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
         await persist_runtime_heartbeat(
-            runtime_name="scheduler",
+            runtime_name=SCHEDULER_RUNTIME.runtime_name,
             status="running",
             details={"jobs": job_ids_getter(), "pid": os.getpid()},
         )

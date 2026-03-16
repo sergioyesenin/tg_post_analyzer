@@ -14,6 +14,7 @@ from services.monitoring import (
     health_snapshot,
     jobs_snapshot,
     pipeline_snapshot,
+    runtime_topology_expectations,
     scheduler_snapshot,
     system_snapshot,
 )
@@ -192,6 +193,13 @@ async def monitor_alerts(
     )
     await session.commit()
     return payload
+
+
+@router.get("/runtime-topology")
+async def monitor_runtime_topology(
+    _: AuthUser = Depends(require_roles("admin")),
+):
+    return runtime_topology_expectations()
 
 
 @router.get("/pipeline")

@@ -13,6 +13,13 @@ from config import settings
 from db.models import Comment, Job, JobDeadLetter, Post
 from services.jobs import JobType
 from services.runtime_heartbeat import HEARTBEAT_TIMEOUT_SECONDS, get_runtime_heartbeat
+from services.runtime_topology import (
+    AI_PIPELINE_RUNTIME,
+    API_RUNTIME,
+    SCHEDULER_RUNTIME,
+    TELEGRAM_PIPELINE_RUNTIME,
+    runtime_topology_snapshot,
+)
 from services.scheduler_dispatch import retention_scheduler_enabled
 
 try:
@@ -276,8 +283,8 @@ async def pipeline_snapshot(session: AsyncSession, *, retention_days: int = 30, 
     )
     flood_rate = (cc_flood / cc_total_with_error) if cc_total_with_error > 0 else 0.0
     rpc_rate = (cc_rpc / cc_total_with_error) if cc_total_with_error > 0 else 0.0
-    telegram_runtime = await runtime_process_snapshot(session, runtime_name="telegram_pipeline")
-    ai_runtime = await runtime_process_snapshot(session, runtime_name="ai_pipeline")
+    telegram_runtime = await runtime_process_snapshot(session, runtime_name=TELEGRAM_PIPELINE_RUNTIME.runtime_name)
+    ai_runtime = await runtime_process_snapshot(session, runtime_name=AI_PIPELINE_RUNTIME.runtime_name)
 
     oldest_unarchived_post_date = await session.scalar(
         select(func.min(Post.date)).where(Post.date < cutoff)
@@ -323,8 +330,8 @@ async def pipeline_snapshot(session: AsyncSession, *, retention_days: int = 30, 
             "archive_job_lag_seconds": archive_job_lag_seconds,
         },
         "runtime": {
-            "telegram_pipeline": telegram_runtime,
-            "ai_pipeline": ai_runtime,
+            TELEGRAM_PIPELINE_RUNTIME.runtime_name: telegram_runtime,
+            AI_PIPELINE_RUNTIME.runtime_name: ai_runtime,
         },
     }
 
@@ -352,7 +359,7 @@ async def scheduler_snapshot(session: AsyncSession, *, effective_settings: dict)
         [value for value in [archive_enqueue_at, jobs_retention_enqueue_at] if value is not None],
         default=None,
     )
-    heartbeat_payload = await get_runtime_heartbeat(session, runtime_name="scheduler")
+    heartbeat_payload = await get_runtime_heartbeat(session, runtime_name=SCHEDULER_RUNTIME.runtime_name)
     heartbeat_at_raw = None if heartbeat_payload is None else heartbeat_payload.get("heartbeat_at")
     heartbeat_at = None
     if isinstance(heartbeat_at_raw, str):
@@ -419,8 +426,8 @@ async def health_snapshot(session: AsyncSession, *, effective_settings: dict | N
         db_error = repr(exc)
 
     db_latency_ms = round((time.perf_counter() - started) * 1000.0, 2)
-    telegram_runtime = await runtime_process_snapshot(session, runtime_name="telegram_pipeline")
-    ai_runtime = await runtime_process_snapshot(session, runtime_name="ai_pipeline")
+    telegram_runtime = await runtime_process_snapshot(session, runtime_name=TELEGRAM_PIPELINE_RUNTIME.runtime_name)
+    ai_runtime = await runtime_process_snapshot(session, runtime_name=AI_PIPELINE_RUNTIME.runtime_name)
     scheduler = None
     if effective_settings is not None:
         scheduler = await scheduler_snapshot(session, effective_settings=effective_settings)
@@ -462,7 +469,28 @@ async def health_snapshot(session: AsyncSession, *, effective_settings: dict | N
     return {
         "status": status,
         "time_utc": _utcnow().isoformat(),
+        "runtime_topology": {
+            "roles": runtime_topology_snapshot(),
+            "api_runtime": {
+                "role": API_RUNTIME.role,
+                "diagnostics": API_RUNTIME.diagnostics,
+                "entrypoint": API_RUNTIME.entrypoint,
+                "heartbeat_source": API_RUNTIME.heartbeat_source,
+            },
+        },
         "dependencies": dependencies,
+    }
+
+
+def runtime_topology_expectations() -> dict:
+    return {
+        "roles": runtime_topology_snapshot(),
+        "monitoring_expectations": {
+            "api": "Use HTTP/API health and process manager checks; API does not persist runtime heartbeats.",
+            "scheduler": f"Expect heartbeat key runtime.{SCHEDULER_RUNTIME.runtime_name} when scheduler mode is enabled.",
+            "telegram_pipeline": f"Expect heartbeat key runtime.{TELEGRAM_PIPELINE_RUNTIME.runtime_name} while ingestion worker is running.",
+            "ai_pipeline": f"Expect heartbeat key runtime.{AI_PIPELINE_RUNTIME.runtime_name} while AI worker is running.",
+        },
     }
 
 

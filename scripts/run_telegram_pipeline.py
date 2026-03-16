@@ -26,6 +26,7 @@ from services.pipeline_runtime import (
     with_session_lock_retry,
 )
 from services.runtime_heartbeat import HEARTBEAT_INTERVAL_SECONDS, persist_runtime_heartbeat
+from services.runtime_topology import TELEGRAM_PIPELINE_RUNTIME
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -59,7 +60,7 @@ async def main_async(args: argparse.Namespace) -> None:
     )
     try:
         await persist_runtime_heartbeat(
-            runtime_name="telegram_pipeline",
+            runtime_name=TELEGRAM_PIPELINE_RUNTIME.runtime_name,
             status="running",
             details={"worker_id": worker_id, "job_types": sorted(TELEGRAM_JOB_TYPES), "pid": os.getpid()},
         )
@@ -102,7 +103,7 @@ async def main_async(args: argparse.Namespace) -> None:
         except asyncio.CancelledError:
             pass
         await persist_runtime_heartbeat(
-            runtime_name="telegram_pipeline",
+            runtime_name=TELEGRAM_PIPELINE_RUNTIME.runtime_name,
             status="stopped",
             details={"worker_id": worker_id, "job_types": sorted(TELEGRAM_JOB_TYPES), "pid": os.getpid()},
         )
@@ -119,7 +120,7 @@ async def _heartbeat_loop(*, worker_id: str, jobs_provider) -> None:
     while True:
         await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
         await persist_runtime_heartbeat(
-            runtime_name="telegram_pipeline",
+            runtime_name=TELEGRAM_PIPELINE_RUNTIME.runtime_name,
             status="running",
             details={"worker_id": worker_id, "job_types": jobs_provider(), "pid": os.getpid()},
         )

@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   color-scheme: light;
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
   background:
@@ -367,20 +367,11 @@ textarea {
   overflow-x: auto;
 }
 
-.dashboard-table-shell table {
-  width: 100%;
-  border-collapse: collapse;
+.dashboard-table-shell__grid {
+  min-width: 100%;
 }
 
-.dashboard-table-shell th,
-.dashboard-table-shell td {
-  padding: 12px 10px;
-  border-bottom: 1px solid var(--color-border);
-  text-align: left;
-  vertical-align: top;
-}
-
-.dashboard-table-shell__row--selected td {
+.dashboard-table-shell__row--selected {
   background: rgba(15, 76, 117, 0.08);
 }
 
@@ -1049,3 +1040,70 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+
+.graph-flow-canvas {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: rgba(255, 250, 242, 0.72);
+}
+
+.graph-flow-canvas--test {
+  display: flex;
+  gap: 16px;
+  padding: 14px 16px;
+  color: var(--color-text-muted);
+}
+
+.graph-flow-canvas__node {
+  min-width: 168px;
+  max-width: 220px;
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 14px;
+  box-shadow: var(--shadow-soft);
+}
+
+.graph-flow-canvas__node span {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.graph-flow-canvas__node--selected {
+  box-shadow: 0 0 0 2px rgba(182, 73, 38, 0.55), var(--shadow-soft);
+  transform: translateY(-1px);
+}
+
+.graph-flow-canvas__node--dimmed {
+  opacity: 0.42;
+}
+
+.graph-flow-canvas__handle {
+  width: 8px;
+  height: 8px;
+  opacity: 0;
+  border: 0;
+  background: transparent;
+}
+
+.graph-flow-canvas .react-flow__edges {
+  z-index: 1;
+}
+
+.graph-flow-canvas .react-flow__edge-path {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.graph-flow-canvas .react-flow__arrowhead path {
+  stroke-width: 1;
+}
+
+.graph-flow-canvas .react-flow__edge-textbg {
+  fill: rgba(255, 250, 242, 0.92);
+}
+

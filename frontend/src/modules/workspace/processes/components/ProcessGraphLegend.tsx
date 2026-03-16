@@ -13,14 +13,6 @@ export function ProcessGraphLegend() {
         <span className="process-graph-legend__swatch process-graph-legend__swatch--event" />
         {t('processes.graph.nestedEvent')}
       </span>
-      <span className="process-graph-legend__item">
-        <span className="process-graph-legend__swatch process-graph-legend__swatch--post" />
-        {t('processes.graph.contextPost')}
-      </span>
-      <span className="process-graph-legend__item">
-        <span className="process-graph-legend__swatch process-graph-legend__swatch--edge" />
-        {t('processes.graph.postLink')}
-      </span>
     </div>
   );
 }

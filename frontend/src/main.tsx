@@ -1,9 +1,10 @@
-import React from 'react';
+﻿import React from 'react';
 import ReactDOM from 'react-dom/client';
 
 import { App } from '@app/App';
 import '@app/styles/global.css';
 import '@shared/i18n/i18n';
+import 'reactflow/dist/style.css';
 
 const rootElement = document.getElementById('root');
 

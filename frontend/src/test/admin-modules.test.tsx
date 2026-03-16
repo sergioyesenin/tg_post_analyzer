@@ -262,7 +262,7 @@ describe('Admin modules', () => {
     });
 
     const settingsUser = userEvent.setup();
-    const jsonField = screen.getByDisplayValue(/"ai_poll_seconds": 30/i);
+    const jsonField = await screen.findByDisplayValue(/"ai_poll_seconds": 30/i);
     await settingsUser.clear(jsonField);
     await settingsUser.paste('{"ai_poll_seconds":60,"ai_scheduler_limit":20}');
     await settingsUser.click(screen.getByRole('button', { name: ru('\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0443') }));
@@ -294,3 +294,4 @@ describe('Admin modules', () => {
     });
   });
 });
+

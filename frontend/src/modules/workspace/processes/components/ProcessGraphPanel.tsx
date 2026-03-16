@@ -1,6 +1,8 @@
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
+import { SharedFlowCanvas, type GraphCanvasEdge, type GraphCanvasNode } from '@shared/ui/graph/SharedFlowCanvas';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
@@ -28,6 +30,47 @@ export function ProcessGraphPanel({
   onRefresh,
 }: ProcessGraphPanelProps) {
   const { t } = useTranslation();
+  const [resetSignal, setResetSignal] = useState(0);
+
+  const orderedEvents = useMemo(() => {
+    if (!viewModel) {
+      return [];
+    }
+
+    return [...viewModel.events].sort((left, right) => left.startedAt.localeCompare(right.startedAt));
+  }, [viewModel]);
+
+  const flowNodes = useMemo<GraphCanvasNode[]>(() => {
+    const eventSpacing = 320;
+    const eventStartX = 80;
+
+    return orderedEvents.map((event, index) => ({
+      id: `event-${event.eventId}`,
+      label: event.title,
+      meta: `${event.status} | ${event.startedAt}`,
+      tone: 'event' as const,
+      href: `/events/${event.eventId}`,
+      position: { x: eventStartX + index * eventSpacing, y: 120 },
+    }));
+  }, [orderedEvents]);
+
+  const flowEdges = useMemo<GraphCanvasEdge[]>(() => {
+    if (orderedEvents.length < 2) {
+      return [];
+    }
+
+    return orderedEvents.slice(1).map((event, index) => {
+      const previousEvent = orderedEvents[index];
+      const isReverse = event.direction === 'dst_to_src';
+
+      return {
+        id: `process-event-sequence-${previousEvent.eventId}-${event.eventId}`,
+        source: isReverse ? `event-${event.eventId}` : `event-${previousEvent.eventId}`,
+        target: isReverse ? `event-${previousEvent.eventId}` : `event-${event.eventId}`,
+        label: event.relationType,
+      };
+    });
+  }, [orderedEvents]);
 
   if (!hasSelection) {
     return (
@@ -58,6 +101,7 @@ export function ProcessGraphPanel({
         postCount={viewModel?.nodes.length ?? 0}
         isLoading={isLoading}
         onRefresh={onRefresh}
+        onResetView={() => setResetSignal((value) => value + 1)}
       />
 
       <ProcessGraphLegend />
@@ -92,6 +136,18 @@ export function ProcessGraphPanel({
               <span>{t('processes.graph.commentsCount', { value: viewModel.summary.commentsCount })}</span>
             </div>
           </article>
+
+          {orderedEvents.length > 0 ? (
+            <SharedFlowCanvas
+              ariaLabel={t('processes.graph.title')}
+              nodes={flowNodes}
+              edges={flowEdges}
+              height={340}
+              resetSignal={resetSignal}
+              showMiniMap={false}
+              showEdgeLabels
+            />
+          ) : null}
 
           <div className="process-graph-panel__events">
             {viewModel.events.map((event) => (

@@ -28,6 +28,31 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (!id.includes('node_modules')) {
+              return undefined;
+            }
+
+            if (id.includes('reactflow')) {
+              return 'graph-vendor';
+            }
+
+            if (id.includes('@mui') || id.includes('@emotion')) {
+              return 'mui-vendor';
+            }
+
+            if (id.includes('i18next')) {
+              return 'i18n-vendor';
+            }
+
+            return 'vendor';
+          },
+        },
+      },
+    },
     test: {
       environment: 'jsdom',
       globals: true,

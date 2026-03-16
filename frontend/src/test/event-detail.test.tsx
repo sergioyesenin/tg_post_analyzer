@@ -71,6 +71,7 @@ describe('Event detail', () => {
 
     await waitFor(() => {
       expect(screen.getByText(ru('\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u0434\u0435\u0442\u0430\u043b\u0435\u0439 \u0441\u043e\u0431\u044b\u0442\u0438\u044f'))).toBeInTheDocument();
+      expect(resolveDetail).toBeDefined();
     });
 
     resolveDetail?.(createEventDetailResponse());

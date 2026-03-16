@@ -6,9 +6,10 @@ type EventGraphToolbarProps = {
   edgeCount: number;
   isLoading: boolean;
   onRefresh: () => void;
+  onResetView?: () => void;
 };
 
-export function EventGraphToolbar({ title, nodeCount, edgeCount, isLoading, onRefresh }: EventGraphToolbarProps) {
+export function EventGraphToolbar({ title, nodeCount, edgeCount, isLoading, onRefresh, onResetView }: EventGraphToolbarProps) {
   const { t } = useTranslation();
 
   return (
@@ -20,6 +21,11 @@ export function EventGraphToolbar({ title, nodeCount, edgeCount, isLoading, onRe
       <div className="event-graph-toolbar__meta">
         <span>{t('events.graph.nodes', { value: nodeCount })}</span>
         <span>{t('events.graph.edges', { value: edgeCount })}</span>
+        {onResetView ? (
+          <button type="button" className="dashboard-button dashboard-button--ghost" onClick={onResetView} disabled={isLoading}>
+            {t('actions.reset')}
+          </button>
+        ) : null}
         <button type="button" className="dashboard-button dashboard-button--ghost" onClick={onRefresh} disabled={isLoading}>
           {t('events.graph.reload')}
         </button>

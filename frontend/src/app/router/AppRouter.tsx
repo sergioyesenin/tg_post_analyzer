@@ -1,31 +1,68 @@
+import { Suspense, lazy, type ComponentType, type ReactNode } from 'react';
 import { RouterProvider, createBrowserRouter, createMemoryRouter } from 'react-router-dom';
 
 import { AuthGuard } from '@app/router/guards/AuthGuard';
 import { RoleGuard } from '@app/router/guards/RoleGuard';
 import { AppShell } from '@app/shell/AppShell';
-import { ChannelsPage } from '@modules/admin/routes/ChannelsPage';
-import { SettingsPage } from '@modules/admin/routes/SettingsPage';
-import { UsersPage } from '@modules/admin/routes/UsersPage';
-import { LoginPage } from '@modules/auth/routes/LoginPage';
-import { JobsPage } from '@modules/platform/routes/JobsPage';
-import { MonitorPage } from '@modules/platform/routes/MonitorPage';
-import { KeywordGraphPage } from '@modules/keyword-graph/KeywordGraphPage';
-import { ReportsPage } from '@modules/reports/ReportsPage';
-import { AnalyticsWorkspaceLayout } from '@modules/workspace/layouts/AnalyticsWorkspaceLayout';
-import { DashboardEventsPage } from '@modules/workspace/routes/DashboardEventsPage';
-import { DashboardPostsPage } from '@modules/workspace/routes/DashboardPostsPage';
-import { DashboardProcessesPage } from '@modules/workspace/routes/DashboardProcessesPage';
-import { EventDetailsPage } from '@modules/workspace/event-detail/EventDetailsPage';
-import { PostDetailsPage } from '@modules/workspace/post-detail/PostDetailsPage';
-import { ProcessDetailsPage } from '@modules/workspace/process-detail/ProcessDetailsPage';
 import { getRoutePolicy } from '@shared/routing/policy';
 import { RootRedirect } from '@shared/routing/RootRedirect';
+import { LoadingState } from '@shared/ui/states/LoadingState';
 import { NotFoundPage } from '@shared/ui/states/NotFoundPage';
+
+type LazyModule = Record<string, unknown>;
+
+function lazyRoute<TModule extends LazyModule, TKey extends keyof TModule>(
+  loader: () => Promise<TModule>,
+  exportName: TKey,
+) {
+  return lazy(async () => {
+    const module = await loader();
+
+    return {
+      default: module[exportName] as ComponentType,
+    };
+  });
+}
+
+function withRouteSuspense(element: ReactNode) {
+  return (
+    <Suspense
+      fallback={<LoadingState title="Loading route" description="Preparing the selected screen." />}
+    >
+      {element}
+    </Suspense>
+  );
+}
+
+const LoginPage = lazyRoute(() => import('@modules/auth/routes/LoginPage'), 'LoginPage');
+const AnalyticsWorkspaceLayout = lazyRoute(
+  () => import('@modules/workspace/layouts/AnalyticsWorkspaceLayout'),
+  'AnalyticsWorkspaceLayout',
+);
+const DashboardPostsPage = lazyRoute(() => import('@modules/workspace/routes/DashboardPostsPage'), 'DashboardPostsPage');
+const DashboardEventsPage = lazyRoute(() => import('@modules/workspace/routes/DashboardEventsPage'), 'DashboardEventsPage');
+const DashboardProcessesPage = lazyRoute(
+  () => import('@modules/workspace/routes/DashboardProcessesPage'),
+  'DashboardProcessesPage',
+);
+const PostDetailsPage = lazyRoute(() => import('@modules/workspace/post-detail/PostDetailsPage'), 'PostDetailsPage');
+const EventDetailsPage = lazyRoute(() => import('@modules/workspace/event-detail/EventDetailsPage'), 'EventDetailsPage');
+const ProcessDetailsPage = lazyRoute(
+  () => import('@modules/workspace/process-detail/ProcessDetailsPage'),
+  'ProcessDetailsPage',
+);
+const ReportsPage = lazyRoute(() => import('@modules/reports/ReportsPage'), 'ReportsPage');
+const SettingsPage = lazyRoute(() => import('@modules/admin/routes/SettingsPage'), 'SettingsPage');
+const ChannelsPage = lazyRoute(() => import('@modules/admin/routes/ChannelsPage'), 'ChannelsPage');
+const UsersPage = lazyRoute(() => import('@modules/admin/routes/UsersPage'), 'UsersPage');
+const MonitorPage = lazyRoute(() => import('@modules/platform/routes/MonitorPage'), 'MonitorPage');
+const JobsPage = lazyRoute(() => import('@modules/platform/routes/JobsPage'), 'JobsPage');
+const KeywordGraphPage = lazyRoute(() => import('@modules/keyword-graph/KeywordGraphPage'), 'KeywordGraphPage');
 
 const routes = [
   {
     path: getRoutePolicy('login').path,
-    element: <LoginPage />,
+    element: withRouteSuspense(<LoginPage />),
   },
   {
     path: '/',
@@ -41,43 +78,43 @@ const routes = [
       },
       {
         path: 'dashboard',
-        element: <AnalyticsWorkspaceLayout />,
+        element: withRouteSuspense(<AnalyticsWorkspaceLayout />),
         children: [
           {
             path: 'posts',
-            element: <DashboardPostsPage />,
+            element: withRouteSuspense(<DashboardPostsPage />),
           },
           {
             path: 'events',
-            element: <DashboardEventsPage />,
+            element: withRouteSuspense(<DashboardEventsPage />),
           },
           {
             path: 'processes',
-            element: <DashboardProcessesPage />,
+            element: withRouteSuspense(<DashboardProcessesPage />),
           },
         ],
       },
       {
         path: 'posts/:postId',
-        element: <PostDetailsPage />,
+        element: withRouteSuspense(<PostDetailsPage />),
       },
       {
         path: 'events/:eventId',
-        element: <EventDetailsPage />,
+        element: withRouteSuspense(<EventDetailsPage />),
       },
       {
         path: 'processes/:processId',
-        element: <ProcessDetailsPage />,
+        element: withRouteSuspense(<ProcessDetailsPage />),
       },
       {
         path: 'reports/:reportType',
-        element: <ReportsPage />,
+        element: withRouteSuspense(<ReportsPage />),
       },
       {
         path: 'settings',
         element: (
           <RoleGuard routeId="settings">
-            <SettingsPage />
+            {withRouteSuspense(<SettingsPage />)}
           </RoleGuard>
         ),
       },
@@ -85,7 +122,7 @@ const routes = [
         path: 'channels',
         element: (
           <RoleGuard routeId="channels">
-            <ChannelsPage />
+            {withRouteSuspense(<ChannelsPage />)}
           </RoleGuard>
         ),
       },
@@ -93,7 +130,7 @@ const routes = [
         path: 'users',
         element: (
           <RoleGuard routeId="users">
-            <UsersPage />
+            {withRouteSuspense(<UsersPage />)}
           </RoleGuard>
         ),
       },
@@ -101,7 +138,7 @@ const routes = [
         path: 'monitor',
         element: (
           <RoleGuard routeId="monitor">
-            <MonitorPage />
+            {withRouteSuspense(<MonitorPage />)}
           </RoleGuard>
         ),
       },
@@ -109,7 +146,7 @@ const routes = [
         path: 'jobs',
         element: (
           <RoleGuard routeId="jobs">
-            <JobsPage />
+            {withRouteSuspense(<JobsPage />)}
           </RoleGuard>
         ),
       },
@@ -117,7 +154,7 @@ const routes = [
         path: 'keyword-graph',
         element: (
           <RoleGuard routeId="keywordGraph">
-            <KeywordGraphPage />
+            {withRouteSuspense(<KeywordGraphPage />)}
           </RoleGuard>
         ),
       },
@@ -142,3 +179,4 @@ function createAppRouter() {
 export function AppRouter() {
   return <RouterProvider router={createAppRouter()} />;
 }
+

@@ -1,4 +1,4 @@
-﻿import { Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
 import { i18n } from '@shared/i18n/i18n';
 import type { UserRole } from '@shared/auth/roles';
@@ -166,6 +166,7 @@ export type EventGraphPanelViewModel = {
     label: string;
     status: string;
     score: string;
+    direction: string;
   }>;
 };
 
@@ -196,6 +197,7 @@ export function mapEventGraphToViewModel(response: EventGraphResponse): EventGra
       label: edge.link_type,
       status: edge.status,
       score: edge.score === null ? i18n.t('common.na') : edge.score.toFixed(2),
+      direction: edge.direction,
     })),
   };
 }

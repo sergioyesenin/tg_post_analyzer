@@ -1,5 +1,8 @@
-﻿import { useTranslation } from 'react-i18next';
+import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Position } from 'reactflow';
 
+import { SharedFlowCanvas, type GraphCanvasEdge, type GraphCanvasNode } from '@shared/ui/graph/SharedFlowCanvas';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
@@ -17,8 +20,47 @@ type EventGraphPanelProps = {
   onRefresh: () => void;
 };
 
+function buildDirectedEdges(viewModel: EventGraphPanelViewModel): GraphCanvasEdge[] {
+  return viewModel.edges.map((edge) => {
+    const isReverse = edge.direction === 'dst_to_src';
+
+    return {
+      id: edge.id,
+      source: String(isReverse ? edge.targetPostId : edge.sourcePostId),
+      target: String(isReverse ? edge.sourcePostId : edge.targetPostId),
+      label: edge.label,
+    };
+  });
+}
+
+function buildOrderedNodes(viewModel: EventGraphPanelViewModel) {
+  const rootNode = viewModel.nodes.find((node) => node.isRoot) ?? null;
+  const otherNodes = viewModel.nodes.filter((node) => !node.isRoot).sort((left, right) => left.date.localeCompare(right.date));
+
+  return rootNode ? [rootNode, ...otherNodes] : [...viewModel.nodes].sort((left, right) => left.date.localeCompare(right.date));
+}
+
 export function EventGraphPanel({ selectedTitle, isLoading, isError, viewModel, hasSelection, partialHint, onRefresh }: EventGraphPanelProps) {
+  const [resetSignal, setResetSignal] = useState(0);
   const { t } = useTranslation();
+
+  const orderedNodes = useMemo(() => (viewModel ? buildOrderedNodes(viewModel) : []), [viewModel]);
+
+  const flowNodes = useMemo<GraphCanvasNode[]>(() => {
+    const startX = 80;
+    const spacingX = 320;
+
+    return orderedNodes.map((node, index) => ({
+      id: node.id,
+      label: `#${node.postId}`,
+      meta: `${node.date} | ${t('events.graph.comments', { value: node.commentsCount })}`,
+      tone: node.isRoot ? 'root' : 'linked',
+      href: `/posts/${node.postId}`,
+      position: { x: startX + index * spacingX, y: 120 },
+    }));
+  }, [orderedNodes, t]);
+
+  const flowEdges = useMemo<GraphCanvasEdge[]>(() => (viewModel ? buildDirectedEdges(viewModel) : []), [viewModel]);
 
   if (!hasSelection) {
     return (
@@ -32,7 +74,7 @@ export function EventGraphPanel({ selectedTitle, isLoading, isError, viewModel, 
   return (
     <section className="detail-block">
       <div className="detail-block__header"><div><span className="state-card__eyebrow">{t('events.graph.eyebrow')}</span><strong>{t('events.graph.title')}</strong></div></div>
-      <EventGraphToolbar title={selectedTitle ?? t('events.graph.selectedEvent')} nodeCount={viewModel?.nodes.length ?? 0} edgeCount={viewModel?.edges.length ?? 0} isLoading={isLoading} onRefresh={onRefresh} />
+      <EventGraphToolbar title={selectedTitle ?? t('events.graph.selectedEvent')} nodeCount={viewModel?.nodes.length ?? 0} edgeCount={viewModel?.edges.length ?? 0} isLoading={isLoading} onRefresh={onRefresh} onResetView={() => setResetSignal((value) => value + 1)} />
       <EventGraphLegend />
 
       {partialHint ? (
@@ -48,8 +90,20 @@ export function EventGraphPanel({ selectedTitle, isLoading, isError, viewModel, 
 
       {!isLoading && !isError && viewModel && viewModel.nodes.length > 0 ? (
         <div className="event-graph-panel">
+          <SharedFlowCanvas
+            ariaLabel={t('events.graph.title')}
+            nodes={flowNodes}
+            edges={flowEdges}
+            height={320}
+            resetSignal={resetSignal}
+            showMiniMap={false}
+            showEdgeLabels={false}
+            sourcePosition={Position.Bottom}
+            targetPosition={Position.Bottom}
+          />
+
           <div className="event-graph-panel__nodes">
-            {viewModel.nodes.map((node) => (
+            {orderedNodes.map((node) => (
               <article key={node.id} className={`event-graph-node ${node.isRoot ? 'event-graph-node--root' : ''}`.trim()}>
                 <div className="event-graph-node__meta">
                   <strong>{node.isRoot ? t('events.graph.rootNode') : t('events.graph.linkedNode')} #{node.postId}</strong>
@@ -71,7 +125,7 @@ export function EventGraphPanel({ selectedTitle, isLoading, isError, viewModel, 
             <div className="event-graph-panel__edges">
               {viewModel.edges.map((edge) => (
                 <div key={edge.id} className="event-graph-edge">
-                  <strong>{edge.sourcePostId} {'->'} {edge.targetPostId}</strong>
+                  <strong>{edge.direction === 'dst_to_src' ? `${edge.targetPostId} -> ${edge.sourcePostId}` : `${edge.sourcePostId} -> ${edge.targetPostId}`}</strong>
                   <span>{edge.label} | {edge.status} | {t('events.graph.score', { value: edge.score })}</span>
                 </div>
               ))}

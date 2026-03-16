@@ -1,7 +1,9 @@
-﻿import { Link } from 'react-router-dom';
+﻿import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import type { KeywordGraphPanelViewModel } from '@modules/keyword-graph/mappers';
+import { SharedFlowCanvas, type GraphCanvasEdge, type GraphCanvasNode } from '@shared/ui/graph/SharedFlowCanvas';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
@@ -15,6 +17,34 @@ type KeywordGraphPanelProps = {
 
 export function KeywordGraphPanel({ viewModel, isLoading, errorMessage, onRefresh }: KeywordGraphPanelProps) {
   const { t } = useTranslation();
+
+  const flowNodes = useMemo<GraphCanvasNode[]>(() => {
+    if (!viewModel) {
+      return [];
+    }
+
+    return viewModel.nodes.map((node, index) => ({
+      id: `post-${node.postId}`,
+      label: `#${node.postId}`,
+      meta: `${node.channel} | ${t('keywordGraph.rows.comments', { value: node.commentsCount })}`,
+      tone: node.includedBy === 'seed' ? 'seed' : 'neighbor',
+      href: `/posts/${node.postId}`,
+      position: { x: index * 220, y: node.includedBy === 'seed' ? 40 : 190 },
+    }));
+  }, [t, viewModel]);
+
+  const flowEdges = useMemo<GraphCanvasEdge[]>(() => {
+    if (!viewModel) {
+      return [];
+    }
+
+    return viewModel.edges.map((edge) => ({
+      id: edge.id,
+      source: `post-${edge.sourcePostId}`,
+      target: `post-${edge.targetPostId}`,
+      label: edge.label,
+    }));
+  }, [viewModel]);
 
   return (
     <section className="detail-block">
@@ -41,6 +71,8 @@ export function KeywordGraphPanel({ viewModel, isLoading, errorMessage, onRefres
 
       {!isLoading && !errorMessage && viewModel ? (
         <div className="process-graph-panel">
+          <SharedFlowCanvas ariaLabel={t('keywordGraph.panel.title')} nodes={flowNodes} edges={flowEdges} />
+
           <article className="process-graph-panel__summary">
             <span className="state-card__eyebrow">{t('keywordGraph.panel.snapshotEyebrow')}</span>
             <strong>{t('keywordGraph.panel.graphSummary', { nodes: viewModel.nodeCount, edges: viewModel.edgeCount })}</strong>

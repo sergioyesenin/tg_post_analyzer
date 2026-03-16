@@ -12,7 +12,6 @@ class IngestSettings(_StrictConfigModel):
     lookback_days: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["ingest"]["lookback_days"], ge=1, le=3650)
     poll_seconds: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["ingest"]["poll_seconds"], ge=5, le=3600)
     max_posts_per_channel: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["ingest"]["max_posts_per_channel"], ge=1, le=2000)
-    channel_concurrency: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["ingest"]["channel_concurrency"], ge=1, le=1)
     comment_first_delay_hours: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["ingest"]["comment_first_delay_hours"], ge=1, le=24)
     comment_interval_hours: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["ingest"]["comment_interval_hours"], ge=1, le=24)
     comment_window_hours: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["ingest"]["comment_window_hours"], ge=1, le=168)

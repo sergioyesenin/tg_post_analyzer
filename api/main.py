@@ -17,8 +17,8 @@ app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"]
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
 app.include_router(monitor.router, prefix="/api/monitor", tags=["Monitor"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["Jobs"])
-app.include_router(links.router, prefix="/api/links", tags=["Links"])
-app.include_router(linking.router, prefix="/api", tags=["Linking V2"])
+app.include_router(linking.router, prefix="/api", tags=["Linking"])
+app.include_router(links.router, prefix="/api/links", tags=["Links (Deprecated)"])
 app.include_router(keyword_graph.router, prefix="/api/keyword", tags=["Keyword Graph"])
 
 app.add_middleware(

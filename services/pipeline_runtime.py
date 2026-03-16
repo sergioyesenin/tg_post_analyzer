@@ -1044,16 +1044,6 @@ async def run_telegram_cycle(
         cli_value=None,
         fallback=get_default_setting("jobs", "cleanup_batch_size"),
     ))
-    configured_channel_concurrency = _clamp_positive_int(
-        _resolve_setting_value(
-            settings_value=ingest_settings.get("channel_concurrency"),
-            cli_value=None,
-            fallback=get_default_setting("ingest", "channel_concurrency"),
-        ),
-        default=1,
-        minimum=1,
-        maximum=8,
-    )
     job_worker_concurrency = _clamp_positive_int(
         _resolve_setting_value(
             settings_value=jobs_settings.get("job_worker_concurrency"),
@@ -1080,11 +1070,6 @@ async def run_telegram_cycle(
     if not channels:
         logger.warning("No active channels found.")
     else:
-        if configured_channel_concurrency > 1:
-            logger.warning(
-                "ingest.channel_concurrency=%s is ignored; channel ingest is serialized to protect a shared Telethon session",
-                configured_channel_concurrency,
-            )
         for channel in channels:
             try:
                 total_processed_posts += await _process_channel(

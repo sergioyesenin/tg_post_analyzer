@@ -1,87 +1,60 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import or_, select
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Event, EventPost, Post, PostLink
 from deps import get_session, require_roles
 from schemas.linking import EventDetailOut, EventSummaryOut, LinkRunResponse, PostLinksResponse
 from services.auth import AuthUser
-from services.linking_metrics import load_event_metrics
-from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
+from api.routers import linking
 
 router = APIRouter()
 
 
-@router.post("/posts/{post_id}/run", response_model=LinkRunResponse)
-async def run_linker(
+def _mark_deprecated(response: Response, successor: str) -> None:
+    response.headers["Deprecation"] = "true"
+    response.headers["Link"] = f'<{successor}>; rel="successor-version"'
+
+
+@router.post("/posts/{post_id}/run", response_model=LinkRunResponse, deprecated=True)
+async def run_linker_legacy(
     post_id: int,
+    response: Response,
     _: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    post = await session.get(Post, post_id)
-    if post is None:
-        raise HTTPException(status_code=404, detail="Post not found")
-    result = await NoLlmLinkingPipeline.build_default().run_for_post(session, post)
-    await session.commit()
-    return result
+    _mark_deprecated(response, f"/api/linking/run?post_id={post_id}")
+    return await linking.run_linking(post_id=post_id, current_user=_, session=session)
 
 
-@router.get("/posts/{post_id}", response_model=PostLinksResponse)
-async def get_post_links(
+@router.get("/posts/{post_id}", response_model=PostLinksResponse, deprecated=True)
+async def get_post_links_legacy(
     post_id: int,
+    response: Response,
     _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
-    post = await session.get(Post, post_id)
-    if post is None:
-        raise HTTPException(status_code=404, detail="Post not found")
-    links_stmt = (
-        select(PostLink)
-        .where(or_(PostLink.src_post_id == post_id, PostLink.dst_post_id == post_id))
-        .order_by(PostLink.updated_at.desc(), PostLink.id.desc())
-    )
-    links = (await session.execute(links_stmt)).scalars().all()
-    return PostLinksResponse(post_id=post_id, links=links)
+    _mark_deprecated(response, f"/api/posts/{post_id}/links")
+    return await linking.get_post_links(post_id=post_id, _=_, session=session)
 
 
-@router.get("/events", response_model=list[EventSummaryOut])
-async def list_events(
+@router.get("/events", response_model=list[EventSummaryOut], deprecated=True)
+async def list_events_legacy(
+    response: Response,
     limit: int = 50,
     _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
-    stmt = (
-        select(Event)
-        .order_by(Event.started_at.desc().nullslast(), Event.id.desc())
-        .limit(limit)
-    )
-    events = (await session.execute(stmt)).scalars().all()
-    metrics_by_event_id = await load_event_metrics(session, [event.id for event in events])
-    return [
-        EventSummaryOut.model_validate(event).model_copy(
-            update=metrics_by_event_id.get(event.id, {"comments_count": 0, "involvement": None})
-        )
-        for event in events
-    ]
+    _mark_deprecated(response, "/api/events")
+    return await linking.list_events(limit=limit, _=_, session=session)
 
 
-@router.get("/events/{event_id}", response_model=EventDetailOut)
-async def get_event(
+@router.get("/events/{event_id}", response_model=EventDetailOut, deprecated=True)
+async def get_event_legacy(
     event_id: int,
+    response: Response,
     _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
-    event = await session.get(Event, event_id)
-    if event is None:
-        raise HTTPException(status_code=404, detail="Event not found")
-    post_ids_stmt = select(EventPost.post_id).where(EventPost.event_id == event_id)
-    post_ids = [row[0] for row in (await session.execute(post_ids_stmt)).all()]
-    metrics_by_event_id = await load_event_metrics(session, [event_id])
-    return EventDetailOut(
-        event=EventSummaryOut.model_validate(event).model_copy(
-            update=metrics_by_event_id.get(event_id, {"comments_count": 0, "involvement": None})
-        ),
-        post_ids=post_ids,
-    )
+    _mark_deprecated(response, f"/api/events/{event_id}")
+    return await linking.get_event(event_id=event_id, _=_, session=session)

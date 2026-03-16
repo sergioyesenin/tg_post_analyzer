@@ -64,7 +64,7 @@ def test_split_jobs_for_telegram_worker_separates_comment_jobs():
 
 
 @pytest.mark.asyncio
-async def test_run_telegram_cycle_serializes_channel_ingest_even_when_setting_is_higher(monkeypatch):
+async def test_run_telegram_cycle_serializes_channel_ingest_with_shared_telethon_session(monkeypatch):
     channels = [
         SimpleNamespace(id=1, username="one"),
         SimpleNamespace(id=2, username="two"),
@@ -81,7 +81,6 @@ async def test_run_telegram_cycle_serializes_channel_ingest_even_when_setting_is
                 "comment_interval_hours": 2,
                 "comment_window_hours": 24,
                 "comment_schedule_jitter_seconds": 0,
-                "channel_concurrency": 4,
             },
             "jobs": {
                 "job_batch_size": 10,

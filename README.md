@@ -66,6 +66,7 @@ docs/                   requirements, plans, and audit artifacts
 - Shared state primitives are reused for loading, empty, error, forbidden, partial, warning, and async-action states.
 - Role checks are centralized in a route/action policy layer instead of being duplicated in screens.
 - The frontend does not invent backend fields or unsupported API flows.
+- Telegram ingestion uses one shared Telethon client/session per runtime process, so channel ingest is intentionally serialized instead of exposing unsafe pseudo-concurrency.
 
 ## Routing Model
 
@@ -120,6 +121,13 @@ Detailed route artifact:
 Detailed mapping artifact:
 
 - [docs/frontend_api_ui_mapping.md](/d:/Projects/tg_post_analyzer/docs/frontend_api_ui_mapping.md)
+
+## Linking API
+
+- The canonical linking bounded context is implemented in `api/routers/linking.py`.
+- Canonical read routes are `GET /api/posts/{post_id}/links`, `GET /api/events/{id}`, `GET /api/processes/{process_id}`, and `GET /api/events`.
+- Canonical write routes are `POST /api/linking/run`, `POST /api/events/rebuild`, and `POST /api/processes/rebuild`.
+- Legacy `/api/links/*` aliases remain available only as a deprecated compatibility bridge and should not be used by new frontend code.
 
 ## Dashboard Model
 
@@ -180,6 +188,7 @@ Behavior rules:
 - Integrated runtime serving uses `frontend/dist`; after `npm run build`, FastAPI serves the SPA shell at `/` and returns `index.html` for client-side routes.
 - `web/` is deprecated and is not mounted or returned from `api/main.py`.
 - If `frontend/dist` is missing, the backend still serves the API, but `/` returns a build-missing error instead of falling back to legacy UI files.
+- Telegram runtime does not support per-channel concurrency on a shared session; the `ingest` settings surface no longer advertises `channel_concurrency`.
 
 ## Async Job Flow
 

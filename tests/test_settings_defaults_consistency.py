@@ -4,6 +4,8 @@ import asyncio
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
+import pytest
 
 from api.routers import settings as settings_router
 from deps import get_current_user
@@ -11,7 +13,7 @@ from services.auth import AuthUser
 from services.settings_defaults import CANONICAL_SETTINGS_DEFAULTS, get_canonical_defaults
 from services import pipeline_runtime
 from services.settings_store import get_all_settings, is_internal_setting_key
-from services.settings_validation import SCHEMA_BY_KEY
+from services.settings_validation import SCHEMA_BY_KEY, validate_setting_payload
 
 
 class _FakeScalars:
@@ -91,3 +93,8 @@ def test_get_all_settings_ignores_internal_runtime_rows():
 
     assert "runtime.scheduler" not in effective
     assert is_internal_setting_key("runtime.scheduler") is True
+
+
+def test_ingest_settings_reject_removed_channel_concurrency_field():
+    with pytest.raises(ValidationError):
+        validate_setting_payload("ingest", {"channel_concurrency": 2})

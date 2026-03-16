@@ -26,6 +26,27 @@ from services.processes.build_processes import rebuild_processes
 router = APIRouter()
 
 
+@router.get("/events", response_model=list[EventSummaryOut])
+async def list_events(
+    limit: int = 50,
+    _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
+    session: AsyncSession = Depends(get_session),
+):
+    stmt = (
+        select(Event)
+        .order_by(Event.started_at.desc().nullslast(), Event.id.desc())
+        .limit(limit)
+    )
+    events = (await session.execute(stmt)).scalars().all()
+    metrics_by_event_id = await load_event_metrics(session, [event.id for event in events])
+    return [
+        EventSummaryOut.model_validate(event).model_copy(
+            update=metrics_by_event_id.get(event.id, {"comments_count": 0, "involvement": None})
+        )
+        for event in events
+    ]
+
+
 @router.post("/linking/run", response_model=LinkRunResponse)
 async def run_linking(
     post_id: int = Query(...),

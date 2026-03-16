@@ -92,6 +92,8 @@ async def ensure_telegram_client_started(client_or_handle, *, op_name: str = "tg
         await with_session_lock_retry(lambda: client.start(), op_name=op_name)
 
 
+# Keep a single default Telethon session per process. Channel ingest stays serialized
+# around this shared handle to avoid unsafe concurrent access to one session store.
 _shared_client_handle = build_telegram_client()
 client = _shared_client_handle
 

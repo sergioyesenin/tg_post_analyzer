@@ -16,6 +16,12 @@ class Settings:
     _JWT_FORBIDDEN_SECRETS = frozenset({"change-me-in-prod"})
     _NON_PROD_ENVS = frozenset({"dev", "local", "test"})
     _INSECURE_PASSWORDS = frozenset({"postgres", "password", "changeme", "change-me-in-prod"})
+    _DEV_CORS_ORIGINS = (
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    )
 
     def __init__(self) -> None:
         errors: list[str] = []
@@ -65,6 +71,17 @@ class Settings:
         self.AUTH_REFRESH_COOKIE_SAMESITE = self._env_str("AUTH_REFRESH_COOKIE_SAMESITE", default="lax", errors=errors)
         self.AUTH_REFRESH_COOKIE_DOMAIN = self._env_str("AUTH_REFRESH_COOKIE_DOMAIN", default=None, errors=errors)
         self.AUTH_REFRESH_COOKIE_PATH = self._env_str("AUTH_REFRESH_COOKIE_PATH", default="/api/auth", errors=errors)
+        self.CORS_ALLOWED_ORIGINS = self._env_csv(
+            "CORS_ALLOWED_ORIGINS",
+            default=self._default_cors_origins(self.APP_ENV),
+            errors=errors,
+        )
+        self.CORS_ALLOW_CREDENTIALS = self._env_bool(
+            "CORS_ALLOW_CREDENTIALS",
+            default=True,
+            errors=errors,
+        )
+        self._validate_cors_settings(errors)
 
         if errors:
             ordered = "\n".join(f"- {item}" for item in sorted(errors))
@@ -160,6 +177,20 @@ class Settings:
         errors.append(f"Invalid boolean env var: {name}='{value}'")
         return default
 
+    @classmethod
+    def _env_csv(
+        cls,
+        name: str,
+        *,
+        alias: str | None = None,
+        default: tuple[str, ...] | list[str] | None,
+        errors: list[str],
+    ) -> list[str]:
+        value = cls._env_str(name, alias=alias, default=None, errors=errors)
+        if value is None:
+            return list(default or [])
+        return [item.strip() for item in value.split(",") if item.strip()]
+
     @staticmethod
     def _validate_timezone(tz_name: str | None, errors: list[str]) -> None:
         if tz_name is None:
@@ -222,6 +253,24 @@ class Settings:
             errors.append(
                 "Insecure DB credentials are not allowed outside dev/local/test; "
                 "set non-default DB_URL credentials"
+            )
+
+    @classmethod
+    def _default_cors_origins(cls, app_env: str | None) -> tuple[str, ...]:
+        env_normalized = (app_env or "dev").strip().lower()
+        if env_normalized in cls._NON_PROD_ENVS:
+            return cls._DEV_CORS_ORIGINS
+        return ()
+
+    def _validate_cors_settings(self, errors: list[str]) -> None:
+        origins = list(self.CORS_ALLOWED_ORIGINS or [])
+        if self.CORS_ALLOW_CREDENTIALS and "*" in origins:
+            errors.append("Invalid CORS configuration: wildcard origins cannot be used with credentials")
+
+        env_normalized = self.APP_ENV.strip().lower()
+        if env_normalized not in self._NON_PROD_ENVS and not origins:
+            errors.append(
+                "Invalid CORS configuration: CORS_ALLOWED_ORIGINS must be set outside dev/local/test"
             )
 
 settings = Settings()

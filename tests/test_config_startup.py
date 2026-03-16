@@ -14,6 +14,8 @@ RELEVANT_ENV_KEYS = [
     "APP_TZ",
     "TZ",
     "AUTH_JWT_SECRET",
+    "CORS_ALLOWED_ORIGINS",
+    "CORS_ALLOW_CREDENTIALS",
 ]
 
 STRONG_TEST_JWT_SECRET = "A_strong_test_secret_value_2026!XYZ"
@@ -63,6 +65,64 @@ def test_config_accepts_deprecated_aliases_with_warning(monkeypatch: pytest.Monk
 
     assert module.settings.DB_URL.startswith("postgresql+asyncpg://")
     assert module.settings.tz == "UTC"
+
+
+def test_config_uses_dev_cors_defaults_when_origins_are_not_explicit(monkeypatch: pytest.MonkeyPatch):
+    module = _reload_config_with_env(
+        monkeypatch,
+        {
+            "TG_API_ID": "12345",
+            "TG_API_HASH": "hash",
+            "APP_ENV": "dev",
+            "DB_URL": "postgresql+asyncpg://postgres:postgres@localhost:5432/tg_analytics",
+            "APP_TZ": "UTC",
+            "AUTH_JWT_SECRET": STRONG_TEST_JWT_SECRET,
+        },
+    )
+
+    assert module.settings.CORS_ALLOWED_ORIGINS == [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
+    assert module.settings.CORS_ALLOW_CREDENTIALS is True
+
+
+def test_config_requires_explicit_prod_cors_origins(monkeypatch: pytest.MonkeyPatch):
+    with pytest.raises(RuntimeError) as exc:
+        _reload_config_with_env(
+            monkeypatch,
+            {
+                "TG_API_ID": "12345",
+                "TG_API_HASH": "hash",
+                "APP_ENV": "production",
+                "DB_URL": "postgresql+asyncpg://app:strong-pass@db.example.com:5432/tg_analytics",
+                "APP_TZ": "UTC",
+                "AUTH_JWT_SECRET": STRONG_TEST_JWT_SECRET,
+            },
+        )
+
+    assert "CORS_ALLOWED_ORIGINS must be set outside dev/local/test" in str(exc.value)
+
+
+def test_config_rejects_wildcard_origins_when_credentials_enabled(monkeypatch: pytest.MonkeyPatch):
+    with pytest.raises(RuntimeError) as exc:
+        _reload_config_with_env(
+            monkeypatch,
+            {
+                "TG_API_ID": "12345",
+                "TG_API_HASH": "hash",
+                "APP_ENV": "dev",
+                "DB_URL": "postgresql+asyncpg://postgres:postgres@localhost:5432/tg_analytics",
+                "APP_TZ": "UTC",
+                "AUTH_JWT_SECRET": STRONG_TEST_JWT_SECRET,
+                "CORS_ALLOWED_ORIGINS": "*",
+                "CORS_ALLOW_CREDENTIALS": "true",
+            },
+        )
+
+    assert "wildcard origins cannot be used with credentials" in str(exc.value)
 
 
 @pytest.mark.parametrize(

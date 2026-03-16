@@ -32,6 +32,15 @@ def test_api_main_exposes_app_and_registers_routes(monkeypatch: pytest.MonkeyPat
     assert "/" in paths
     assert "/{full_path:path}" in paths
     assert not any(path.startswith("/web") for path in paths)
+    cors = next((middleware for middleware in app.user_middleware if middleware.cls.__name__ == "CORSMiddleware"), None)
+    assert cors is not None
+    assert cors.kwargs["allow_origins"] == [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
+    assert cors.kwargs["allow_credentials"] is True
 
 
 def test_frontend_routes_serve_react_spa_and_do_not_shadow_api(monkeypatch: pytest.MonkeyPatch):

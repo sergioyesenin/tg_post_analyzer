@@ -187,6 +187,8 @@ Behavior rules:
 - There is one frontend delivery path: the React SPA in `frontend/`.
 - Local frontend development runs through Vite on `http://localhost:5173` and proxies `/api` to the FastAPI backend.
 - Cross-origin auth relies on `allow_credentials=True` plus explicit allowed origins, because refresh uses an `HttpOnly` cookie on `/api/auth`.
+- CORS origins and `allow_credentials` are configured through env-backed settings instead of hardcoded localhost values.
+- `dev`/`local`/`test` default to localhost-friendly origins; non-dev environments must set `CORS_ALLOWED_ORIGINS` explicitly.
 - Integrated runtime serving uses `frontend/dist`; after `npm run build`, FastAPI serves the SPA shell at `/` and returns `index.html` for client-side routes.
 - `web/` is deprecated and is not mounted or returned from `api/main.py`.
 - If `frontend/dist` is missing, the backend still serves the API, but `/` returns a build-missing error instead of falling back to legacy UI files.

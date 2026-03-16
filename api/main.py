@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from api.routers import auth, channels, dashboard, jobs, keyword_graph, linking, links, monitor, posts, reports, settings
+from config import settings as app_settings
 
 app = FastAPI(title="TG Post Analyzer Dashboard")
 
@@ -23,13 +24,8 @@ app.include_router(keyword_graph.router, prefix="/api/keyword", tags=["Keyword G
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-    ],
-    allow_credentials=True,
+    allow_origins=list(app_settings.CORS_ALLOWED_ORIGINS),
+    allow_credentials=bool(app_settings.CORS_ALLOW_CREDENTIALS),
     allow_methods=["*"],
     allow_headers=["*"],
 )

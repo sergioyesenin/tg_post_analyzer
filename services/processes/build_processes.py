@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import datetime
 
-from sqlalchemy import and_, delete, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -105,28 +105,85 @@ async def rebuild_processes(
     date_to: datetime,
     created_by: str = "pipeline",
 ) -> int:
-    events_stmt = select(Event).where(and_(Event.started_at >= date_from, Event.started_at <= date_to))
-    events = (await session.execute(events_stmt)).scalars().all()
-    if not events:
+    seed_events_stmt = select(Event).where(and_(Event.started_at >= date_from, Event.started_at <= date_to))
+    seed_events = (await session.execute(seed_events_stmt)).scalars().all()
+    if not seed_events:
         return 0
 
-    event_by_id = {event.id: event for event in events}
-    event_ids = set(event_by_id.keys())
+    event_ids = {event.id for event in seed_events}
+    process_ids: set[int] = set()
+    changed = True
+    while changed:
+        changed = False
+
+        linked_process_ids_stmt = (
+            select(ProcessEvent.process_id)
+            .distinct()
+            .where(ProcessEvent.event_id.in_(event_ids))
+        )
+        discovered_process_ids = {row[0] for row in (await session.execute(linked_process_ids_stmt)).all()}
+        if not discovered_process_ids.issubset(process_ids):
+            process_ids.update(discovered_process_ids)
+            changed = True
+
+        if process_ids:
+            linked_event_ids_stmt = select(ProcessEvent.event_id).where(ProcessEvent.process_id.in_(process_ids))
+            discovered_event_ids = {row[0] for row in (await session.execute(linked_event_ids_stmt)).all()}
+            if not discovered_event_ids.issubset(event_ids):
+                event_ids.update(discovered_event_ids)
+                changed = True
+
+        event_post_rows = (
+            await session.execute(
+                select(EventPost.post_id, EventPost.event_id).where(EventPost.event_id.in_(event_ids))
+            )
+        ).all()
+        post_ids = {row[0] for row in event_post_rows}
+        post_to_event_ids: dict[int, set[int]] = defaultdict(set)
+        for post_id, event_id in event_post_rows:
+            post_to_event_ids[post_id].add(event_id)
+
+        if post_ids:
+            links_stmt = (
+                select(PostLink)
+                .where(
+                    and_(
+                        PostLink.status == VerificationStatus.VERIFIED,
+                        PostLink.link_type == PostLinkType.UPDATE,
+                        or_(PostLink.src_post_id.in_(post_ids), PostLink.dst_post_id.in_(post_ids)),
+                    )
+                )
+                .order_by(PostLink.id.asc())
+            )
+            links = (await session.execute(links_stmt)).scalars().all()
+            linked_post_ids = {
+                linked_post_id
+                for link in links
+                for linked_post_id in (link.src_post_id, link.dst_post_id)
+            }
+            if linked_post_ids:
+                linked_event_rows = (
+                    await session.execute(
+                        select(EventPost.post_id, EventPost.event_id).where(EventPost.post_id.in_(linked_post_ids))
+                    )
+                ).all()
+                linked_event_ids = {row[1] for row in linked_event_rows}
+                if not linked_event_ids.issubset(event_ids):
+                    event_ids.update(linked_event_ids)
+                    changed = True
 
     process_ids_stmt = (
         select(Process.id)
         .where(and_(Process.started_at >= date_from, Process.started_at <= date_to))
     )
-    process_ids = {row[0] for row in (await session.execute(process_ids_stmt)).all()}
-    linked_process_ids_stmt = (
-        select(ProcessEvent.process_id)
-        .distinct()
-        .where(ProcessEvent.event_id.in_(event_ids))
-    )
-    process_ids.update(row[0] for row in (await session.execute(linked_process_ids_stmt)).all())
+    process_ids.update(row[0] for row in (await session.execute(process_ids_stmt)).all())
     if process_ids:
         await session.execute(delete(ProcessEvent).where(ProcessEvent.process_id.in_(process_ids)))
         await session.execute(delete(Process).where(Process.id.in_(process_ids)))
+
+    events_stmt = select(Event).where(Event.id.in_(event_ids))
+    events = (await session.execute(events_stmt)).scalars().all()
+    event_by_id = {event.id: event for event in events}
 
     post_to_event_rows = (
         await session.execute(

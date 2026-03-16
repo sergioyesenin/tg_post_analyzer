@@ -1,75 +1,75 @@
-﻿# Frontend Route Map
+# Карта frontend-маршрутов
 
-Source of truth: `docs/frontend_handoff_checklist.md`.
-Implementation source: frontend router, route policy, and route modules in `frontend/src`.
-Updated: 2026-03-16.
+Источник истины: `docs/frontend_handoff_checklist.md`.
+Источник реализации: frontend router, route policy и route modules в `frontend/src`.
+Обновлено: 2026-03-16.
 
-## Route Inventory
+## Инвентарь маршрутов
 
-| Route | Module | Purpose | Roles | Access mode |
+| Маршрут | Модуль | Назначение | Роли | Режим доступа |
 | --- | --- | --- | --- | --- |
-| `/login` | auth | Local sign-in | guest only | public |
-| `/dashboard/posts` | workspace/posts | Top-post analytics dashboard | admin, analyst, viewer | viewer read-only |
-| `/dashboard/events` | workspace/events | Event analytics dashboard | admin, analyst, viewer | viewer read-only |
-| `/dashboard/processes` | workspace/processes | Process analytics dashboard | admin, analyst, viewer | viewer read-only |
-| `/posts/:postId` | workspace/post-detail | Post detail, comments, links, report | admin, analyst, viewer | viewer read-only |
-| `/events/:eventId` | workspace/event-detail | Event detail and graph | admin, analyst, viewer | viewer read-only |
-| `/processes/:processId` | workspace/process-detail | Process detail and graph | admin, analyst, viewer | viewer read-only |
-| `/reports/posts` | reports | Post reports catalog | admin, analyst, viewer | viewer read-only |
-| `/reports/events` | reports | Event reports catalog | admin, analyst, viewer | viewer read-only |
-| `/reports/processes` | reports | Process reports catalog | admin, analyst, viewer | viewer read-only |
-| `/channels` | admin/channels | Channels management | admin | read-write |
-| `/users` | admin/users | Users management | admin | read-write |
-| `/settings` | admin/settings | Settings and effective settings | admin, analyst | analyst read-only |
+| `/login` | auth | Локальный вход | только guest | public |
+| `/dashboard/posts` | workspace/posts | Дашборд аналитики постов | admin, analyst, viewer | viewer read-only |
+| `/dashboard/events` | workspace/events | Дашборд аналитики событий | admin, analyst, viewer | viewer read-only |
+| `/dashboard/processes` | workspace/processes | Дашборд аналитики процессов | admin, analyst, viewer | viewer read-only |
+| `/posts/:postId` | workspace/post-detail | Детали поста, комментарии, связи, отчет | admin, analyst, viewer | viewer read-only |
+| `/events/:eventId` | workspace/event-detail | Детали события и граф | admin, analyst, viewer | viewer read-only |
+| `/processes/:processId` | workspace/process-detail | Детали процесса и граф | admin, analyst, viewer | viewer read-only |
+| `/reports/posts` | reports | Каталог отчетов по постам | admin, analyst, viewer | viewer read-only |
+| `/reports/events` | reports | Каталог отчетов по событиям | admin, analyst, viewer | viewer read-only |
+| `/reports/processes` | reports | Каталог отчетов по процессам | admin, analyst, viewer | viewer read-only |
+| `/channels` | admin/channels | Управление каналами | admin | read-write |
+| `/users` | admin/users | Управление пользователями | admin | read-write |
+| `/settings` | admin/settings | Настройки и effective settings | admin, analyst | analyst read-only |
 | `/monitor` | platform/monitor | Monitoring overview | admin | read-only |
-| `/jobs` | platform/jobs | Jobs queue inspection and retry | admin | read-write |
-| `/keyword-graph` | keyword-graph | Keyword search/build/report workspace | admin, analyst | read-write |
+| `/jobs` | platform/jobs | Просмотр очереди jobs и retry | admin | read-write |
+| `/keyword-graph` | keyword-graph | Workspace для keyword search/build/report | admin, analyst | read-write |
 
-## Shell Layout Rules
+## Правила layout-оболочек
 
-### Public shell
+### Публичная оболочка
 
-- `/login` renders outside the authenticated application shell.
-- Authenticated users attempting to open `/login` are redirected to `/dashboard/posts`.
+- `/login` рендерится вне аутентифицированной application shell.
+- Если аутентифицированный пользователь открывает `/login`, он редиректится на `/dashboard/posts`.
 
-### Protected shell
+### Защищенная оболочка
 
-- All protected routes render inside one `AppShell`.
-- `AppShell` contains top navigation, session state, and role-aware navigation groups.
-- `/` redirects to `/dashboard/posts`.
+- Все защищенные маршруты рендерятся внутри одного `AppShell`.
+- `AppShell` содержит верхнюю навигацию, session state и role-aware navigation groups.
+- `/` редиректит на `/dashboard/posts`.
 
 ### Workspace layout
 
-- `/dashboard/*` routes render inside `AnalyticsWorkspaceLayout`.
-- Workspace layout owns dashboard mode switcher and shared dashboard framing.
-- Posts, Events, and Processes reuse the same shell pattern:
+- Маршруты `/dashboard/*` рендерятся внутри `AnalyticsWorkspaceLayout`.
+- Workspace layout владеет переключателем dashboard modes и общей рамкой dashboard.
+- Posts, Events и Processes используют один и тот же shell pattern:
   system alerts -> hero -> generated_at -> summary -> filters -> content rail(s).
 
-### Detail layout
+### Layout деталей
 
-- `/posts/:postId` renders as a full-page split detail view.
-- `/events/:eventId` renders as a full-page detail view reusing event graph/detail components from the dashboard rail.
-- `/processes/:processId` renders as a full-page detail view reusing process graph/detail components from the dashboard rail.
+- `/posts/:postId` рендерится как full-page split detail view.
+- `/events/:eventId` рендерится как full-page detail view с переиспользованием event graph/detail-компонентов из dashboard rail.
+- `/processes/:processId` рендерится как full-page detail view с переиспользованием process graph/detail-компонентов из dashboard rail.
 
-### Reports/admin/platform layout
+### Layout reports/admin/platform
 
-- Reports, admin, monitor, jobs, and keyword graph stay outside dashboard mode switcher.
-- Each of these routes still uses the protected shell and centralized RBAC policy.
+- Reports, admin, monitor, jobs и keyword graph находятся вне dashboard mode switcher.
+- Все эти маршруты все равно используют общую protected shell и централизованную RBAC policy.
 
-## Navigation Model
+## Модель навигации
 
-### Dashboard navigation section
+### Раздел навигации dashboard
 
 - Posts
 - Events
 - Processes
 
-### Primary navigation section
+### Основной раздел навигации
 
 - Reports
 - Keyword graph
 
-### Secondary navigation section
+### Вторичный раздел навигации
 
 - Settings
 - Channels
@@ -77,34 +77,34 @@ Updated: 2026-03-16.
 - Monitor
 - Jobs
 
-Navigation visibility is computed from the same route policy used for direct route protection.
+Видимость пунктов навигации вычисляется из той же route policy, что и защита прямого доступа к маршрутам.
 
-## Route Guards
+## Route guards
 
-- `AuthGuard` protects the whole authenticated shell.
-- `RoleGuard` is used on role-restricted routes.
-- Unauthorized protected access resolves to a forbidden screen, not to an implicit redirect.
-- Guest access to protected routes resolves to redirect-to-login.
+- `AuthGuard` защищает всю authenticated shell.
+- `RoleGuard` используется на маршрутах с role restrictions.
+- Несанкционированный доступ к protected route ведет к экрану forbidden, а не к скрытому redirect.
+- Доступ гостя к protected route приводит к redirect-to-login.
 
-## Route-Level RBAC Matrix
+## Матрица route-level RBAC
 
-| Route family | admin | analyst | viewer |
+| Семейство маршрутов | admin | analyst | viewer |
 | --- | --- | --- | --- |
-| dashboard/posts | visible, writable | visible, writable | visible, read-only |
-| dashboard/events | visible, writable | visible, writable | visible, read-only |
-| dashboard/processes | visible, writable | visible, writable | visible, read-only |
-| post/event/process details | visible, writable | visible, writable | visible, read-only |
-| reports catalogs | visible, writable | visible, writable | visible, read-only |
-| keyword graph | visible, writable | visible, writable | forbidden |
-| settings | visible, writable | visible, read-only | forbidden |
-| channels | visible, writable | forbidden | forbidden |
-| users | visible, writable | forbidden | forbidden |
-| monitor | visible, read-only | forbidden | forbidden |
-| jobs | visible, writable | forbidden | forbidden |
+| dashboard/posts | видно, можно изменять | видно, можно изменять | видно, только чтение |
+| dashboard/events | видно, можно изменять | видно, можно изменять | видно, только чтение |
+| dashboard/processes | видно, можно изменять | видно, можно изменять | видно, только чтение |
+| детали post/event/process | видно, можно изменять | видно, можно изменять | видно, только чтение |
+| каталоги отчетов | видно, можно изменять | видно, можно изменять | видно, только чтение |
+| keyword graph | видно, можно изменять | видно, можно изменять | forbidden |
+| settings | видно, можно изменять | видно, только чтение | forbidden |
+| channels | видно, можно изменять | forbidden | forbidden |
+| users | видно, можно изменять | forbidden | forbidden |
+| monitor | видно, только чтение | forbidden | forbidden |
+| jobs | видно, можно изменять | forbidden | forbidden |
 
-## Back Navigation Rules
+## Правила возврата назад
 
-- Event and process detail pages prefer browser back if the page was reached from inside the app.
-- If opened directly, event detail falls back to `/dashboard/events`.
-- If opened directly, process detail falls back to `/dashboard/processes`.
-- Post detail provides an explicit link back to `/dashboard/posts`.
+- На страницах деталей события и процесса приоритет отдается browser back, если страница была открыта изнутри приложения.
+- При прямом открытии деталь события делает fallback на `/dashboard/events`.
+- При прямом открытии деталь процесса делает fallback на `/dashboard/processes`.
+- Деталь поста содержит явную ссылку назад на `/dashboard/posts`.

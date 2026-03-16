@@ -15,6 +15,9 @@ class _FakeRowsResult:
     def __init__(self, rows):
         self._rows = rows
 
+    def all(self):
+        return list(self._rows)
+
     def scalars(self):
         return type("_Scalars", (), {"all": lambda self_: list(self._rows)})()
 
@@ -70,7 +73,10 @@ def test_get_process_returns_membership_rows(monkeypatch):
     )
     session = _FakeSession(
         get_map={(linking.Process.__name__, 7): process},
-        execute_results=[_FakeRowsResult([membership])],
+        execute_results=[
+            _FakeRowsResult([(membership, "Event 101", now, None, 0.67)]),
+            _FakeRowsResult([(101, 501), (101, 502)]),
+        ],
     )
 
     async def _fake_metrics(_session, process_ids):
@@ -87,10 +93,15 @@ def test_get_process_returns_membership_rows(monkeypatch):
     assert response.json()["events"] == [
         {
             "event_id": 101,
+            "title": "Event 101",
+            "started_at": "2026-03-12T12:00:00Z",
+            "ended_at": None,
+            "confidence": 0.67,
             "relation_type": "update",
             "direction": "none",
             "score": 0.91,
             "status": "verified",
+            "post_ids": [501, 502],
         }
     ]
 

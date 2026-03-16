@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 from datetime import datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
@@ -21,6 +22,7 @@ from db.models import (
     ProcessReport,
     Report,
 )
+from schemas.query_params import CsvIntList, CsvStrList
 from schemas.report import ReportOut
 from services.auth import AuthUser
 from services.pipeline_runtime import (
@@ -73,25 +75,6 @@ def _batch_job_accepted_response(*, job_id: int, job_type: str, filters: dict) -
         },
     }
     return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=jsonable_encoder(payload))
-
-
-def _parse_int_list(raw: str | None) -> list[int]:
-    if not raw:
-        return []
-    values: list[int] = []
-    for token in raw.split(","):
-        token = token.strip()
-        if not token:
-            continue
-        values.append(int(token))
-    return values
-
-
-def _parse_str_list(raw: str | None) -> list[str]:
-    if not raw:
-        return []
-    return [token.strip() for token in raw.split(",") if token and token.strip()]
-
 
 def _build_post_reports_stmt(
     *,
@@ -166,8 +149,8 @@ async def update_report(
 
 @router.get("/posts/list")
 async def list_post_reports(
-    channel_ids: str | None = Query(default=None, description="CSV list: 1,2,3", examples=["1,2,7"]),
-    categories: str | None = Query(default=None, description="CSV list: politics,economy", examples=["regional,news"]),
+    channel_ids: Annotated[CsvIntList, Query(description="CSV list: 1,2,3", examples=["1,2,7"])] = [],
+    categories: Annotated[CsvStrList, Query(description="CSV list: politics,economy", examples=["regional,news"])] = [],
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     limit: int = Query(default=100, ge=1, le=5000),
@@ -176,8 +159,8 @@ async def list_post_reports(
     session: AsyncSession = Depends(get_session),
 ):
     stmt = _build_post_reports_stmt(
-        channel_ids=_parse_int_list(channel_ids),
-        categories=_parse_str_list(categories),
+        channel_ids=channel_ids,
+        categories=categories,
         date_from=date_from,
         date_to=date_to,
     ).limit(limit).offset(offset)
@@ -200,8 +183,8 @@ async def list_post_reports(
 @router.get("/posts/export")
 async def export_post_reports(
     format: str = Query(default="json", pattern="^(json|csv)$", examples=["json", "csv"]),
-    channel_ids: str | None = Query(default=None, description="CSV list: 1,2,3", examples=["4,6"]),
-    categories: str | None = Query(default=None, description="CSV list: politics,economy", examples=["regional"]),
+    channel_ids: Annotated[CsvIntList, Query(description="CSV list: 1,2,3", examples=["4,6"])] = [],
+    categories: Annotated[CsvStrList, Query(description="CSV list: politics,economy", examples=["regional"])] = [],
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     limit: int = Query(default=1000, ge=1, le=20000),
@@ -209,8 +192,8 @@ async def export_post_reports(
     session: AsyncSession = Depends(get_session),
 ):
     stmt = _build_post_reports_stmt(
-        channel_ids=_parse_int_list(channel_ids),
-        categories=_parse_str_list(categories),
+        channel_ids=channel_ids,
+        categories=categories,
         date_from=date_from,
         date_to=date_to,
     ).limit(limit)
@@ -408,8 +391,8 @@ async def export_process_reports(
 
 @router.post("/posts/generate-by-filter")
 async def generate_post_reports_by_filter(
-    channel_ids: str | None = Query(default=None, description="CSV list: 1,2,3", examples=["1,3"]),
-    categories: str | None = Query(default=None, description="CSV list: politics,economy", examples=["regional,incident"]),
+    channel_ids: Annotated[CsvIntList, Query(description="CSV list: 1,2,3", examples=["1,3"])] = [],
+    categories: Annotated[CsvStrList, Query(description="CSV list: politics,economy", examples=["regional,incident"])] = [],
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     min_comments: int | None = Query(default=None, ge=0),
@@ -418,8 +401,8 @@ async def generate_post_reports_by_filter(
     session: AsyncSession = Depends(get_session),
 ):
     filters = {
-        "channel_ids": _parse_int_list(channel_ids),
-        "categories": _parse_str_list(categories),
+        "channel_ids": channel_ids,
+        "categories": categories,
         "date_from": date_from.isoformat() if date_from else None,
         "date_to": date_to.isoformat() if date_to else None,
         "min_comments": min_comments,

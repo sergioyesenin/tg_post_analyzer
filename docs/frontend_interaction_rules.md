@@ -1,116 +1,116 @@
-﻿# Frontend Interaction Rules
+# Правила взаимодействия во фронтенде
 
-Source of truth: `docs/frontend_handoff_checklist.md`.
-Implementation source: dashboard screens, detail pages, shared filter helpers, and tests.
-Updated: 2026-03-16.
+Источник истины: `docs/frontend_handoff_checklist.md`.
+Источник реализации: dashboard-экраны, detail pages, shared filter helpers и tests.
+Обновлено: 2026-03-16.
 
-## Dashboard Interactions
+## Взаимодействия в dashboard
 
-### Mode switch
+### Переключение режимов
 
-- Clicking a dashboard mode link navigates to the target route.
-- Only shared supported filters are preserved during mode switch.
-- Unsupported or mode-specific params are dropped instead of being reinterpreted.
+- Нажатие на ссылку режима dashboard ведет на целевой маршрут.
+- При переключении сохраняются только поддерживаемые общие фильтры.
+- Неподдерживаемые или специфичные для режима параметры удаляются, а не переосмысляются.
 
-### Filter bar
+### Панель фильтров
 
-- Dashboard filters are URL-owned.
-- User edits form inputs first, then applies them explicitly.
-- Apply updates the route query string.
-- Reset clears dashboard-owned params for the current mode only.
-- Unknown query params are ignored during parse.
+- Фильтры dashboard принадлежат URL.
+- Пользователь сначала меняет значения формы, а затем явно применяет их.
+- Apply обновляет query string маршрута.
+- Reset очищает только параметры текущего dashboard mode.
+- Неизвестные query params игнорируются при парсинге.
 
-### Table rows
+### Строки таблиц
 
-- Posts dashboard row actions open post detail.
-- Events dashboard row selection changes the selected event inside the workspace.
-- Processes dashboard row selection changes the selected process inside the workspace.
-- Selection survives refetch when the selected entity still exists in the refreshed payload.
+- Действия в строках dashboard постов открывают детали поста.
+- Выбор строки в dashboard событий меняет выбранное событие внутри workspace.
+- Выбор строки в dashboard процессов меняет выбранный процесс внутри workspace.
+- Выбор сохраняется после refetch, если выбранная сущность все еще присутствует в обновленном payload.
 
-## Graph Rules
+## Правила работы с графами
 
-### Event graph
+### Граф события
 
-- Graph loads only for the selected event.
-- Manual refresh keeps the panel visible and shows refresh/loading state inline.
-- Empty graph and no-edges graph are non-fatal states.
-- Related-post links navigate to confirmed post detail routes.
+- Граф загружается только для выбранного события.
+- Ручной refresh сохраняет panel видимой и показывает refresh/loading state inline.
+- Пустой граф и граф без ребер не считаются фатальным состоянием.
+- Ссылки на related posts ведут только на подтвержденные detail-маршруты постов.
 
-### Process graph
+### Граф процесса
 
-- Graph loads only for the selected process.
-- Manual refresh keeps the detail rail mounted.
-- Empty graph and no-edges graph are non-fatal states.
-- Related-event and lead-post links navigate to confirmed detail routes.
+- Граф загружается только для выбранного процесса.
+- Ручной refresh не размонтирует detail rail.
+- Пустой граф и граф без ребер не считаются фатальным состоянием.
+- Ссылки на related events и lead posts ведут только на подтвержденные detail-маршруты.
 
 ### Keyword graph
 
-- Search is explicit-submit even though filters are kept in the URL.
-- Seed set is derived from selected search results.
-- Build action is disabled until at least one post is selected.
-- Report generation is disabled until at least one post is selected.
+- Search выполняется по явному submit, хотя фильтры и хранятся в URL.
+- Seed set собирается из выбранных search results.
+- Build action disabled, пока не выбран хотя бы один пост.
+- Генерация отчета disabled, пока не выбран хотя бы один пост.
 
-## Detail Rules
+## Правила detail-экранов
 
-### Post detail
+### Деталь поста
 
-- Full-page detail layout with main rail and side rail.
-- Main rail: comments block, comments async indicator, links block.
-- Side rail: report block, report async indicator.
-- Viewer sees the content but no mutation buttons.
-- Comments/report secondary block failures do not replace the entire page.
+- Full-page detail layout с main rail и side rail.
+- Main rail: блок комментариев, async indicator комментариев, блок связей.
+- Side rail: блок отчета, async indicator отчета.
+- Viewer видит контент, но не видит mutation buttons.
+- Ошибки secondary-блоков комментариев или отчета не заменяют всю страницу целиком.
 
-### Event detail
-
-- Full-page detail layout.
-- Reuses `EventGraphPanel` and `EventDetailPanel` from the dashboard module.
-- Back action uses browser history when possible, otherwise falls back to `/dashboard/events`.
-- Root post link is shown only when confirmed by the mapped payload.
-
-### Process detail
+### Деталь события
 
 - Full-page detail layout.
-- Reuses `ProcessGraphPanel` and `ProcessDetailPanel` from the dashboard module.
-- Back action uses browser history when possible, otherwise falls back to `/dashboard/processes`.
-- Related event/post context links are shown only when confirmed by the mapped payload.
+- Переиспользует `EventGraphPanel` и `EventDetailPanel` из dashboard-модуля.
+- Действие Back использует browser history, если это возможно, иначе делает fallback на `/dashboard/events`.
+- Ссылка на root post показывается только если она подтверждена mapped payload.
 
-## Async Action Rules
+### Деталь процесса
 
-### Shared job pattern
+- Full-page detail layout.
+- Переиспользует `ProcessGraphPanel` и `ProcessDetailPanel` из dashboard-модуля.
+- Действие Back использует browser history, если это возможно, иначе делает fallback на `/dashboard/processes`.
+- Контекстные ссылки на related event/post показываются только если они подтверждены mapped payload.
 
-- Async actions submit the confirmed mutation endpoint.
-- UI stores the returned `job_id`.
-- Polling continues until a terminal state is reached.
-- Terminal result is fetched from the confirmed job-result endpoint where available.
-- Relevant queries are invalidated after success.
-- Existing screen content remains visible while the job is pending or fails.
+## Правила асинхронных действий
 
-### Current async surfaces
+### Общий job pattern
 
-- post comments refresh
-- post report generation/update
-- event draft report generation/update
-- process draft report generation/update
-- post reports batch generation by filter
-- jobs retry actions
+- Async actions вызывают подтвержденный mutation endpoint.
+- UI сохраняет возвращенный `job_id`.
+- Polling продолжается до terminal state.
+- Terminal result запрашивается через подтвержденный job-result endpoint, если он доступен.
+- После успеха выполняется invalidation связанных queries.
+- Уже загруженный контент экрана остается видимым, пока job выполняется или падает.
 
-## Partial / Warning Rules
+### Текущие async-поверхности
 
-- `partial=true` never blocks the workspace.
-- `warnings[]` are rendered in a shared system alert area.
-- `generated_at` stays visible even when partial warnings are present.
-- Partial dashboards are usable degraded screens, not error screens.
+- refresh комментариев поста
+- генерация/обновление отчета по посту
+- генерация/обновление draft-отчета по событию
+- генерация/обновление draft-отчета по процессу
+- batch generation отчетов по постам через фильтр
+- retry-действия в jobs
 
-## Permission Behavior Rules
+## Правила partial / warning
 
-- Viewer never sees mutation buttons.
-- Analyst can generate reports and refresh comments where the route allows it.
-- Analyst can open `/settings` in read-only mode only.
-- Unauthorized direct route entry resolves to forbidden state.
-- Unauthorized navigation items are hidden from role-aware navigation.
+- `partial=true` никогда не блокирует workspace.
+- `warnings[]` рендерятся в общем системном alert-area.
+- `generated_at` остается видимым даже при наличии partial warnings.
+- Partial dashboard — это degraded, но usable screen, а не error screen.
 
-## Browser State Rules
+## Правила permission-поведения
 
-- Query string is the durable source for dashboard/report filter state.
-- Dashboard mode switch preserves only target-supported shared filters.
-- Direct route load must reconstruct screen state from URL and backend data only.
+- Viewer никогда не видит mutation buttons.
+- Analyst может генерировать отчеты и обновлять комментарии там, где это разрешено маршрутом.
+- Analyst может открывать `/settings` только в read-only режиме.
+- Несанкционированный прямой вход на маршрут приводит к forbidden state.
+- Недоступные пункты навигации скрываются из role-aware navigation.
+
+## Правила browser state
+
+- Query string — это устойчивый источник состояния фильтров dashboard/report.
+- Переключение dashboard mode сохраняет только те общие фильтры, которые поддерживаются целевым режимом.
+- Прямая загрузка маршрута должна полностью восстанавливать экран только из URL и backend data.

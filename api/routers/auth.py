@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
@@ -21,6 +22,15 @@ from services.auth import (
 )
 
 router = APIRouter()
+
+
+def _duplicate_user_conflict(error: IntegrityError) -> HTTPException:
+    message = str(getattr(error, "orig", error)).lower()
+    if "uq_users_username" in message or "users.username" in message or "username" in message:
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
+    if "uq_users_email" in message or "users.email" in message or "email" in message:
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User with this username or email already exists")
 
 
 def _refresh_cookie_kwargs() -> dict:
@@ -170,34 +180,45 @@ async def create_user(
     current_user: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    existing = (await session.execute(select(User).where(User.username == data.username))).scalar_one_or_none()
+    normalized_username = data.username.strip()
+    normalized_email = data.email.strip() if data.email is not None else None
+
+    existing = (await session.execute(select(User).where(User.username == normalized_username))).scalar_one_or_none()
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
+    if normalized_email:
+        existing_email = (await session.execute(select(User).where(User.email == normalized_email))).scalar_one_or_none()
+        if existing_email is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
 
     roles = await ensure_roles_exist(session, data.roles or ["analyst"])
     user = User(
-        username=data.username.strip(),
-        email=data.email,
+        username=normalized_username,
+        email=normalized_email,
         full_name=data.full_name,
         password_hash=hash_password(data.password),
         is_active=True,
         is_local=True,
     )
-    session.add(user)
-    await session.flush()
+    try:
+        session.add(user)
+        await session.flush()
 
-    for role in roles:
-        session.add(UserRole(user_id=user.id, role_id=role.id))
+        for role in roles:
+            session.add(UserRole(user_id=user.id, role_id=role.id))
 
-    await write_audit_log(
-        session,
-        action="auth.user.create",
-        actor_user_id=current_user.id,
-        target_type="user",
-        target_id=str(user.id),
-        details={"roles": [role.name for role in roles]},
-    )
-    await session.commit()
+        await write_audit_log(
+            session,
+            action="auth.user.create",
+            actor_user_id=current_user.id,
+            target_type="user",
+            target_id=str(user.id),
+            details={"roles": [role.name for role in roles]},
+        )
+        await session.commit()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise _duplicate_user_conflict(exc) from exc
     return await _serialize_user(session, user)
 
 

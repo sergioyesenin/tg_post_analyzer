@@ -1,3 +1,5 @@
+import type { AcceptedJobResponse } from '@shared/jobs/contracts';
+
 export type ChannelDto = {
   id: number;
   username: string;
@@ -9,6 +11,8 @@ export type ChannelDto = {
 export type AddChannelDto = {
   username: string;
 };
+
+export type AddChannelResponseDto = AcceptedJobResponse;
 
 export type UpdateChannelDto = {
   title?: string | null;

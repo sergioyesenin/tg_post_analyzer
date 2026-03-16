@@ -22,6 +22,7 @@ import type {
   UpdateUserRolesDto,
 } from '@modules/admin/contracts';
 import { adminQueryKeys } from '@modules/admin/query-keys';
+import { useAsyncJobAction } from '@shared/jobs/hooks';
 
 export function useChannelsQuery() {
   return useQuery({
@@ -36,9 +37,10 @@ export function useChannelMutations() {
   const invalidate = () => queryClient.invalidateQueries({ queryKey: adminQueryKeys.channels() });
 
   return {
-    add: useMutation({
+    add: useAsyncJobAction({
+      actionLabel: 'add-channel',
       mutationFn: (payload: AddChannelDto) => addChannel(payload),
-      onSuccess: invalidate,
+      onInvalidate: invalidate,
     }),
     update: useMutation({
       mutationFn: ({ channelId, payload }: { channelId: number; payload: UpdateChannelDto }) => updateChannel(channelId, payload),

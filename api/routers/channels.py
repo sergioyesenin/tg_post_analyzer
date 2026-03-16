@@ -1,21 +1,40 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
 
-from telethon.errors import RPCError
-from telethon.tl.functions.channels import JoinChannelRequest
-from telethon.tl.types import Channel as TgChannel
-
-from client import client, ensure_telegram_client_started
-from db.models import Channel
+from db.models import Channel, Job
 from deps import get_session, require_roles
 from schemas.channel import ChannelIn, ChannelOut, ChannelUpdate
-from scripts.add_channel import normalize_channel_identifier
 from services.auth import AuthUser, write_audit_log
-from services.ingest import upsert_channel
+from services.channel_management import normalize_channel_identifier
+from services.jobs import JOB_STATUS_PENDING, JOB_STATUS_RUNNING, JobType, enqueue_job
 
 router = APIRouter()
+
+
+def _serialize_accepted_job(job: Job) -> dict:
+    return {
+        "status": "queued",
+        "job_id": job.id,
+        "job_type": job.type,
+        "status_url": f"/api/jobs/{job.id}",
+        "result_url": f"/api/jobs/{job.id}/result",
+    }
+
+
+async def _find_inflight_add_channel_job(session: AsyncSession, *, normalized_username: str) -> Job | None:
+    stmt = (
+        select(Job)
+        .where(Job.type == JobType.ADD_CHANNEL)
+        .where(Job.status.in_((JOB_STATUS_PENDING, JOB_STATUS_RUNNING)))
+        .order_by(Job.created_at.desc(), Job.id.desc())
+    )
+    jobs = (await session.execute(stmt)).scalars().all()
+    for job in jobs:
+        payload = job.payload_json or {}
+        if str(payload.get("username") or "").strip().lower() == normalized_username.lower():
+            return job
+    return None
 
 
 @router.get("/", response_model=list[ChannelOut])
@@ -27,7 +46,7 @@ async def list_channels(
     return result.scalars().all()
 
 
-@router.post("/add")
+@router.post("/add", status_code=status.HTTP_202_ACCEPTED)
 async def add_channel(
     user: ChannelIn,
     current_user: AuthUser = Depends(require_roles("admin")),
@@ -35,53 +54,35 @@ async def add_channel(
 ):
     ident = normalize_channel_identifier(user.username)
     normalized_username = ident.lstrip("@").strip()
-    await ensure_telegram_client_started(client, op_name="api.channels.add.start")
+    if not normalized_username:
+        raise HTTPException(status_code=400, detail="Channel username is required")
 
-    try:
-        entity = await client.get_entity(ident)
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Cannot resolve channel: {ident}") from exc
+    inflight_job = await _find_inflight_add_channel_job(session, normalized_username=normalized_username)
+    if inflight_job is not None:
+        return _serialize_accepted_job(inflight_job)
 
-    if not isinstance(entity, TgChannel):
-        raise HTTPException(status_code=400, detail=f"{ident} is not a Telegram channel")
-
-    try:
-        await client(JoinChannelRequest(entity))
-    except RPCError:
-        # Already joined or join is not required for public reads.
-        pass
-
-    username: Optional[str] = entity.username
-    title: Optional[str] = getattr(entity, "title", None)
-    if not username and normalized_username:
-        # Telethon may return a minimal entity without username populated.
-        username = normalized_username
-    if not username:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Channel has no public username. "
-                "Only channels with username are supported by this endpoint."
-            ),
-        )
-
-    async with session.begin():
-        ch = await upsert_channel(
-            session,
-            username=username,
-            title=title,
-            category=None,
-            is_active=True,
-        )
-        await write_audit_log(
-            session,
-            action="channels.add",
-            actor_user_id=current_user.id,
-            target_type="channel",
-            target_id=str(ch.id),
-            details={"username": ch.username, "title": ch.title},
-        )
-    return f"OK: saved channel id={ch.id} username=@{ch.username} title={ch.title!r}"
+    job = await enqueue_job(
+        session,
+        job_type=JobType.ADD_CHANNEL,
+        payload={
+            "username": normalized_username,
+            "requested_by_user_id": current_user.id,
+            "source": "api.channels.add",
+        },
+        priority=5,
+        max_attempts=3,
+    )
+    assert job is not None
+    await write_audit_log(
+        session,
+        action="channels.add.queued",
+        actor_user_id=current_user.id,
+        target_type="job",
+        target_id=str(job.id),
+        details={"username": normalized_username, "job_type": job.type},
+    )
+    await session.commit()
+    return _serialize_accepted_job(job)
 
 
 @router.put("/{channel_id}/active", response_model=ChannelOut)

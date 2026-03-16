@@ -1,29 +1,29 @@
 # tg_post_analyzer
 
-## Overview
+## Обзор
 
-`tg_post_analyzer` is a Telegram analytics workspace with a FastAPI backend and a React frontend.
-The frontend provides one authenticated analytical shell with dashboard, detail, reports, admin, monitor, jobs, and keyword-graph flows built on top of confirmed backend APIs.
+`tg_post_analyzer` — это приложение для аналитики Telegram с:
 
-Current frontend implementation status:
+- FastAPI-бэкендом в `api/`
+- React SPA в `frontend/`
+- PostgreSQL-хранилищем с миграциями через Alembic
+- отдельными runtime-entrypoint-ами для API, scheduler, Telegram ingestion и AI-воркера
 
-- `dashboard/posts`, `dashboard/events`, `dashboard/processes` are implemented against `/api/dashboard/*`
-- post, event, and process detail routes are implemented
-- reports, channels, users, settings, monitor, jobs, and keyword graph routes are implemented
-- shared RBAC, URL filters, partial/warnings rendering, generated_at rendering, and async job polling are implemented
-- formal handoff docs now cover route map, interaction rules, API-to-UI mapping, state/status matrix, and copy rules
+В репозитории поддерживается один frontend-контур: React-приложение в `frontend/`. Для интегрированного runtime FastAPI раздает собранный SPA из `frontend/dist`.
 
-## Tech Stack
+## Технологический стек
 
-Backend:
+Бэкенд:
 
 - Python
 - FastAPI
 - SQLAlchemy
 - Alembic
 - PostgreSQL
+- APScheduler
+- Telethon
 
-Frontend:
+Фронтенд:
 
 - React
 - TypeScript
@@ -33,49 +33,85 @@ Frontend:
 - React Hook Form
 - Zod
 - i18next
-
-Target-but-not-yet-adopted UI stack from the handoff checklist:
-
-- MUI
-- MUI X DataGrid
+- MUI / MUI X DataGrid
 - React Flow
 
-## Project Structure
+Тестирование:
+
+- Pytest
+- Vitest
+- Testing Library
+
+## Структура проекта
 
 ```text
-api/                    FastAPI routers and app entrypoint
-services/               domain services, dashboard aggregators, jobs, monitoring
-schemas/                backend transport schemas
-frontend/               Canonical React application and Vite build output
-frontend/src/app/       app bootstrap, providers, shell, router, guards
-frontend/src/shared/    shared API client, auth, routing, dashboard system, UI primitives
-frontend/src/modules/   feature route modules (workspace, reports, admin, platform, keyword graph)
-scripts/                Canonical runtime and maintenance entrypoints
-web/                    Deprecated legacy static prototype; no longer served by FastAPI
-tests/                  backend/API tests
-docs/                   requirements, plans, and audit artifacts
+api/                    FastAPI-приложение и роутеры
+client/                 Жизненный цикл Telegram-клиента
+db/                     SQLAlchemy-модели и database helpers
+frontend/               Каноническое React-приложение
+schemas/                Backend-схемы запросов и ответов
+scripts/                Runtime и служебные entrypoint-ы
+services/               Доменные сервисы, runtime, jobs, monitoring и pipeline-логика
+tests/                  Быстрые backend-тесты и integration-тесты
+docs/                   Runbook-ы и сопутствующая инженерная документация
+web/                    Устаревший legacy UI-артефакт; FastAPI его не обслуживает
 ```
 
-## Architecture Decisions
+## Архитектурные решения
 
-- One authenticated SPA shell is used for all protected frontend routes.
-- `frontend/` is the only supported UI codebase; `web/` is kept only as a deprecated legacy artifact.
-- FastAPI serves the built SPA from `frontend/dist` when the frontend has been built for integrated runtime delivery.
-- Dashboard modes are built primarily from confirmed aggregator endpoints under `/api/dashboard/*`.
-- Transport DTOs and UI view models are separated through per-module contracts and mappers.
-- URL query params are the source of truth for dashboard and reports filters.
-- Shared state primitives are reused for loading, empty, error, forbidden, partial, warning, and async-action states.
-- Role checks are centralized in a route/action policy layer instead of being duplicated in screens.
-- The frontend does not invent backend fields or unsupported API flows.
-- Telegram ingestion uses one shared Telethon client/session per runtime process, so channel ingest is intentionally serialized instead of exposing unsafe pseudo-concurrency.
+- `frontend/` — единственная поддерживаемая frontend-кодовая база.
+- FastAPI обслуживает собранный SPA из `frontend/dist` и не делает fallback на `web/`.
+- API-маршруты живут под `/api/*`, клиентские маршруты обрабатываются SPA-оболочкой.
+- Канонический linking bounded context расположен в `api/routers/linking.py`.
+- Local auth использует access token только в памяти фронтенда и `HttpOnly` refresh cookie со стороны бэкенда.
+- CORS управляется через env и должен быть совместим с cookie-based auth.
+- Telegram ingestion использует один shared Telethon client/session на процесс runtime, поэтому ingest по каналам намеренно сериализован.
+- Долгие операции вроде добавления канала, генерации отчетов и обновления комментариев выполняются через jobs flow, а не синхронно внутри HTTP-запроса.
 
-## Routing Model
+## Runtime-топология
 
-Public route:
+Канонические runtime-роли:
+
+- `api`: HTTP API и интегрированная раздача SPA
+- `scheduler`: APScheduler control plane
+- `telegram_pipeline`: Telegram ingestion и Telegram-backed jobs
+- `ai_pipeline`: AI-воркер для генерации отчетов
+
+Канонические entrypoint-ы:
+
+- `python scripts/run_api.py`
+- `python scripts/run_scheduler.py`
+- `python scripts/run_telegram_pipeline.py`
+- `python scripts/run_ai_pipeline.py`
+
+Связанные документы:
+
+- [docs/runtime_topology.md](/d:/Projects/tg_post_analyzer/docs/runtime_topology.md)
+- [docs/runtime_runbook.md](/d:/Projects/tg_post_analyzer/docs/runtime_runbook.md)
+
+## Доставка фронтенда
+
+Разработка:
+
+- запускать Vite в `frontend/`
+- Vite проксирует `/api` на бэкенд
+- proxy target берется из `VITE_API_PROXY_TARGET` или `VITE_API_BASE_URL`, по умолчанию это `http://localhost:8000`
+
+Интегрированный runtime:
+
+- собрать фронтенд в `frontend/dist`
+- запустить `python scripts/run_api.py`
+- FastAPI раздает `/` и SPA-маршруты из собранных ассетов
+
+Если `frontend/dist` отсутствует, бэкенд все равно обслуживает `/api/*`, но `/` возвращает ошибку о том, что frontend build не найден.
+
+## Модель маршрутизации
+
+Публичный маршрут:
 
 - `/login`
 
-Protected routes inside one shell:
+Защищенные SPA-маршруты:
 
 - `/dashboard/posts`
 - `/dashboard/events`
@@ -84,163 +120,129 @@ Protected routes inside one shell:
 - `/events/:eventId`
 - `/processes/:processId`
 - `/reports/:reportType`
+- `/settings`
 - `/channels`
 - `/users`
-- `/settings`
 - `/monitor`
 - `/jobs`
 - `/keyword-graph`
 
-Routing rules:
+Правила маршрутизации:
 
-- `/` redirects to `/dashboard/posts`
-- guests are redirected to `/login`
-- authenticated users without access see a forbidden screen instead of a silent redirect
-- navigation visibility is role-aware and comes from the same route policy source of truth
+- `/` редиректит на `/dashboard/posts`
+- гость редиректится на `/login`
+- аутентифицированный пользователь при заходе на `/login` редиректится в рабочую область
+- запрещенные защищенные маршруты показывают экран forbidden, а не молчаливый redirect
 
-Detailed route artifact:
+Связанный документ:
 
 - [docs/frontend_route_map.md](/d:/Projects/tg_post_analyzer/docs/frontend_route_map.md)
 
-## Auth / Session Model
+## API-модель
 
-- Local auth is implemented through `POST /api/auth/login`, `POST /api/auth/refresh`, `POST /api/auth/logout`, and `GET /api/auth/me`.
-- Session state is owned by `frontend/src/app/providers/SessionProvider.tsx`.
-- Access tokens are kept only in in-memory frontend state; they are not persisted in `localStorage`.
-- Refresh tokens are stored only in an `HttpOnly` cookie managed by the backend.
-- The API client sends bearer auth for protected API calls and performs one cookie-based refresh attempt on `401`.
-- If refresh fails, in-memory session state is cleared and the user returns to guest mode.
-- `/login` is public-only; authenticated users are redirected into the workspace.
+Основные группы API:
 
-## Data Layer Model
+- `/api/auth/*`
+- `/api/settings/*`
+- `/api/channels/*`
+- `/api/posts/*`
+- `/api/dashboard/*`
+- `/api/reports/*`
+- `/api/monitor/*`
+- `/api/jobs/*`
+- `/api/keyword/*`
 
-- Backend contracts live in module-specific `contracts.ts` files and shared dashboard contracts.
-- Data fetching is owned by feature hooks using TanStack Query.
-- Mapping from transport DTOs to UI-friendly view models happens in `mappers.ts` files.
-- Query keys are centralized per domain to keep cache invalidation predictable.
-- Error handling uses a shared `ApiError` policy and reusable route/block state components.
+Канонические linking-маршруты:
 
-Detailed mapping artifact:
+- `GET /api/events`
+- `GET /api/events/{id}`
+- `GET /api/processes/{process_id}`
+- `GET /api/posts/{post_id}/links`
+- `POST /api/linking/run`
+- `POST /api/events/rebuild`
+- `POST /api/processes/rebuild`
 
-- [docs/frontend_api_ui_mapping.md](/d:/Projects/tg_post_analyzer/docs/frontend_api_ui_mapping.md)
+Legacy-алиасы `/api/links/*` существуют только как deprecated compatibility bridge.
 
-## Linking API
+## Модель auth / session
 
-- The canonical linking bounded context is implemented in `api/routers/linking.py`.
-- Canonical read routes are `GET /api/posts/{post_id}/links`, `GET /api/events/{id}`, `GET /api/processes/{process_id}`, and `GET /api/events`.
-- Canonical write routes are `POST /api/linking/run`, `POST /api/events/rebuild`, and `POST /api/processes/rebuild`.
-- Legacy `/api/links/*` aliases remain available only as a deprecated compatibility bridge and should not be used by new frontend code.
+- `POST /api/auth/login` возвращает access token и выставляет refresh cookie
+- `POST /api/auth/refresh` ротирует refresh cookie и возвращает новый access token
+- `POST /api/auth/logout` отзывает refresh session и очищает cookie
+- `GET /api/auth/me` инициализирует frontend session state
+- фронтенд хранит access token только в памяти
+- refresh token хранится только в `HttpOnly` cookie
 
-## Dashboard Model
+## Модель RBAC
 
-Shared dashboard rules:
+Доступ к маршрутам:
 
-- posts, events, and processes use `/api/dashboard/*` as the primary source of truth
-- `generated_at` is shown on every dashboard screen
-- `partial=true` is rendered as a usable degraded state, not as a hard error
-- `warnings[]` are always displayed in a shared alerts layer
-- filters serialize into the URL
+- `admin`: полный доступ, включая admin-модули, monitor, jobs и keyword graph
+- `analyst`: dashboard, detail, reports, keyword graph и read-only доступ к settings
+- `viewer`: только чтение dashboard/detail/report surfaces
 
-Mode-specific surfaces:
-
-- Posts: summary cards, filters, table, report status, detail entry points
-- Events: summary cards, filters, events table, selected-event graph, details rail, draft report action
-- Processes: summary cards, filters, processes table, process graph, details rail, draft report action
-
-## Graph Model
-
-- Event and process graph views use the confirmed dashboard graph endpoints only.
-- Dashboard graph panels and full detail pages reuse the same graph and detail components.
-- Keyword graph is a separate analytical route and uses only the confirmed keyword search/build/report APIs.
-- Graph screens support loading, empty, no-edges, error, refresh, and partial-hint states.
-- Current graph rendering stays framework-native and does not yet use React Flow.
-
-Interaction and state artifacts:
-
-- [docs/frontend_interaction_rules.md](/d:/Projects/tg_post_analyzer/docs/frontend_interaction_rules.md)
-- [docs/frontend_state_status_matrix.md](/d:/Projects/tg_post_analyzer/docs/frontend_state_status_matrix.md)
-
-## RBAC Model
-
-Role scope:
-
-- `admin`: dashboard, details, reports, channels, users, settings, monitor, jobs, keyword graph
-- `analyst`: dashboard, details, reports, keyword graph, read-only effective settings
-- `viewer`: read-only dashboard, details, reports; no mutations; no keyword graph; no admin modules
-
-Action scope:
+Ограничения по действиям:
 
 - `reports.generate`: admin, analyst
 - `comments.refresh`: admin, analyst
-- `settings.update`: admin only
-- `channels.manage`: admin only
-- `users.manage`: admin only
-- `jobs.retry`: admin only
+- `settings.update`: только admin
+- `channels.manage`: только admin
+- `users.manage`: только admin
+- `jobs.retry`: только admin
 
-Behavior rules:
+## Модель асинхронных jobs
 
-- hidden navigation for routes outside the role scope
-- forbidden route screen for direct access to disallowed protected routes
-- read-only notices on surfaces where a role can read but cannot mutate
+Общий async flow:
 
-## Runtime Assumptions
+1. вызвать mutation endpoint
+2. получить `job_id`
+3. опрашивать статус job через `/api/jobs/*`
+4. получить результат или дождаться terminal state
+5. обновить затронутые UI-запросы
 
-- There is one frontend delivery path: the React SPA in `frontend/`.
-- Canonical process roles are `api`, `scheduler`, `telegram_pipeline`, and `ai_pipeline`.
-- Each runtime role has its own entrypoint under `scripts/`; runtime boundaries are operationally explicit even though the codebase remains a single repo/service.
-- Local frontend development runs through Vite on `http://localhost:5173` and proxies `/api` to the FastAPI backend.
-- Cross-origin auth relies on `allow_credentials=True` plus explicit allowed origins, because refresh uses an `HttpOnly` cookie on `/api/auth`.
-- CORS origins and `allow_credentials` are configured through env-backed settings instead of hardcoded localhost values.
-- `dev`/`local`/`test` default to localhost-friendly origins; non-dev environments must set `CORS_ALLOWED_ORIGINS` explicitly.
-- Integrated runtime serving uses `frontend/dist`; after `npm run build`, FastAPI serves the SPA shell at `/` and returns `index.html` for client-side routes.
-- `web/` is deprecated and is not mounted or returned from `api/main.py`.
-- If `frontend/dist` is missing, the backend still serves the API, but `/` returns a build-missing error instead of falling back to legacy UI files.
-- Telegram runtime does not support per-channel concurrency on a shared session; the `ingest` settings surface no longer advertises `channel_concurrency`.
+Подтвержденные async-поверхности включают генерацию и обновление отчетов, refresh комментариев и добавление канала.
 
-Runtime docs:
+## CORS и runtime-настройки
 
-- [docs/runtime_topology.md](/d:/Projects/tg_post_analyzer/docs/runtime_topology.md)
-- [docs/runtime_runbook.md](/d:/Projects/tg_post_analyzer/docs/runtime_runbook.md)
+- CORS origins задаются через `CORS_ALLOWED_ORIGINS`
+- credentialed cross-origin auth управляется через `CORS_ALLOW_CREDENTIALS`
+- `dev`, `local` и `test` по умолчанию используют localhost-friendly origins
+- вне dev-сред origins должны задаваться явно
+- wildcard CORS нельзя использовать вместе с credentials
 
-## Async Job Flow
+Ключевые auth- и runtime-настройки описаны в [.env.example](/d:/Projects/tg_post_analyzer/.env.example).
 
-Shared async flow used by post comments refresh, report generation/update, and report batch generation:
+## Стратегия тестирования
 
-1. Submit a mutation endpoint.
-2. Receive `job_id`.
-3. Poll job status.
-4. Fetch job result on terminal state.
-5. Invalidate relevant queries.
-6. Re-render the updated screen while keeping existing content visible.
+В репозитории используются три слоя:
 
-Confirmed async surfaces:
+- `tests/`: быстрые backend-тесты с изолированными фикстурами и точечными fake-объектами
+- `tests/integration/`: реальные PostgreSQL integration-тесты против `TEST_DATABASE_URL` с примененными Alembic-миграциями
+- `frontend/src/test/`: Vitest-покрытие маршрутизации, auth, фильтров и поведения экранов
 
-- `POST /api/posts/{post_id}/comments/update`
-- `POST /api/reports/post/{post_id}/update`
-- `POST /api/reports/events/{event_id}/update`
-- `POST /api/reports/processes/{process_id}/update`
-- `POST /api/reports/posts/generate-by-filter`
+Integration-тесты запускаются только при явном `--run-integration`.
 
-## Testing Strategy
+Запуск быстрых backend-тестов:
 
-Frontend tests live in `frontend/src/test` and focus on key user flows rather than snapshot-only coverage.
+```bash
+venv\Scripts\python -m pytest -q tests
+```
 
-Covered areas:
+Подготовка integration DB:
 
-- auth guard and refresh flow
-- route inventory and RBAC policy matrix
-- dashboard filter parsing and URL serialization
-- generated_at rendering on all dashboard modes
-- partial/warnings behavior
-- posts/events/processes dashboard flows
-- post/event/process detail flows
-- shared async job flow behavior
-- reports list/export/batch generation
-- channels/users/settings flows
-- monitor/jobs admin flows and retry actions
-- keyword graph search/build/report flow
+```bash
+docker compose up -d postgres
+set TEST_DATABASE_URL=postgresql+asyncpg://tg_analytics_app:replace-with-strong-password@localhost:5432/tg_analytics_test
+venv\Scripts\python scripts/test_bootstrap_backend.py
+```
 
-Run frontend tests:
+Запуск backend integration-тестов:
+
+```bash
+venv\Scripts\python -m pytest -q tests/integration --run-integration
+```
+
+Запуск frontend-тестов:
 
 ```bash
 cd frontend
@@ -248,37 +250,13 @@ npm install
 npm test
 ```
 
-Run backend tests:
+Связанный документ:
 
-```bash
-venv\Scripts\python -m pytest -q tests
-```
+- [docs/test_runbook.md](/d:/Projects/tg_post_analyzer/docs/test_runbook.md)
 
-## Known Limitations
+## Быстрый старт
 
-- The frontend currently uses framework-native tables and graph rendering instead of MUI, MUI X DataGrid, and React Flow.
-- Monitor is implemented as a single overview route, not as a multi-tab operations console.
-- Export flows use direct endpoint links rather than richer in-app download state management.
-- Settings editing uses a conservative JSON editor rather than schema-specific form editors.
-- No proactive token refresh scheduler or expiry countdown is implemented; refresh is reactive on `401`.
-
-## Remaining Gaps Relative To Spec
-
-Open gaps relative to `docs/frontend_handoff_checklist.md`:
-
-- wireframes, hi-fi mocks, and clickable prototype are still absent from the repo
-- the target UI libraries from the brief are not yet integrated
-- optional monitor specialized sub-tabs are not implemented
-
-Supporting docs:
-
-- [docs/frontend_spec_audit.md](/d:/Projects/tg_post_analyzer/docs/frontend_spec_audit.md)
-- [docs/frontend_gap_backlog.md](/d:/Projects/tg_post_analyzer/docs/frontend_gap_backlog.md)
-- [docs/frontend_copy_rules.md](/d:/Projects/tg_post_analyzer/docs/frontend_copy_rules.md)
-
-## Quick Start
-
-Backend:
+Backend API:
 
 ```bash
 copy .env.example .env
@@ -286,7 +264,7 @@ alembic upgrade head
 python scripts/run_api.py --reload
 ```
 
-Frontend:
+Разработка фронтенда:
 
 ```bash
 cd frontend
@@ -294,7 +272,7 @@ npm install
 npm run dev
 ```
 
-Production-style integrated frontend serving:
+Интегрированная раздача фронтенда:
 
 ```bash
 cd frontend
@@ -303,15 +281,3 @@ npm run build
 cd ..
 python scripts/run_api.py
 ```
-
-## Quality Gate
-
-Stage 15 final quality pass status on 2026-03-16:
-
-- frontend audit completed against `docs/frontend_handoff_checklist.md`
-- `npm test` passed in `frontend/`
-- route and RBAC matrix coverage was extended with an explicit policy test
-- handoff/spec documentation was expanded for route map, interactions, mapping, state/status, and copy rules
-
-
-

@@ -1,4 +1,4 @@
-﻿import { i18n } from '@shared/i18n/i18n';
+import { i18n } from '@shared/i18n/i18n';
 import type { DashboardSummaryCard } from '@shared/dashboard/components/DashboardSummaryCards';
 import type { EventGraphResponse } from '@shared/dashboard/contracts';
 import { mapEventGraphToViewModel, type EventGraphPanelViewModel } from '@modules/workspace/events/mappers';
@@ -29,8 +29,10 @@ export type EventDetailPageViewModel = {
 
 export function mapEventDetailToViewModel(detail: EventDetailDto, graph: EventGraphResponse | null): EventDetailPageViewModel {
   const graphViewModel = graph ? mapEventGraphToViewModel(graph) : null;
-  const rootPostId = graphViewModel?.nodes.find((node) => node.isRoot)?.postId ?? null;
-  const channelLabels = graph && graph.nodes.length > 0 ? Array.from(new Set(graph.nodes.map((node) => node.channel_username ?? null).filter((value): value is string => Boolean(value)))) : [];
+  const rootPostId = graphViewModel?.nodes.find((node) => node.isRoot)?.postId ?? detail.root_post_id ?? null;
+  const channelLabels = graph && graph.nodes.length > 0
+    ? Array.from(new Set(graph.nodes.map((node) => node.channel_username ?? null).filter((value): value is string => Boolean(value))))
+    : detail.channels;
   const postsCount = graphViewModel ? graphViewModel.event.postsCount : String(detail.post_ids.length);
 
   return {

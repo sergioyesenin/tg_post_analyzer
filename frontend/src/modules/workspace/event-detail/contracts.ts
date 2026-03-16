@@ -13,4 +13,6 @@ export type EventDetailSummaryDto = {
 export type EventDetailDto = {
   event: EventDetailSummaryDto;
   post_ids: number[];
+  root_post_id: number | null;
+  channels: string[];
 };

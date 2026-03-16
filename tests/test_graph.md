@@ -1,94 +1,92 @@
-# Keyword Graph Test Results
+# Результаты тестирования Keyword Graph
 
-## 1) Test Context
-- Date: 04/03/2026
-- Environment: local
-- App commit/hash:
-- DB size:
-  - posts total:
-  - posts with entities.search_lemmas:
+## 1) Контекст теста
+- Дата: 04/03/2026
+- Окружение: local
+- Commit/hash приложения:
+- Размер БД:
+  - всего posts:
+  - posts с `entities.search_lemmas`:
 - Feature settings (`/api/settings/effective -> features`):
     "keyword_graph_api_enabled": false,
     "keyword_graph_rollout_percent": 0
 
 ---
 
-## 2) Search API Quality (`POST /api/keyword/search/posts`)
+## 2) Качество Search API (`POST /api/keyword/search/posts`)
 
-### 2.1 Query Set Summary
-- Total queries tested: 9
-- Queries with expected results: 0
-- Avg took_ms: 72.22
-- p50 took_ms: 63
-- p95 took_ms: 188
-- Max took_ms: 188
-- Avg total results: 4.22
-- Errors (4xx/5xx) count: 0
+### 2.1 Сводка по набору запросов
+- Всего протестировано запросов: 9
+- Запросов с ожидаемыми результатами: 0
+- Средний `took_ms`: 72.22
+- p50 `took_ms`: 63
+- p95 `took_ms`: 188
+- Максимальный `took_ms`: 188
+- Среднее общее число результатов: 4.22
+- Количество ошибок (4xx/5xx): 0
 
-### 2.2 Per-query Results (top-10)
+### 2.2 Результаты по каждому запросу (top-10)
 | #  | query         | filters | took_ms | total | top10_post_ids                                     | expected_post_ids | hits@10 | precision@10 | notes |
 | -- | ------------- | ------- | ------- | ----- | -------------------------------------------------- | ----------------- | ------- | ------------ | ----- |
-| 1  | аисты         |         | 56      | 5     | [469, 599, 518]                                    |                   | 0       | 0.0          |       |
-| 2  | пожар         |         | 188     | 10    | [756, 703, 664, 637, 509, 476, 427, 288, 149, 54]  |                   | 0       | 0.0          |       |
-| 3  | президент     |         | 63      | 3     | [706, 478, 528]                                    |                   | 0       | 0.0          |       |
-| 4  | линия метро   |         | 79      | 2     | [685, 684]                                         |                   | 0       | 0.0          |       |
-| 5  | однушка       |         | 31      | 1     | [681]                                              |                   | 0       | 0.0          |       |
-| 6  | цены на жилье |         | 70      | 2     | [701, 606]                                         |                   | 0       | 0.0          |       |
-| 7  | Минск-мир     |         | 0       | 0     | []                                                 |                   | 0       | 0.0          |       |
-| 8  | Минск мир     |         | 44      | 5     | [90, 481, 135, 204, 91]                            |                   | 0       | 0.0          |       |
-| 9  | гололедица    |         | 119     | 10    | [669, 645, 531, 495, 377, 289, 246, 382, 297, 387] |                   | 0       | 0.0          |       |
-
+| 1  | Р°РёСЃС‚С‹         |         | 56      | 5     | [469, 599, 518]                                    |                   | 0       | 0.0          |       |
+| 2  | РїРѕР¶Р°СЂ         |         | 188     | 10    | [756, 703, 664, 637, 509, 476, 427, 288, 149, 54]  |                   | 0       | 0.0          |       |
+| 3  | РїСЂРµР·РёРґРµРЅС‚     |         | 63      | 3     | [706, 478, 528]                                    |                   | 0       | 0.0          |       |
+| 4  | Р»РёРЅРёСЏ РјРµС‚СЂРѕ   |         | 79      | 2     | [685, 684]                                         |                   | 0       | 0.0          |       |
+| 5  | РѕРґРЅСѓС€РєР°       |         | 31      | 1     | [681]                                              |                   | 0       | 0.0          |       |
+| 6  | С†РµРЅС‹ РЅР° Р¶РёР»СЊРµ |         | 70      | 2     | [701, 606]                                         |                   | 0       | 0.0          |       |
+| 7  | РњРёРЅСЃРє-РјРёСЂ     |         | 0       | 0     | []                                                 |                   | 0       | 0.0          |       |
+| 8  | РњРёРЅСЃРє РјРёСЂ     |         | 44      | 5     | [90, 481, 135, 204, 91]                            |                   | 0       | 0.0          |       |
+| 9  | РіРѕР»РѕР»РµРґРёС†Р°    |         | 119     | 10    | [669, 645, 531, 495, 377, 289, 246, 382, 297, 387] |                   | 0       | 0.0          |       |
 
 ---
 
-## 3) Graph Build Quality (`POST /api/keyword/graph/build`)
+## 3) Качество построения графа (`POST /api/keyword/graph/build`)
 
-### 3.1 Summary
+### 3.1 Сводка
 
-- Cases tested: 4
-- Avg nodes: 6.5
-- Avg edges: 0
-- Cases marked `ok`: 0
-- Cases marked `noisy`: 0
-- Cases marked `missing_links`: 4
-- Errors (4xx/5xx): 1
+- Протестировано кейсов: 4
+- Среднее число узлов: 6.5
+- Среднее число ребер: 0
+- Кейсов с оценкой `ok`: 0
+- Кейсов с оценкой `noisy`: 0
+- Кейсов с оценкой `missing_links`: 4
+- Ошибок (4xx/5xx): 1
 
-
-### 3.2 Per-case Results
+### 3.2 Результаты по каждому кейсу
 
 | # | seed_post_ids | exclude_post_ids | include_neighbors/depth | nodes | edges | manual_mark (ok/noisy/missing_links) | notes |
 |---|---------------|------------------|--------------------------|-------|-------|--------------------------------------|-------|
-| 1 | [756,703,664,637,509,476,427,288,149] | [54] | 0 | 9 | 0 | missing_links | posts about fires, but graph has no edges |
-| 2 | [669,645,531,495,377,289,246,382,297,387] | [54] | 0 | 10 | 0 | missing_links | weather/ice posts, no relationships between nodes |
-| 3 | [701,606] | [] | 0 | 2 | 0 | missing_links | housing price posts, graph contains only seeds |
-| 4 | [90,481,135,204,91] | [] | 0 | 5 | 0 | missing_links | Minsk-Mir posts but no links generated |
+| 1 | [756,703,664,637,509,476,427,288,149] | [54] | 0 | 9 | 0 | missing_links | посты про пожары, но граф не содержит ребер |
+| 2 | [669,645,531,495,377,289,246,382,297,387] | [54] | 0 | 10 | 0 | missing_links | посты про погоду и гололед, но между узлами нет связей |
+| 3 | [701,606] | [] | 0 | 2 | 0 | missing_links | посты про цены на жилье, но граф содержит только seed-посты |
+| 4 | [90,481,135,204,91] | [] | 0 | 5 | 0 | missing_links | посты про Минск-Мир, но связи не сгенерированы |
 ---
 
-## 4) Graph Report Quality (`POST /api/keyword/graph/report`)
+## 4) Качество отчетов по графу (`POST /api/keyword/graph/report`)
 
-### 4.1 Summary
+### 4.1 Сводка
 
-- Cases tested: 3
+- Протестировано кейсов: 3
 - status=ready: 3
 - status=failed: 0
 - status=not_found: 0
-- Avg report length (chars): 1661
-- Usable reports count: 0
+- Средняя длина отчета (символов): 1661
+- Число пригодных отчетов: 0
 
-
-### 4.2 Per-case Results
+### 4.2 Результаты по каждому кейсу
 
 | # | title | post_ids | exclude_post_ids | status | content_len | manual_mark (usable/weak) | notes |
 |---|-------|----------|------------------|--------|-------------|----------------------------|-------|
-| 1 | string | [681] | [0] | ready | 1661 | weak | report generic and reused |
-| 2 | string | [701, 606] | [0] | ready | 1661 | weak | content unrelated to housing price posts |
-| 3 | string | [669,645,531,495,377,289,246,382,297,387] | [531,495,377,289,246,382,297,387] | ready | 1661 | weak | same report text reused for weather posts |
+| 1 | string | [681] | [0] | ready | 1661 | weak | отчет общий и повторяется |
+| 2 | string | [701, 606] | [0] | ready | 1661 | weak | содержимое не связано с постами о ценах на жилье |
+| 3 | string | [669,645,531,495,377,289,246,382,297,387] | [531,495,377,289,246,382,297,387] | ready | 1661 | weak | тот же текст отчета повторно используется для постов о погоде |
 ---
 
-## 5) DB Performance Evidence
+## 5) Доказательства производительности БД
 
-### 5.1 EXPLAIN ANALYZE (3-5 queries)
-#### Query 1
+### 5.1 EXPLAIN ANALYZE (3-5 запросов)
+#### Запрос 1
 - Request body:
 ```json
 {}
+```

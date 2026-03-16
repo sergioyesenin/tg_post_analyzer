@@ -300,6 +300,7 @@ POST /api/reports/posts/generate-by-filter
 
 GET /api/channels/  
 POST /api/channels/add  
+returns `202 Accepted` with `{ status, job_id, job_type, status_url, result_url }`; execution happens asynchronously in `telegram_pipeline`  
 PATCH /api/channels/{id}  
 PUT /api/channels/{id}/active  
 DELETE /api/channels/{id}
@@ -1038,3 +1039,5 @@ Frontend-модуль считается готовым к реализации 
 - copy rule
 
 то frontend не должен молча интерпретировать это по своему усмотрению как “очевидное”, а должен считать это незакрытым пунктом handoff.
+
+

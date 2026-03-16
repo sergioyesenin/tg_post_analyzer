@@ -12,10 +12,15 @@ export type ProcessDetailSummaryDto = {
 
 export type ProcessDetailEventDto = {
   event_id: number;
+  title: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  confidence: number | null;
   relation_type: string;
   direction: string;
   score: number | null;
   status: string;
+  post_ids: number[];
 };
 
 export type ProcessDetailDto = {

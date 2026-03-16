@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime
 
-from sqlalchemy import and_, delete, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,12 +68,57 @@ async def rebuild_events(
     date_to: datetime,
     created_by: str = "pipeline",
 ) -> int:
-    posts_stmt = select(Post).where(and_(Post.date >= date_from, Post.date <= date_to))
-    posts = (await session.execute(posts_stmt)).scalars().all()
-    if not posts:
+    seed_posts_stmt = select(Post).where(and_(Post.date >= date_from, Post.date <= date_to))
+    seed_posts = (await session.execute(seed_posts_stmt)).scalars().all()
+    if not seed_posts:
         return 0
-    post_by_id = {p.id: p for p in posts}
-    post_ids = set(post_by_id.keys())
+
+    post_ids = {post.id for post in seed_posts}
+    event_ids: set[int] = set()
+    changed = True
+    while changed:
+        changed = False
+
+        links_stmt = (
+            select(PostLink)
+            .where(
+                and_(
+                    PostLink.status == VerificationStatus.VERIFIED,
+                    PostLink.link_type.in_([PostLinkType.SAME_EVENT, PostLinkType.RELATED]),
+                    or_(PostLink.src_post_id.in_(post_ids), PostLink.dst_post_id.in_(post_ids)),
+                )
+            )
+        )
+        links = (await session.execute(links_stmt)).scalars().all()
+        linked_post_ids = {
+            linked_post_id
+            for link in links
+            for linked_post_id in (link.src_post_id, link.dst_post_id)
+        }
+        if not linked_post_ids.issubset(post_ids):
+            post_ids.update(linked_post_ids)
+            changed = True
+
+        event_ids_stmt = (
+            select(EventPost.event_id)
+            .distinct()
+            .where(EventPost.post_id.in_(post_ids))
+        )
+        discovered_event_ids = {row[0] for row in (await session.execute(event_ids_stmt)).all()}
+        if not discovered_event_ids.issubset(event_ids):
+            event_ids.update(discovered_event_ids)
+            changed = True
+
+        if event_ids:
+            event_post_ids_stmt = select(EventPost.post_id).where(EventPost.event_id.in_(event_ids))
+            existing_event_post_ids = {row[0] for row in (await session.execute(event_post_ids_stmt)).all()}
+            if not existing_event_post_ids.issubset(post_ids):
+                post_ids.update(existing_event_post_ids)
+                changed = True
+
+    posts_stmt = select(Post).where(Post.id.in_(post_ids))
+    posts = (await session.execute(posts_stmt)).scalars().all()
+    post_by_id = {post.id: post for post in posts}
 
     links_stmt = (
         select(PostLink)
@@ -95,12 +140,6 @@ async def rebuild_events(
         uf.union(link.src_post_id, link.dst_post_id)
     components = list(uf.components().values())
 
-    event_ids_stmt = (
-        select(EventPost.event_id)
-        .distinct()
-        .where(EventPost.post_id.in_(post_ids))
-    )
-    event_ids = [row[0] for row in (await session.execute(event_ids_stmt)).all()]
     if event_ids:
         await session.execute(delete(EventPost).where(EventPost.event_id.in_(event_ids)))
         await session.execute(delete(Event).where(Event.id.in_(event_ids)))
@@ -113,6 +152,7 @@ async def rebuild_events(
         component_posts = [post_by_id[pid] for pid in component if pid in post_by_id]
         if not component_posts:
             continue
+        root_post = sorted(component_posts, key=lambda post: (post.date, post.id))[0]
         started_at = min(p.date for p in component_posts)
         ended_at = max(p.date for p in component_posts)
         title = _first_post_title(component_posts, facts_map)
@@ -133,7 +173,7 @@ async def rebuild_events(
                 .values(
                     event_id=event.id,
                     post_id=post_obj.id,
-                    role="context",
+                    role="root" if post_obj.id == root_post.id else "context",
                     evidence_json={
                         "anchors": facts_map.get(post_obj.id).entities_json if facts_map.get(post_obj.id) else {},
                         "spans": [],

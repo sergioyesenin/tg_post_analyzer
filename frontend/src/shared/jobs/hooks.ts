@@ -30,7 +30,7 @@ export function summarizeJobResult(result: JobResultResponse | null) {
     return result.error;
   }
 
-  const summaryKeys = ['status', 'report_id', 'post_id', 'comments_saved', 'wait_seconds', 'job_id'];
+  const summaryKeys = ['status', 'report_id', 'post_id', 'channel_id', 'username', 'comments_saved', 'wait_seconds', 'job_id'];
   const parts = summaryKeys
     .map((key) => {
       const value = readSummaryValue(result, key);
@@ -114,6 +114,7 @@ export function useAsyncJobAction<TVariables>({
 
   return {
     run: mutation.mutate,
+    runAsync: mutation.mutateAsync,
     isSubmitting: mutation.isPending,
     mutationError: mutation.error,
     activeJob,

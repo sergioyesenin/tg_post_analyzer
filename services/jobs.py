@@ -18,6 +18,7 @@ JOB_RESULT_KEY = "_job_result"
 
 @dataclass(frozen=True)
 class JobType:
+    ADD_CHANNEL: str = "add_channel"
     COLLECT_COMMENTS: str = "collect_comments"
     REFRESH_COMMENTS: str = "refresh_comments"
     BUILD_POST_LINKS: str = "build_post_links"

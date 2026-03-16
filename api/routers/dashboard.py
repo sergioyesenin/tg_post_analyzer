@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deps import get_session, require_roles
+from schemas.query_params import CsvIntList, CsvStrList
 from schemas.dashboard import (
     EventGraphResponse,
     EventsDashboardResponse,
@@ -31,18 +33,6 @@ PROCESS_SORTS = ("started_at", "comments_count", "involvement", "events_count")
 SORT_ORDERS = ("asc", "desc")
 
 
-def _parse_int_list(raw: str | None) -> list[int]:
-    if not raw:
-        return []
-    return [int(token.strip()) for token in raw.split(",") if token.strip()]
-
-
-def _parse_str_list(raw: str | None) -> list[str]:
-    if not raw:
-        return []
-    return [token.strip() for token in raw.split(",") if token.strip()]
-
-
 async def _resolve_limit(session: AsyncSession, limit: int | None) -> int:
     if limit is not None:
         return limit
@@ -55,10 +45,10 @@ async def get_posts_dashboard(
     date_from: datetime,
     date_to: datetime,
     limit: int | None = Query(default=None, ge=1, le=500),
-    channel_ids: str | None = Query(default=None),
-    categories: str | None = Query(default=None),
+    channel_ids: Annotated[CsvIntList, Query()] = [],
+    categories: Annotated[CsvStrList, Query()] = [],
     min_comments: int | None = Query(default=None, ge=0),
-    report_status: str | None = Query(default=None),
+    report_status: Annotated[CsvStrList, Query()] = [],
     sort_by: str = Query(default="comments_count", pattern="^(comments_count|date|views|involvement)$"),
     sort_order: str = Query(default="desc", pattern="^(asc|desc)$"),
     current_user: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
@@ -69,10 +59,10 @@ async def get_posts_dashboard(
         date_from=date_from,
         date_to=date_to,
         limit=await _resolve_limit(session, limit),
-        channel_ids=_parse_int_list(channel_ids),
-        categories=_parse_str_list(categories),
+        channel_ids=channel_ids,
+        categories=categories,
         min_comments=min_comments,
-        report_status=_parse_str_list(report_status),
+        report_status=report_status,
         sort_by=sort_by,
         sort_order=sort_order,
         comments_refresh_available=bool({"admin", "analyst"}.intersection(set(current_user.roles))),
@@ -84,9 +74,9 @@ async def get_events_dashboard(
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     limit: int | None = Query(default=None, ge=1, le=500),
-    status: str | None = Query(default=None),
-    channel_ids: str | None = Query(default=None),
-    categories: str | None = Query(default=None),
+    status: Annotated[CsvStrList, Query()] = [],
+    channel_ids: Annotated[CsvIntList, Query()] = [],
+    categories: Annotated[CsvStrList, Query()] = [],
     min_comments: int | None = Query(default=None, ge=0),
     sort_by: str = Query(default="started_at", pattern="^(started_at|comments_count|involvement|posts_count)$"),
     sort_order: str = Query(default="desc", pattern="^(asc|desc)$"),
@@ -98,9 +88,9 @@ async def get_events_dashboard(
         date_from=date_from,
         date_to=date_to,
         limit=await _resolve_limit(session, limit),
-        status=_parse_str_list(status),
-        channel_ids=_parse_int_list(channel_ids),
-        categories=_parse_str_list(categories),
+        status=status,
+        channel_ids=channel_ids,
+        categories=categories,
         min_comments=min_comments,
         sort_by=sort_by,
         sort_order=sort_order,
@@ -124,7 +114,7 @@ async def get_processes_dashboard(
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     limit: int | None = Query(default=None, ge=1, le=500),
-    status: str | None = Query(default=None),
+    status: Annotated[CsvStrList, Query()] = [],
     min_comments: int | None = Query(default=None, ge=0),
     sort_by: str = Query(default="started_at", pattern="^(started_at|comments_count|involvement|events_count)$"),
     sort_order: str = Query(default="desc", pattern="^(asc|desc)$"),
@@ -136,7 +126,7 @@ async def get_processes_dashboard(
         date_from=date_from,
         date_to=date_to,
         limit=await _resolve_limit(session, limit),
-        status=_parse_str_list(status),
+        status=status,
         min_comments=min_comments,
         sort_by=sort_by,
         sort_order=sort_order,

@@ -1,6 +1,7 @@
 import { apiClient } from '@shared/api/client';
 import type {
   AddChannelDto,
+  AddChannelResponseDto,
   AdminUserDto,
   AppSettingDto,
   ChannelDto,
@@ -16,7 +17,7 @@ export function getChannels() {
 }
 
 export function addChannel(payload: AddChannelDto) {
-  return apiClient.post<string>('/api/channels/add', payload);
+  return apiClient.post<AddChannelResponseDto>('/api/channels/add', payload);
 }
 
 export function updateChannel(channelId: number, payload: UpdateChannelDto) {

@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useTranslation } from 'react-i18next';
@@ -8,6 +8,7 @@ import { mapChannelsToRows, channelsColumns } from '@modules/admin/mappers';
 import { addChannelSchema, type AddChannelFormValues, updateChannelSchema, type UpdateChannelFormValues } from '@modules/admin/validation';
 import { AdminDataGrid } from '@modules/admin/components/AdminDataGrid';
 import { ApiError } from '@shared/api/client';
+import { AsyncActionIndicator } from '@shared/ui/async/AsyncActionIndicator';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
@@ -93,7 +94,7 @@ export function ChannelsPage() {
             <form
               className="dashboard-filter-grid"
               onSubmit={addForm.handleSubmit(async (values) => {
-                await mutations.add.mutateAsync({ username: values.username });
+                await mutations.add.runAsync({ username: values.username });
                 addForm.reset();
               })}
             >
@@ -103,13 +104,29 @@ export function ChannelsPage() {
                 {addForm.formState.errors.username ? <small>{addForm.formState.errors.username.message}</small> : null}
               </label>
               <div className="dashboard-filter-bar__actions">
-                <button type="submit" className="dashboard-button" disabled={mutations.add.isPending}>
+                <button
+                  type="submit"
+                  className="dashboard-button"
+                  disabled={mutations.add.isSubmitting || mutations.add.jobStatus === 'running'}
+                >
                   {t('actions.addChannel')}
                 </button>
               </div>
-              {mutations.add.data ? <p className="dashboard-panel-copy">{mutations.add.data}</p> : null}
             </form>
           </section>
+
+          {mutations.add.jobStatus ? (
+            <AsyncActionIndicator
+              title={t('admin.channels.addJobTitle', { defaultValue: 'Channel add job' })}
+              description={t('admin.channels.addJobDescription', {
+                defaultValue: 'Adding a channel is queued for the Telegram pipeline and no longer blocks the admin request path.',
+              })}
+              status={mutations.add.jobStatus}
+              jobId={mutations.add.activeJob?.job_id ?? mutations.add.terminalState?.jobId}
+              resultSummary={mutations.add.resultSummary}
+              tone={mutations.add.terminalState?.status === 'failed' ? 'danger' : mutations.add.jobStatus === 'done' ? 'success' : 'default'}
+            />
+          ) : null}
 
           <section className="detail-block">
             <div className="detail-block__header">

@@ -85,7 +85,10 @@ async def build_processes_dashboard(
 
     process_event_ids: dict[int, list[int]] = defaultdict(list)
     for process_id, event_id, _relation_type, _direction, _score in event_rows:
-        process_event_ids[int(process_id)].append(int(event_id))
+        parsed_process_id = int(process_id)
+        parsed_event_id = int(event_id)
+        if parsed_event_id not in process_event_ids[parsed_process_id]:
+            process_event_ids[parsed_process_id].append(parsed_event_id)
 
     all_event_ids = sorted({event_id for event_ids in process_event_ids.values() for event_id in event_ids})
     event_post_rows = []
@@ -106,13 +109,13 @@ async def build_processes_dashboard(
     items: list[ProcessesDashboardItem] = []
     for process in processes:
         event_ids = process_event_ids.get(int(process.id), [])
-        comments = []
-        involvements = []
+        comments_by_post_id: dict[int, int] = {}
+        involvements_by_post_id: dict[int, float | None] = {}
         for event_id in event_ids:
-            for _post_id, comments_count, involvement in event_posts_map.get(event_id, []):
-                comments.append(comments_count)
-                involvements.append(involvement)
-        comments_count = sum(comments)
+            for post_id, comments_count, involvement in event_posts_map.get(event_id, []):
+                comments_by_post_id.setdefault(post_id, comments_count)
+                involvements_by_post_id.setdefault(post_id, involvement)
+        comments_count = sum(comments_by_post_id.values())
         if min_comments is not None and comments_count < min_comments:
             continue
         items.append(
@@ -124,12 +127,12 @@ async def build_processes_dashboard(
                 ended_at=process.ended_at,
                 confidence=float(process.confidence) if process.confidence is not None else None,
                 comments_count=comments_count,
-                involvement=average_or_none(involvements),
+                involvement=average_or_none(list(involvements_by_post_id.values())),
                 events_count=len(event_ids),
                 event_ids=event_ids,
-            report_status=report_statuses.get(int(process.id), "missing"),
-            graph_ready=bool(event_ids),
-        )
+                report_status=report_statuses.get(int(process.id), "missing"),
+                graph_ready=bool(event_ids),
+            )
         )
 
     reverse = sort_order == "desc"
@@ -217,15 +220,19 @@ async def build_process_graph(session: AsyncSession, *, process_id: int) -> Proc
 
     mapping: dict[int, list[int]] = defaultdict(list)
     root_post_ids: set[int] = set()
-    nodes: list[EventGraphNode] = []
+    node_by_post_id: dict[int, EventGraphNode] = {}
     for event_id, role, post_id, channel_id, username, date, text, comments_count, views, involvement in post_rows:
-        mapping[int(event_id)].append(int(post_id))
+        parsed_event_id = int(event_id)
+        parsed_post_id = int(post_id)
+        if parsed_post_id not in mapping[parsed_event_id]:
+            mapping[parsed_event_id].append(parsed_post_id)
         if role == "root":
-            root_post_ids.add(int(post_id))
-        nodes.append(
+            root_post_ids.add(parsed_post_id)
+        node_by_post_id.setdefault(
+            parsed_post_id,
             EventGraphNode(
-                post_id=post_id,
-                channel_id=channel_id,
+                post_id=parsed_post_id,
+                channel_id=int(channel_id),
                 channel_username=username,
                 date=date,
                 text_preview=text_preview(text),
@@ -233,8 +240,9 @@ async def build_process_graph(session: AsyncSession, *, process_id: int) -> Proc
                 views=views,
                 involvement=float(involvement) if involvement is not None else None,
                 is_root=False,
-            )
+            ),
         )
+    nodes = list(node_by_post_id.values())
     if not root_post_ids and nodes:
         root_post_ids.add(nodes[0].post_id)
     nodes = [node.model_copy(update={"is_root": node.post_id in root_post_ids}) for node in nodes]

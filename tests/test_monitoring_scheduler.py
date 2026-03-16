@@ -281,3 +281,50 @@ def test_runtime_topology_expectations_exposes_canonical_roles():
     ]
     assert payload["monitoring_expectations"]["api"].startswith("Use HTTP/API health")
     assert "runtime.scheduler" in payload["monitoring_expectations"]["scheduler"]
+
+
+def test_system_snapshot_marks_api_runtime_scope_and_uses_non_blocking_cpu(monkeypatch):
+    cpu_intervals: list[float] = []
+
+    class _FakeVm:
+        total = 1000
+        available = 400
+        used = 600
+        percent = 60.0
+
+    class _FakeProcessMemory:
+        rss = 321
+
+    class _FakeProcess:
+        def __init__(self, _pid):
+            self.pid = _pid
+
+        def cpu_percent(self, *, interval):
+            cpu_intervals.append(interval)
+            return 1.5
+
+        def memory_info(self):
+            return _FakeProcessMemory()
+
+    class _FakePsutil:
+        @staticmethod
+        def virtual_memory():
+            return _FakeVm()
+
+        @staticmethod
+        def Process(pid):
+            return _FakeProcess(pid)
+
+        @staticmethod
+        def cpu_percent(*, interval):
+            cpu_intervals.append(interval)
+            return 2.5
+
+    monkeypatch.setattr(monitoring, "psutil", _FakePsutil())
+    monkeypatch.setattr(monitoring, "_utcnow", lambda: datetime(2026, 3, 11, 12, 0, tzinfo=timezone.utc))
+
+    payload = monitoring.system_snapshot()
+
+    assert payload["runtime"]["role"] == "api"
+    assert payload["runtime"]["entrypoint"] == "python scripts/run_api.py"
+    assert cpu_intervals == [0.0, 0.0]

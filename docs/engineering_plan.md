@@ -1,19 +1,19 @@
 ﻿Продолжай работу в текущем репозитории.
 
-Source of truth: docs/frontend_handoff_checklist.md.
+Источник истины: docs/frontend_handoff_checklist.md.
 
-Сейчас выполняется этап 15: final quality pass and spec audit.
+Сейчас выполняется этап 15: финальный quality pass и аудит спецификации.
 
 Требования этапа:
-Реализуй этап 15: final quality pass and spec audit.
+Реализуй этап 15: финальный quality pass и аудит спецификации.
 
-Source of truth: docs/frontend_handoff_checklist.md.
+Источник истины: docs/frontend_handoff_checklist.md.
 
 Нужно:
-- провести audit реализованного frontend against spec
+- провести аудит реализованного frontend against spec
 - проверить все routes
 - проверить все major RBAC rules
-- проверить all dashboard modes
+- проверить все dashboard modes
 - проверить details flows
 - проверить async job flows
 - проверить reports/admin/monitor/jobs/keyword graph
@@ -49,7 +49,7 @@ README должен содержать:
 7. финальный commit message
 
 Общие правила:
-Работай в текущем репозитории. Source of truth по требованиям: docs/frontend_handoff_checklist.md.
+Работай в текущем репозитории. Источник истины по требованиям: docs/frontend_handoff_checklist.md.
 
 Обязательные правила:
 - не менять backend contract

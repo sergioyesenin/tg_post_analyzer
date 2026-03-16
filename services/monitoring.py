@@ -54,6 +54,12 @@ def system_snapshot() -> dict:
     disk = shutil.disk_usage("/")
     payload = {
         "timestamp": now,
+        "runtime": {
+            "role": API_RUNTIME.role,
+            "process_boundary": API_RUNTIME.process_boundary,
+            "entrypoint": API_RUNTIME.entrypoint,
+            "heartbeat_source": API_RUNTIME.heartbeat_source,
+        },
         "host": {
             "cpu_count": os.cpu_count(),
             "pid": os.getpid(),
@@ -70,7 +76,7 @@ def system_snapshot() -> dict:
         vm = psutil.virtual_memory()
         process = psutil.Process(os.getpid())
         payload["cpu"] = {
-            "system_percent": float(psutil.cpu_percent(interval=0.1)),
+            "system_percent": float(psutil.cpu_percent(interval=0.0)),
             "process_percent": float(process.cpu_percent(interval=0.0)),
         }
         payload["memory"] = {
@@ -415,7 +421,12 @@ async def scheduler_snapshot(session: AsyncSession, *, effective_settings: dict)
     }
 
 
-async def health_snapshot(session: AsyncSession, *, effective_settings: dict | None = None) -> dict:
+async def health_snapshot(
+    session: AsyncSession,
+    *,
+    effective_settings: dict | None = None,
+    scheduler: dict | None = None,
+) -> dict:
     started = time.perf_counter()
     db_ok = True
     db_error = None
@@ -428,8 +439,7 @@ async def health_snapshot(session: AsyncSession, *, effective_settings: dict | N
     db_latency_ms = round((time.perf_counter() - started) * 1000.0, 2)
     telegram_runtime = await runtime_process_snapshot(session, runtime_name=TELEGRAM_PIPELINE_RUNTIME.runtime_name)
     ai_runtime = await runtime_process_snapshot(session, runtime_name=AI_PIPELINE_RUNTIME.runtime_name)
-    scheduler = None
-    if effective_settings is not None:
+    if scheduler is None and effective_settings is not None:
         scheduler = await scheduler_snapshot(session, effective_settings=effective_settings)
     status = "ok" if db_ok else "degraded"
     if not telegram_runtime.get("ok") or not ai_runtime.get("ok"):

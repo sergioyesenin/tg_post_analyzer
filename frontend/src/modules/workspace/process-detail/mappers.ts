@@ -51,13 +51,13 @@ export function mapProcessDetailToViewModel(
 
     return {
       eventId: event.event_id,
-      title: graphEvent?.title ?? i18n.t('processes.detail.fallbackEvent', { id: event.event_id }),
+      title: graphEvent?.title ?? event.title ?? i18n.t('processes.detail.fallbackEvent', { id: event.event_id }),
       status: graphEvent?.status ?? event.status,
       relationType: graphEvent?.relationType ?? event.relation_type,
       direction: graphEvent?.direction ?? event.direction,
       score: graphEvent?.score ?? (event.score === null ? i18n.t('common.na') : event.score.toFixed(2)),
-      startedAt: graphEvent?.startedAt ?? i18n.t('common.na'),
-      postIds: graphEvent?.postIds ?? [],
+      startedAt: graphEvent?.startedAt ?? formatUtcDateTime(event.started_at),
+      postIds: graphEvent?.postIds ?? event.post_ids,
     };
   });
 

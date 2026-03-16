@@ -1,30 +1,30 @@
-﻿# Frontend Gap Backlog
+# Backlog незакрытых задач фронтенда
 
-Source of truth: `docs/frontend_handoff_checklist.md`.
-Updated: 2026-03-16.
+Источник истины: `docs/frontend_handoff_checklist.md`.
+Обновлено: 2026-03-16.
 
-## Converted Tasks
+## Преобразованные задачи
 
-### Closed in this pass
+### Закрыто в этом проходе
 
-1. Create a route map artifact for all implemented frontend routes and role visibility.
-2. Create an interaction-rules artifact for dashboard, details, graph, filters, and async actions.
-3. Create an API-to-UI mapping artifact for shared dashboard, detail, graph, and job fields.
-4. Create a state/status matrix artifact covering shared UI states and status badges.
-5. Create a copy-rules artifact so copy stops living only in components and i18n files.
-6. Update audit and README remaining gaps after the new handoff artifacts are added.
+1. Создан артефакт с картой всех реализованных frontend-маршрутов и видимостью по ролям.
+2. Создан артефакт с правилами взаимодействия для dashboard, details, graph, filters и async actions.
+3. Создан артефакт с маппингом API в UI для общих dashboard/detail/graph/job полей.
+4. Создана матрица состояний и статусов для общих UI-состояний и status badge-ей.
+5. Создан артефакт с правилами для текстов, чтобы copy перестал жить только в компонентах и i18n-файлах.
+6. Обновлены audit и README после добавления новых handoff-артефактов.
 
-### Still open after this pass
+### Все еще открыто после этого прохода
 
-1. Migrate shared table layer to `MUI` + `MUI X DataGrid`.
-2. Migrate graph layer to `React Flow`.
-3. Add optional specialized monitor tabs if they become required by scope.
-4. Add wireframes / hi-fi mocks / clickable prototype if design deliverables are expected inside the repo.
+1. Перевести общий table layer на `MUI` + `MUI X DataGrid`.
+2. Перевести graph layer на `React Flow`.
+3. Добавить специализированные monitor tabs, если это потребуется scope-ом.
+4. Добавить wireframes / hi-fi mocks / clickable prototype, если design deliverables должны храниться в репозитории.
 
-## Recommended Execution Order
+## Рекомендуемый порядок выполнения
 
-1. Documentation handoff artifacts.
-2. Shared UI stack migration planning.
-3. Shared table migration.
-4. Shared graph migration.
-5. Optional monitor decomposition.
+1. Handoff-документация.
+2. Планирование миграции общего UI stack.
+3. Миграция общего table layer.
+4. Миграция общего graph layer.
+5. При необходимости — декомпозиция monitor.

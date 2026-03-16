@@ -1,16 +1,18 @@
-# Keyword Graph UI Integration Guide
+# Руководство по интеграции UI для Keyword Graph
 
-## Feature Flag
-- Key: `features.keyword_graph_api_enabled`
-- Enable via admin settings API:
+## Feature flag
+
+- Ключ: `features.keyword_graph_api_enabled`
+- Включается через admin settings API:
   - `PUT /api/settings/features`
   - body: `{"value_json":{"keyword_graph_api_enabled": true, "keyword_graph_rollout_percent": 100}}`
 
-## API Contracts
+## API-контракты
 
-### 1) Search posts by keyword or phrase
+### 1) Поиск постов по ключевому слову или фразе
+
 - Endpoint: `POST /api/keyword/search/posts`
-- Roles: `admin`, `analyst`
+- Роли: `admin`, `analyst`
 - Request:
 ```json
 {
@@ -21,7 +23,7 @@
   "channel_ids": [1, 2]
 }
 ```
-- Response fields for list rendering:
+- Поля ответа для рендера списка:
   - `items[].post_id`
   - `items[].channel_username`
   - `items[].date`
@@ -29,9 +31,10 @@
   - `items[].comments_count`, `items[].views`, `items[].involvement`
   - `items[].rank`, `items[].matched_lemmas`
 
-### 2) Build graph from selected posts (+ exclusions)
+### 2) Построение графа из выбранных постов с исключениями
+
 - Endpoint: `POST /api/keyword/graph/build`
-- Roles: `admin`, `analyst`
+- Роли: `admin`, `analyst`
 - Request:
 ```json
 {
@@ -48,18 +51,20 @@
 }
 ```
 - Response:
-  - `nodes[]`: post cards for graph nodes.
-  - `edges[]`: links for graph edges.
-  - `edges[].edge_source`: `transient` or `persisted`.
-  - `edges[].evidence`: why edge exists (for transient mode).
+  - `nodes[]`: карточки постов для узлов графа
+  - `edges[]`: связи для ребер графа
+  - `edges[].edge_source`: `transient` или `persisted`
+  - `edges[].evidence`: объяснение, почему ребро существует в transient mode
 
-Notes:
-- `graph_mode="transient"` is default and recommended for keyword analysis sessions.
-- Transient mode does not write links into DB.
+Примечания:
 
-### 3) Generate AI report for graph
+- `graph_mode="transient"` — режим по умолчанию и рекомендуемый режим для сессий keyword-analysis.
+- Transient mode не записывает links в БД.
+
+### 3) Генерация AI-отчета по графу
+
 - Endpoint: `POST /api/keyword/graph/report`
-- Roles: `admin`, `analyst`
+- Роли: `admin`, `analyst`
 - Request:
 ```json
 {
@@ -78,27 +83,29 @@ Notes:
 ```
 - Response:
   - `status`: `ready|failed|not_found`
-  - `content`: markdown/plain text report body.
+  - `content`: markdown/plain text с телом отчета
 
-## UI Flow (recommended)
+## UI-flow
+
 1. Search panel:
-   - input `query`, optional date/channel filters, button `Найти`.
-   - render table/list with checkbox per post.
+   - input `query`, опциональные фильтры по дате и каналу, кнопка `Найти`
+   - рендер таблицы/списка с checkbox у каждого поста
 2. Selection panel:
-   - show selected posts.
-   - allow `exclude` toggle per selected post.
+   - показать выбранные посты
+   - дать toggle `exclude` для каждого выбранного поста
 3. Graph panel:
-   - call `/graph/build` with selected/excluded ids.
-   - render:
-     - node label: `text_preview` + `@channel_username`.
-     - edge label: `link_type`, optional `score`.
+   - вызвать `/graph/build` с выбранными и исключенными id
+   - рендерить:
+     - label узла: `text_preview` + `@channel_username`
+     - label ребра: `link_type`, опционально `score`
 4. Report panel:
-   - button `Сгенерировать отчёт`.
-   - call `/graph/report`.
-   - render `content`, add copy/export controls.
+   - кнопка `Сгенерировать отчет`
+   - вызвать `/graph/report`
+   - отрендерить `content`, добавить copy/export controls
 
-## UX Notes
-- Debounce search input (300-500 ms) but execute request only on explicit submit.
-- For repeat queries, cache by key `query+filters` in frontend state.
-- Show server latency using `took_ms` from search response.
-- Graceful feature-off handling: if `404 Feature disabled`, hide page and show admin-only banner.
+## UX-примечания
+
+- Debounce для search input: `300-500 ms`, но сам запрос выполнять только по явному submit.
+- Для повторяющихся запросов кэшировать в frontend state по ключу `query+filters`.
+- Показывать server latency через `took_ms` из search response.
+- При выключенной feature: если сервер вернул `404 Feature disabled`, скрывать страницу и показывать admin-only banner.

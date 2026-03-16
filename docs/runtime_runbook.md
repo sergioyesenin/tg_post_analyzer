@@ -1,6 +1,6 @@
-# Runtime Runbook
+# Runbook по runtime
 
-## Start roles independently
+## Запуск ролей по отдельности
 
 API:
 
@@ -26,35 +26,35 @@ AI worker:
 python scripts/run_ai_pipeline.py --daemon
 ```
 
-## Diagnose by role
+## Диагностика по ролям
 
 API:
 
-- check process manager / container status
-- query `/api/monitor/health`
-- verify frontend/API reachability
+- проверить process manager / container status
+- запросить `/api/monitor/health`
+- убедиться в доступности frontend/API
 
 Scheduler:
 
-- query `/api/monitor/scheduler`
-- query `/api/monitor/runtime-topology`
-- inspect `runtime.scheduler`
+- запросить `/api/monitor/scheduler`
+- запросить `/api/monitor/runtime-topology`
+- проверить `runtime.scheduler`
 
 Telegram ingestion:
 
-- query `/api/monitor/pipeline`
-- inspect `runtime.telegram_pipeline`
-- inspect telegram/comment job backlog
+- запросить `/api/monitor/pipeline`
+- проверить `runtime.telegram_pipeline`
+- проверить backlog telegram/comment jobs
 
 AI worker:
 
-- query `/api/monitor/pipeline`
-- inspect `runtime.ai_pipeline`
-- inspect report job backlog
+- запросить `/api/monitor/pipeline`
+- проверить `runtime.ai_pipeline`
+- проверить backlog report jobs
 
-## Expected heartbeat behavior
+## Ожидаемое поведение heartbeat
 
-- `api`: no DB-backed heartbeat; diagnose through HTTP health/process manager
-- `scheduler`: heartbeat required only when scheduler retention mode is enabled
-- `telegram_pipeline`: heartbeat required while ingestion worker is running
-- `ai_pipeline`: heartbeat required while AI worker is running
+- `api`: DB-backed heartbeat не используется; диагностика идет через HTTP health и process manager
+- `scheduler`: heartbeat обязателен только когда включен scheduler retention mode
+- `telegram_pipeline`: heartbeat обязателен, пока работает ingestion worker
+- `ai_pipeline`: heartbeat обязателен, пока работает AI worker

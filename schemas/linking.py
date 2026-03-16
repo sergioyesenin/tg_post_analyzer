@@ -54,6 +54,8 @@ class EventSummaryOut(BaseModel):
 class EventDetailOut(BaseModel):
     event: EventSummaryOut
     post_ids: list[int]
+    root_post_id: int | None = None
+    channels: list[str] = Field(default_factory=list)
 
 
 class ProcessSummaryOut(BaseModel):
@@ -72,10 +74,15 @@ class ProcessSummaryOut(BaseModel):
 
 class ProcessEventOut(BaseModel):
     event_id: int
+    title: str | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
+    confidence: float | None = None
     relation_type: str
     direction: str
     score: float | None = None
     status: str
+    post_ids: list[int] = Field(default_factory=list)
 
 
 class ProcessDetailOut(BaseModel):

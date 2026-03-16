@@ -136,3 +136,26 @@ def test_generate_post_reports_by_filter_returns_202_batch_job(monkeypatch):
         },
     }
     assert session.commit_calls == 1
+
+
+def test_list_post_reports_returns_422_for_invalid_channel_ids() -> None:
+    session = _FakeSession({})
+    client = _build_client(session)
+
+    response = client.get("/api/reports/posts/list?channel_ids=7,nope")
+
+    assert response.status_code == 422
+
+
+def test_generate_post_reports_by_filter_returns_422_for_invalid_channel_ids(monkeypatch):
+    session = _FakeSession({})
+    client = _build_client(session)
+
+    async def _unexpected_enqueue(*args, **kwargs):
+        raise AssertionError("enqueue_post_report_batch_job should not run for invalid query params")
+
+    monkeypatch.setattr(reports, "enqueue_post_report_batch_job", _unexpected_enqueue)
+
+    response = client.post("/api/reports/posts/generate-by-filter?channel_ids=1,boom&limit=25")
+
+    assert response.status_code == 422

@@ -27,6 +27,8 @@ from client.telegram import (
 from db.models import Channel, Job, JobDeadLetter, Post, Report
 from db.session import AsyncSessionLocal
 from services.archive import run_archive_retention
+from services.auth import write_audit_log
+from services.channel_management import resolve_and_upsert_channel
 from services.events.build_events import rebuild_events
 from services.ingestion_core import IngestionCore, IngestionContext, IngestionOptions
 from services.jobs import (
@@ -60,6 +62,7 @@ PRIORITY_ARCHIVE_RETENTION = 95
 PRIORITY_JOBS_RETENTION = 96
 
 TELEGRAM_JOB_TYPES = {
+    JobType.ADD_CHANNEL,
     JobType.COLLECT_COMMENTS,
     JobType.REFRESH_COMMENTS,
     JobType.BUILD_POST_LINKS,
@@ -628,6 +631,74 @@ async def _run_link_job(*, job: Job, worker_id: str) -> int:
             return 0
 
 
+async def _run_add_channel_job(*, job: Job, tg_client: TelegramPipelineClient, worker_id: str) -> int:
+    async with AsyncSessionLocal() as session:
+        db_job = await session.get(Job, job.id)
+        if db_job is None:
+            return 0
+        payload = db_job.payload_json or {}
+        requested_username = str(payload.get("username") or "").strip()
+        actor_user_id = payload.get("requested_by_user_id")
+        try:
+            async with tg_client.operation_lock:
+                channel, result = await resolve_and_upsert_channel(
+                    tg_client=tg_client,
+                    session=session,
+                    raw_username=requested_username,
+                )
+            await write_audit_log(
+                session,
+                action="channels.add.executed",
+                actor_user_id=int(actor_user_id) if actor_user_id is not None else None,
+                target_type="channel",
+                target_id=str(channel.id),
+                details={"username": channel.username, "title": channel.title, "job_id": db_job.id, "status": result["status"]},
+            )
+            set_job_result(db_job, result)
+            await mark_job_done(session, job=db_job)
+            await session.commit()
+            logger.info(
+                "Job add_channel username=@%s status=%s channel_id=%s worker_id=%s",
+                channel.username,
+                result["status"],
+                channel.id,
+                worker_id,
+            )
+            return 1
+        except Exception as exc:
+            set_job_result(
+                db_job,
+                {
+                    "status": "failed",
+                    "job_id": db_job.id,
+                    "username": requested_username,
+                    "error": str(exc),
+                },
+            )
+            try:
+                await mark_job_failed(
+                    session,
+                    job=db_job,
+                    error=f"job_unexpected:{db_job.type}:{type(exc).__name__}:{exc}",
+                    retry_base_seconds=120,
+                    retry_max_seconds=1800,
+                )
+                await session.commit()
+            except Exception:
+                await _persist_job_failure_after_exception(
+                    session,
+                    job_id=db_job.id,
+                    error=f"job_unexpected:{db_job.type}:{type(exc).__name__}:{exc}",
+                )
+            logger.exception(
+                "Job failed marker=job_unexpected op=add_channel job_id=%s worker_id=%s err=%r",
+                db_job.id,
+                worker_id,
+                exc,
+            )
+            return 0
+
+
 async def _run_maintenance_job(*, job: Job, worker_id: str) -> int:
     async with AsyncSessionLocal() as session:
         db_job = await session.get(Job, job.id)
@@ -895,6 +966,8 @@ async def run_telegram_jobs(
 
     async def _run_other(job: Job) -> int:
         async with semaphore:
+            if job.type == JobType.ADD_CHANNEL:
+                return await _run_add_channel_job(job=job, tg_client=tg_client, worker_id=worker_id)
             if job.type == JobType.BUILD_POST_LINKS:
                 return await _run_link_job(job=job, worker_id=worker_id)
             return await _run_maintenance_job(job=job, worker_id=worker_id)

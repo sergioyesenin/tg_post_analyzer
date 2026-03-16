@@ -1,11 +1,14 @@
-﻿import { cleanup, screen, waitFor } from '@testing-library/react';
+import { cleanup, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError, apiClient } from '@shared/api/client';
 import {
+  createAcceptedJobResponse,
   createChannelsResponse,
   createEffectiveSettingsResponse,
+  createJobResultResponse,
+  createJobStatusResponse,
   createSettingsResponse,
   createUsersResponse,
 } from '@test/dashboard-fixtures';
@@ -40,7 +43,6 @@ function renderAdmin(initialEntry: string, roles: string[] = ['admin']) {
     authApi: createAuthApiMock(roles),
     storage: createMemoryTokenStorage({
       accessToken: 'access-token',
-      refreshToken: 'refresh-token',
       expiresInSeconds: 3600,
     }),
     initialEntry,
@@ -89,10 +91,18 @@ describe('Admin modules', () => {
         );
       }
 
+      if (path === '/api/jobs/501') {
+        return createJobStatusResponse({ id: 501, type: 'add_channel', status: 'done' });
+      }
+
+      if (path === '/api/jobs/501/result') {
+        return createJobResultResponse({ status: 'created', job_id: 501, channel_id: 3, username: 'new_channel' });
+      }
+
       throw new Error(`Unhandled GET path in channels test: ${path}`);
     });
 
-    const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue('OK: saved channel id=3 username=@new_channel title=None');
+    const postSpy = vi.spyOn(apiClient, 'post').mockResolvedValue(createAcceptedJobResponse({ job_id: 501, job_type: 'add_channel' }));
     const patchSpy = vi.spyOn(apiClient, 'patch').mockResolvedValue({
       ...createChannelsResponse()[0],
       title: 'Updated Signal Watch',
@@ -118,6 +128,11 @@ describe('Admin modules', () => {
 
     await waitFor(() => {
       expect(postSpy).toHaveBeenCalledWith('/api/channels/add', { username: '@new_channel' });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Channel add job/i)).toBeInTheDocument();
+      expect(screen.getByText(/username: new_channel/i)).toBeInTheDocument();
     });
 
     const titleInput = screen.getByDisplayValue(/Signal Watch/i);
@@ -294,4 +309,3 @@ describe('Admin modules', () => {
     });
   });
 });
-

@@ -239,3 +239,73 @@ def test_process_graph_payload_shape(monkeypatch):
     assert payload.events[0].event_id == 11
     assert payload.mapping.event_to_post_ids == {11: [101], 12: [102]}
     assert payload.edges[0].link_id == 88
+
+
+def test_process_graph_deduplicates_shared_posts_across_events(monkeypatch):
+    now = datetime(2026, 3, 12, 12, 0, tzinfo=timezone.utc)
+    process = SimpleNamespace(id=9, title="Process", status="verified", started_at=now, ended_at=None, confidence=0.77)
+    session = _FakeSession(
+        get_map={("Process", 9): process},
+        execute_results=[
+            _FakeRowsResult(
+                [
+                    (11, "update", "none", 0.91, "Event A", "verified", now, None, 0.8),
+                    (12, "update", "none", 0.87, "Event B", "verified", now, None, 0.7),
+                ]
+            ),
+            _FakeRowsResult(
+                [
+                    (11, "root", 101, 1, "channel_a", now, "shared root", 40, 1000, 0.2),
+                    (12, "context", 101, 1, "channel_a", now, "shared root", 40, 1000, 0.2),
+                ]
+            ),
+            _FakeScalarLinks([]),
+        ],
+    )
+
+    async def _fake_statuses(_session, process_ids):
+        assert process_ids == [9]
+        return {9: "draft"}
+
+    monkeypatch.setattr(processes_dashboard, "load_latest_process_report_statuses", _fake_statuses)
+
+    payload = asyncio.run(processes_dashboard.build_process_graph(session, process_id=9))
+
+    assert payload is not None
+    assert payload.summary.posts_count == 1
+    assert len(payload.nodes) == 1
+    assert payload.mapping.event_to_post_ids == {11: [101], 12: [101]}
+
+
+def test_processes_dashboard_deduplicates_shared_posts_in_comments_aggregation(monkeypatch):
+    now = datetime(2026, 3, 12, 12, 0, tzinfo=timezone.utc)
+    process = SimpleNamespace(id=1, title="P1", status="proposed", started_at=now, ended_at=None, confidence=0.9)
+    session = _FakeSession(
+        execute_results=[
+            _FakeScalarsResult([process]),
+            _FakeRowsResult([(1, 101, "related", "src_to_dst", 0.7), (1, 102, "related", "src_to_dst", 0.5)]),
+            _FakeRowsResult([(101, 1001, 30, 0.3), (102, 1001, 30, 0.3)]),
+        ]
+    )
+
+    async def _fake_statuses(_session, process_ids):
+        assert process_ids == [1]
+        return {1: "draft"}
+
+    monkeypatch.setattr(processes_dashboard, "load_latest_process_report_statuses", _fake_statuses)
+    monkeypatch.setattr(processes_dashboard, "utcnow", lambda: now)
+
+    payload = asyncio.run(
+        processes_dashboard.build_processes_dashboard(
+            session,
+            date_from=None,
+            date_to=None,
+            limit=20,
+            status=[],
+            min_comments=None,
+            sort_by="comments_count",
+            sort_order="desc",
+        )
+    )
+
+    assert payload.items[0].comments_count == 30

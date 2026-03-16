@@ -1,66 +1,66 @@
-﻿# Frontend Copy Rules
+# Правила текстов во фронтенде
 
-Source of truth: `docs/frontend_handoff_checklist.md`.
-Implementation source: shared i18n dictionaries and current screen behavior.
-Updated: 2026-03-16.
+Источник истины: `docs/frontend_handoff_checklist.md`.
+Источник реализации: общие i18n-словари и текущее поведение экранов.
+Обновлено: 2026-03-16.
 
-## Principles
+## Принципы
 
-- User-facing copy must come from i18n resources, not ad hoc inline strings.
-- Copy must describe confirmed backend behavior only.
-- Partial and warning copy must never imply a hard failure if the screen remains usable.
-- Forbidden copy must explain access restriction without implying missing data.
-- Read-only copy must explain that data is visible but mutations are unavailable.
+- Пользовательские тексты должны приходить из i18n-ресурсов, а не из ad hoc inline-строк.
+- Тексты должны описывать только подтвержденное backend-поведение.
+- Тексты про partial и warnings не должны намекать на hard failure, если экран остается пригодным к использованию.
+- Forbidden-текст должен объяснять ограничение доступа, а не намекать на отсутствие данных.
+- Read-only текст должен явно объяснять, что данные доступны для просмотра, но изменения недоступны.
 
-## Shared Copy Categories
+## Общие категории текстов
 
 ### Loading
 
-Use loading copy when the first snapshot is not ready yet.
-Tone: neutral, short, non-diagnostic.
+Используется, когда первый snapshot еще не готов.
+Тон: нейтральный, короткий, без диагностических подробностей.
 
 ### Empty
 
-Use empty copy when the request succeeds but there is no data for the current filters.
-Tone: factual, should mention filters or current selection when helpful.
+Используется, когда запрос успешен, но для текущих фильтров данных нет.
+Тон: фактический; при необходимости можно упомянуть фильтры или текущий выбор.
 
 ### Error
 
-Use error copy when the request failed and the user can retry later.
-Tone: clear and operational, without inventing unsupported troubleshooting steps.
+Используется, когда запрос завершился ошибкой и пользователь может повторить попытку позже.
+Тон: ясный и операционный, без выдуманных troubleshooting-шагов.
 
 ### Forbidden
 
-Use forbidden copy when the route or module is not available for the current role.
-Tone: explicit about permission boundary.
+Используется, когда маршрут или модуль недоступен для текущей роли.
+Тон: явно описывает границу прав доступа.
 
 ### Partial / warnings
 
-Use partial copy when the snapshot is usable but not fully enriched.
-Tone: clear that the screen remains available.
-Warnings copy should be concise and list concrete backend warnings when provided.
+Используется, когда snapshot пригоден для работы, но неполностью обогащен.
+Тон: должен ясно показывать, что экран остается доступным.
+Тексты warnings должны быть краткими и перечислять конкретные backend-warning-ы, если они переданы.
 
 ### Read-only
 
-Use read-only copy when the current role can inspect data but not mutate it.
-Tone: explicit about available read access and hidden/disabled mutations.
+Используется, когда текущая роль может просматривать данные, но не может их изменять.
+Тон: явно описывает доступное чтение и скрытые/disabled mutations.
 
-## Action Copy Rules
+## Правила текстов для действий
 
-- Mutation buttons must use verbs tied to confirmed actions: refresh, generate, update, retry.
-- Async job labels must state what background action is running or completed.
-- Export links must use the exported format in the label.
-- Avoid vague labels such as "Run" or "Do action".
+- Кнопки mutation должны использовать глаголы, привязанные к подтвержденным действиям: refresh, generate, update, retry.
+- Async job labels должны описывать, какое фоновое действие сейчас выполняется или уже завершилось.
+- Export links должны содержать формат экспорта в самом label.
+- Избегать расплывчатых подписей вроде `Run` или `Do action`.
 
-## Field Copy Rules
+## Правила текстов для полей
 
-- Use domain labels consistently: posts, events, processes, reports, channels, users, settings, jobs.
-- Status labels must be routed through the shared status metadata layer.
-- Date freshness labels must use the generated-at wording consistently on dashboard screens.
+- Доменные названия использовать последовательно: posts, events, processes, reports, channels, users, settings, jobs.
+- Подписи статусов должны идти через общий слой status metadata.
+- Подписи свежести данных должны использовать единый wording generated-at на dashboard-экранах.
 
-## Do Not Do
+## Чего не делать
 
-- Do not imply unsupported mutations for `viewer`.
-- Do not reinterpret `partial=true` as unavailable/failed.
-- Do not invent backend-only semantic states that are not present in DTOs or shared status metadata.
-- Do not add emergency or destructive wording unless the backend response actually indicates it.
+- Не намекать на недоступные мутации для `viewer`.
+- Не трактовать `partial=true` как unavailable/failed.
+- Не придумывать backend-only semantic states, которых нет в DTO или shared status metadata.
+- Не использовать аварийные или деструктивные формулировки, если backend response этого прямо не указывает.

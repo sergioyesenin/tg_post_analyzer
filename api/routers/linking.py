@@ -3,10 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from collections import defaultdict
+
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Event, EventPost, Post, PostLink, Process, ProcessEvent
+from db.models import Channel, Event, EventPost, Post, PostLink, Process, ProcessEvent
 from deps import get_session, require_roles
 from schemas.linking import (
     EventDetailOut,
@@ -135,13 +137,33 @@ async def get_event(
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     post_ids_stmt = select(EventPost.post_id).where(EventPost.event_id == event_id)
-    post_ids = [row[0] for row in (await session.execute(post_ids_stmt)).all()]
+    post_ids = [int(row[0]) for row in (await session.execute(post_ids_stmt)).all()]
+    root_post_id = (
+        await session.scalar(
+            select(EventPost.post_id)
+            .where(EventPost.event_id == event_id)
+            .where(EventPost.role == "root")
+            .limit(1)
+        )
+    )
     metrics_by_event_id = await load_event_metrics(session, [event_id])
+    channel_rows = (
+        await session.execute(
+            select(Channel.username)
+            .select_from(EventPost)
+            .join(Post, Post.id == EventPost.post_id)
+            .join(Channel, Channel.id == Post.channel_id)
+            .where(EventPost.event_id == event_id)
+            .distinct()
+        )
+    ).all()
     return EventDetailOut(
         event=EventSummaryOut.model_validate(event).model_copy(
             update=metrics_by_event_id.get(event_id, {"comments_count": 0, "involvement": None})
         ),
         post_ids=post_ids,
+        root_post_id=int(root_post_id) if root_post_id is not None else (int(post_ids[0]) if post_ids else None),
+        channels=[str(username) for username, in channel_rows if username],
     )
 
 
@@ -155,11 +177,34 @@ async def get_process(
     if process is None:
         raise HTTPException(status_code=404, detail="Process not found")
     events_stmt = (
-        select(ProcessEvent)
+        select(
+            ProcessEvent,
+            Event.title,
+            Event.started_at,
+            Event.ended_at,
+            Event.confidence,
+        )
+        .join(Event, Event.id == ProcessEvent.event_id)
         .where(ProcessEvent.process_id == process_id)
-        .order_by(ProcessEvent.created_at.desc())
+        .order_by(ProcessEvent.created_at.asc(), ProcessEvent.event_id.asc())
     )
-    events = (await session.execute(events_stmt)).scalars().all()
+    event_rows = (await session.execute(events_stmt)).all()
+    event_ids = [int(item[0].event_id) for item in event_rows]
+    post_rows = []
+    if event_ids:
+        post_rows = (
+            await session.execute(
+                select(EventPost.event_id, EventPost.post_id)
+                .where(EventPost.event_id.in_(event_ids))
+                .order_by(EventPost.event_id.asc(), EventPost.created_at.asc(), EventPost.post_id.asc())
+            )
+        ).all()
+    post_ids_by_event_id: dict[int, list[int]] = defaultdict(list)
+    for event_id, post_id in post_rows:
+        bucket = post_ids_by_event_id[int(event_id)]
+        parsed_post_id = int(post_id)
+        if parsed_post_id not in bucket:
+            bucket.append(parsed_post_id)
     metrics_by_process_id = await load_process_metrics(session, [process_id])
     return ProcessDetailOut(
         process=ProcessSummaryOut.model_validate(process).model_copy(
@@ -168,11 +213,16 @@ async def get_process(
         events=[
             ProcessEventOut(
                 event_id=item.event_id,
+                title=title,
+                started_at=started_at,
+                ended_at=ended_at,
+                confidence=float(confidence) if confidence is not None else None,
                 relation_type=item.relation_type.value if hasattr(item.relation_type, "value") else str(item.relation_type),
                 direction=item.direction.value if hasattr(item.direction, "value") else str(item.direction),
                 score=item.score,
                 status=item.status.value if hasattr(item.status, "value") else str(item.status),
+                post_ids=post_ids_by_event_id.get(int(item.event_id), []),
             )
-            for item in events
+            for item, title, started_at, ended_at, confidence in event_rows
         ],
     )

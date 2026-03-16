@@ -1,4 +1,4 @@
-This directory contains the deprecated legacy static prototype.
+Эта директория содержит устаревший legacy static prototype.
 
-The canonical frontend lives in `frontend/`.
-FastAPI no longer serves files from `web/`; integrated runtime serving uses `frontend/dist` instead.
+Канонический фронтенд находится в `frontend/`.
+FastAPI больше не обслуживает файлы из `web/`; для интегрированного runtime используется `frontend/dist`.

@@ -151,7 +151,11 @@ def test_rebuild_processes_creates_single_membership_per_event(monkeypatch) -> N
         execute_results=[
             _FakeScalarsResult([event_a, event_b]),
             _FakeRowsResult([]),
+            _FakeRowsResult([(101, 1), (102, 2)]),
+            _FakeScalarsResult([link]),
+            _FakeRowsResult([(101, 1), (102, 2)]),
             _FakeRowsResult([]),
+            _FakeScalarsResult([event_a, event_b]),
             _FakeRowsResult([(101, 1), (102, 2)]),
             _FakeScalarsResult([link]),
         ]
@@ -179,3 +183,69 @@ def test_rebuild_processes_creates_single_membership_per_event(monkeypatch) -> N
     assert {(stmt.payload["process_id"], stmt.payload["event_id"]) for stmt in inserts} == {(1, 1), (1, 2)}
     assert all(stmt.payload["relation_type"] == ProcessRelationType.UPDATE for stmt in inserts)
     assert all(stmt.payload["direction"] == LinkDirection.NONE for stmt in inserts)
+
+
+def test_rebuild_processes_preserves_cross_window_event_memberships(monkeypatch) -> None:
+    in_window_event = Event(
+        id=2,
+        title="B",
+        started_at=datetime(2026, 3, 2),
+        ended_at=datetime(2026, 3, 2),
+        confidence=0.6,
+        status=VerificationStatus.VERIFIED,
+    )
+    earlier_event = Event(
+        id=1,
+        title="A",
+        started_at=datetime(2026, 3, 1),
+        ended_at=datetime(2026, 3, 1),
+        confidence=0.4,
+        status=VerificationStatus.VERIFIED,
+    )
+    link = SimpleNamespace(
+        src_post_id=101,
+        dst_post_id=102,
+        status=VerificationStatus.VERIFIED,
+        link_type="update",
+        score=0.9,
+        evidence_json={"edge": "a-b"},
+        model_version="test",
+        pipeline_version="test",
+    )
+    session = _FakeSession(
+        execute_results=[
+            _FakeScalarsResult([in_window_event]),
+            _FakeRowsResult([]),
+            _FakeRowsResult([(102, 2)]),
+            _FakeScalarsResult([link]),
+            _FakeRowsResult([(101, 1), (102, 2)]),
+            _FakeRowsResult([]),
+            _FakeRowsResult([(101, 1), (102, 2)]),
+            _FakeScalarsResult([link]),
+            _FakeRowsResult([(101, 1), (102, 2)]),
+            _FakeRowsResult([]),
+            _FakeScalarsResult([earlier_event, in_window_event]),
+            _FakeRowsResult([(101, 1), (102, 2)]),
+            _FakeScalarsResult([link]),
+        ]
+    )
+    inserts: list[_FakeInsertStatement] = []
+
+    def _fake_insert(_model):
+        stmt = _FakeInsertStatement()
+        inserts.append(stmt)
+        return stmt
+
+    monkeypatch.setattr("services.processes.build_processes.insert", _fake_insert)
+
+    created = asyncio.run(
+        rebuild_processes(
+            session,
+            date_from=datetime(2026, 3, 2),
+            date_to=datetime(2026, 3, 2, 23, 59, 59),
+        )
+    )
+
+    assert created == 2
+    assert len(inserts) == 2
+    assert {(stmt.payload["process_id"], stmt.payload["event_id"]) for stmt in inserts} == {(1, 1), (1, 2)}

@@ -238,6 +238,8 @@ export function createEventDetailResponse(overrides: Partial<EventDetailDto> = {
       ...(overrides.event ?? {}),
     },
     post_ids: overrides.post_ids ?? [4012, 3975, 3980],
+    root_post_id: overrides.root_post_id ?? 4012,
+    channels: overrides.channels ?? ['signal_watch', 'briefing_room'],
   };
 }
 
@@ -431,17 +433,27 @@ export function createProcessDetailResponse(
     events: [
       {
         event_id: 81,
+        title: 'Election coverage spike',
+        started_at: '2026-03-12T06:30:00Z',
+        ended_at: null,
+        confidence: 0.88,
         relation_type: 'trigger',
         direction: 'src_to_dst',
         score: 0.82,
         status: 'active',
+        post_ids: [4012, 3975],
       },
       {
         event_id: 82,
+        title: 'Official response cascade',
+        started_at: '2026-03-11T14:00:00Z',
+        ended_at: '2026-03-12T02:30:00Z',
+        confidence: 0.73,
         relation_type: 'response',
         direction: 'src_to_dst',
         score: 0.76,
         status: 'cooling',
+        post_ids: [4100],
       },
     ],
     ...overrides,
@@ -1076,3 +1088,4 @@ export function createJobResultResponse(
 ): JobResultResponse {
   return overrides;
 }
+

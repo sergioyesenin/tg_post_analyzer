@@ -107,3 +107,39 @@ def test_dashboard_forbids_unknown_role(monkeypatch):
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Insufficient permissions"
+
+
+def test_dashboard_posts_returns_422_for_invalid_channel_ids(monkeypatch):
+    now = datetime(2026, 3, 12, 12, 0, tzinfo=timezone.utc)
+    client = _build_client(_FakeSession(), roles=("viewer",))
+
+    async def _fake_limit(_session, limit):
+        return 20
+
+    async def _unexpected_build(*args, **kwargs):
+        raise AssertionError("build_posts_dashboard should not run for invalid query params")
+
+    monkeypatch.setattr(dashboard, "_resolve_limit", _fake_limit)
+    monkeypatch.setattr(dashboard, "build_posts_dashboard", _unexpected_build)
+
+    iso_now = now.isoformat().replace("+00:00", "Z")
+    response = client.get(f"/api/dashboard/posts?date_from={iso_now}&date_to={iso_now}&channel_ids=1,abc")
+
+    assert response.status_code == 422
+
+
+def test_dashboard_events_returns_422_for_invalid_channel_ids(monkeypatch):
+    client = _build_client(_FakeSession(), roles=("viewer",))
+
+    async def _fake_limit(_session, limit):
+        return 20
+
+    async def _unexpected_build(*args, **kwargs):
+        raise AssertionError("build_events_dashboard should not run for invalid query params")
+
+    monkeypatch.setattr(dashboard, "_resolve_limit", _fake_limit)
+    monkeypatch.setattr(dashboard, "build_events_dashboard", _unexpected_build)
+
+    response = client.get("/api/dashboard/events?channel_ids=abc")
+
+    assert response.status_code == 422

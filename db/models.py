@@ -472,13 +472,6 @@ class Process(Base):
 class ProcessEvent(Base):
     __tablename__ = "process_events"
     __table_args__ = (
-        UniqueConstraint(
-            "process_id",
-            "event_id",
-            "relation_type",
-            "direction",
-            name="uq_process_events_proc_event_relation",
-        ),
         Index("ix_process_events_event_id", "event_id"),
         Index("ix_process_events_status", "status"),
         Index("ix_process_events_evidence_gin", "evidence_json", postgresql_using="gin"),

@@ -2,6 +2,7 @@ import importlib
 import sys
 
 import pytest
+from fastapi.testclient import TestClient
 
 STRONG_TEST_JWT_SECRET = "A_strong_test_secret_value_2026!XYZ"
 
@@ -29,6 +30,24 @@ def test_api_main_exposes_app_and_registers_routes(monkeypatch: pytest.MonkeyPat
     assert any(path.startswith("/api/auth") for path in paths)
     assert any(path.startswith("/api/channels") for path in paths)
     assert "/" in paths
+    assert "/{full_path:path}" in paths
+    assert not any(path.startswith("/web") for path in paths)
+
+
+def test_frontend_routes_serve_react_spa_and_do_not_shadow_api(monkeypatch: pytest.MonkeyPatch):
+    module = _import_api_app(monkeypatch)
+    client = TestClient(module.app)
+
+    root_response = client.get("/")
+    assert root_response.status_code == 200
+    assert 'id="root"' in root_response.text
+
+    spa_response = client.get("/dashboard/posts")
+    assert spa_response.status_code == 200
+    assert 'id="root"' in spa_response.text
+
+    api_response = client.get("/api/route-that-does-not-exist")
+    assert api_response.status_code == 404
 
 
 def test_legacy_man_entrypoint_reuses_canonical_app(monkeypatch: pytest.MonkeyPatch):

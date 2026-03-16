@@ -193,3 +193,49 @@ def test_event_graph_payload_shape(monkeypatch):
     assert payload.nodes[0].is_root is True
     assert payload.edges[0].link_id == 77
 
+
+def test_process_graph_payload_shape(monkeypatch):
+    now = datetime(2026, 3, 12, 12, 0, tzinfo=timezone.utc)
+    process = SimpleNamespace(id=5, title="Process", status="verified", started_at=now, ended_at=None, confidence=0.87)
+    link = SimpleNamespace(
+        id=88,
+        src_post_id=101,
+        dst_post_id=102,
+        link_type="update",
+        direction="src_to_dst",
+        score=0.76,
+        status="verified",
+    )
+    session = _FakeSession(
+        get_map={("Process", 5): process},
+        execute_results=[
+            _FakeRowsResult(
+                [
+                    (11, "update", "none", 0.91, "Event A", "verified", now, None, 0.8),
+                    (12, "update", "none", 0.87, "Event B", "verified", now, None, 0.7),
+                ]
+            ),
+            _FakeRowsResult(
+                [
+                    (11, "root", 101, 1, "channel_a", now, "root text", 40, 1000, 0.2),
+                    (12, "context", 102, 1, "channel_a", now, "child text", 10, 500, 0.1),
+                ]
+            ),
+            _FakeScalarLinks([link]),
+        ],
+    )
+
+    async def _fake_statuses(_session, process_ids):
+        assert process_ids == [5]
+        return {5: "draft"}
+
+    monkeypatch.setattr(processes_dashboard, "load_latest_process_report_statuses", _fake_statuses)
+
+    payload = asyncio.run(processes_dashboard.build_process_graph(session, process_id=5))
+
+    assert payload is not None
+    assert payload.summary.report_status == "draft"
+    assert payload.summary.events_count == 2
+    assert payload.events[0].event_id == 11
+    assert payload.mapping.event_to_post_ids == {11: [101], 12: [102]}
+    assert payload.edges[0].link_id == 88

@@ -46,10 +46,11 @@ Target-but-not-yet-adopted UI stack from the handoff checklist:
 api/                    FastAPI routers and app entrypoint
 services/               domain services, dashboard aggregators, jobs, monitoring
 schemas/                backend transport schemas
-frontend/               React application
+frontend/               Canonical React application and Vite build output
 frontend/src/app/       app bootstrap, providers, shell, router, guards
 frontend/src/shared/    shared API client, auth, routing, dashboard system, UI primitives
 frontend/src/modules/   feature route modules (workspace, reports, admin, platform, keyword graph)
+web/                    Deprecated legacy static prototype; no longer served by FastAPI
 tests/                  backend/API tests
 docs/                   requirements, plans, and audit artifacts
 ```
@@ -57,6 +58,8 @@ docs/                   requirements, plans, and audit artifacts
 ## Architecture Decisions
 
 - One authenticated SPA shell is used for all protected frontend routes.
+- `frontend/` is the only supported UI codebase; `web/` is kept only as a deprecated legacy artifact.
+- FastAPI serves the built SPA from `frontend/dist` when the frontend has been built for integrated runtime delivery.
 - Dashboard modes are built primarily from confirmed aggregator endpoints under `/api/dashboard/*`.
 - Transport DTOs and UI view models are separated through per-module contracts and mappers.
 - URL query params are the source of truth for dashboard and reports filters.
@@ -170,6 +173,14 @@ Behavior rules:
 - forbidden route screen for direct access to disallowed protected routes
 - read-only notices on surfaces where a role can read but cannot mutate
 
+## Runtime Assumptions
+
+- There is one frontend delivery path: the React SPA in `frontend/`.
+- Local frontend development runs through Vite on `http://localhost:5173` and proxies `/api` to the FastAPI backend.
+- Integrated runtime serving uses `frontend/dist`; after `npm run build`, FastAPI serves the SPA shell at `/` and returns `index.html` for client-side routes.
+- `web/` is deprecated and is not mounted or returned from `api/main.py`.
+- If `frontend/dist` is missing, the backend still serves the API, but `/` returns a build-missing error instead of falling back to legacy UI files.
+
 ## Async Job Flow
 
 Shared async flow used by post comments refresh, report generation/update, and report batch generation:
@@ -260,6 +271,16 @@ Frontend:
 cd frontend
 npm install
 npm run dev
+```
+
+Production-style integrated frontend serving:
+
+```bash
+cd frontend
+npm install
+npm run build
+cd ..
+uvicorn api.main:app
 ```
 
 ## Quality Gate

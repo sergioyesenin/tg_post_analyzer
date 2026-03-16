@@ -1,9 +1,9 @@
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 
 from api.routers import auth, channels, dashboard, jobs, keyword_graph, linking, links, monitor, posts, reports, settings
 
@@ -34,11 +34,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-WEB_DIR = Path(__file__).resolve().parent.parent / "web"
-if WEB_DIR.exists():
-    app.mount("/web", StaticFiles(directory=WEB_DIR), name="web")
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+FRONTEND_DIST_DIR = PROJECT_ROOT / "frontend" / "dist"
+FRONTEND_INDEX_FILE = FRONTEND_DIST_DIR / "index.html"
+RESERVED_BACKEND_PREFIXES = ("api", "docs", "redoc", "openapi.json")
 
 
 @app.get("/", include_in_schema=False)
-async def dashboard() -> FileResponse:
-    return FileResponse(WEB_DIR / "index.html")
+async def frontend_index() -> FileResponse:
+    if not FRONTEND_INDEX_FILE.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Frontend build not found. Run `npm run build` in `frontend/` or start the Vite dev server.",
+        )
+
+    return FileResponse(FRONTEND_INDEX_FILE)
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def frontend_spa(full_path: str) -> FileResponse:
+    if full_path.startswith(RESERVED_BACKEND_PREFIXES):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    requested_file = FRONTEND_DIST_DIR / full_path
+    if full_path and requested_file.is_file():
+        return FileResponse(requested_file)
+
+    if full_path and Path(full_path).suffix:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    return await frontend_index()

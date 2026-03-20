@@ -1,4 +1,4 @@
-﻿import { useTranslation } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 
 import { useSession } from '@app/providers/SessionProvider';
 import { JobsTableSection } from '@modules/platform/components/JobsTableSection';
@@ -116,7 +116,8 @@ export function JobsPage() {
         <div className="dashboard-page__primary">
           <JobsTableSection
             title={t('platform.jobs.pendingTitle')}
-            description={t('platform.jobs.pendingDescription')}
+            description={t('platform.jobs.pendingDescription')} 
+            eyebrowLabel={t('states.jobs')}
             emptyTitle={t('platform.jobs.pendingEmptyTitle')}
             emptyDescription={t('platform.jobs.pendingEmptyDescription')}
             columns={pendingJobsColumns}
@@ -137,7 +138,8 @@ export function JobsPage() {
         <div className="dashboard-page__secondary">
           <JobsTableSection
             title={t('platform.jobs.deadLetterTitle')}
-            description={t('platform.jobs.deadLetterDescription')}
+            description={t('platform.jobs.deadLetterDescription')} 
+            eyebrowLabel={t('states.jobs')}
             emptyTitle={t('platform.jobs.deadLetterEmptyTitle')}
             emptyDescription={t('platform.jobs.deadLetterEmptyDescription')}
             columns={deadLetterColumns}
@@ -158,3 +160,4 @@ export function JobsPage() {
     </div>
   );
 }
+

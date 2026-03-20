@@ -1,9 +1,13 @@
+import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
+
 import { ApiError } from '@shared/api/client';
 import { DashboardFilterBar } from '@shared/dashboard/components/DashboardFilterBar';
 import { DashboardGeneratedAt } from '@shared/dashboard/components/DashboardGeneratedAt';
 import { DashboardSummaryCards } from '@shared/dashboard/components/DashboardSummaryCards';
 import { DashboardSystemAlerts } from '@shared/dashboard/components/DashboardSystemAlerts';
-import { DashboardTableShell } from '@shared/dashboard/components/DashboardTableShell';
+import { AnalyticsTable } from '@shared/dashboard/components/DashboardTableShell';
+import { getProcessesDashboardFilterOptions } from '@shared/dashboard/filter-options';
 import { useDashboardFilters } from '@shared/dashboard/hooks';
 import { canPerformAction } from '@shared/routing/policy';
 import { AsyncActionIndicator } from '@shared/ui/async/AsyncActionIndicator';
@@ -27,7 +31,6 @@ import {
   mapProcessesRowsToTableRows,
   processesDashboardColumns,
 } from '@modules/workspace/processes/mappers';
-import { useTranslation } from 'react-i18next';
 
 export function ProcessesDashboardScreen() {
   const { t } = useTranslation();
@@ -36,6 +39,10 @@ export function ProcessesDashboardScreen() {
   const roles = user?.roles ?? [];
   const dashboardQuery = useProcessesDashboardQuery(filters);
   const dashboardData = dashboardQuery.data ?? null;
+  const filterOptions = getProcessesDashboardFilterOptions({
+    filters,
+    dashboardData,
+  });
   const viewModel = dashboardData ? mapProcessesDashboardToViewModel(dashboardData) : null;
   const { selectedProcessId, selectProcess } = useSelectedProcessId(dashboardData?.items ?? []);
   const selectedProcess = viewModel?.rows.find((row) => row.processId === selectedProcessId) ?? null;
@@ -43,17 +50,21 @@ export function ProcessesDashboardScreen() {
   const graphViewModel = graphQuery.data ? mapProcessGraphToViewModel(graphQuery.data) : null;
   const canMutate = canPerformAction('reports.generate', roles);
   const reportAction = useUpdateProcessReportAction(selectedProcessId);
+  const tableRows = useMemo(
+    () => (viewModel ? mapProcessesRowsToTableRows(viewModel.rows, selectedProcessId, selectProcess, primaryRole) : []),
+    [viewModel, selectedProcessId, selectProcess, primaryRole],
+  );
 
   if (dashboardQuery.isLoading) {
     return (
-      <div className="dashboard-page">
-        <section className="dashboard-page__hero">
+      <div className="dashboard-page dashboard-page--analytics">
+        <section className="dashboard-page__hero dashboard-page__hero--analytics">
           <div>
             <h2>{t('processes.dashboard.heroTitle')}</h2>
             <p>{t('processes.dashboard.sourceDescription')}</p>
           </div>
         </section>
-        <DashboardFilterBar mode="processes" filters={filters} onApply={applyFilters} onReset={resetFilters} />
+        <DashboardFilterBar mode="processes" filters={filters} options={filterOptions} onApply={applyFilters} onReset={resetFilters} />
         <LoadingState title={t('processes.dashboard.loadingTitle')} description={t('processes.dashboard.loadingDescription')} />
       </div>
     );
@@ -64,14 +75,14 @@ export function ProcessesDashboardScreen() {
     const isForbidden = error instanceof ApiError && error.status === 403;
 
     return (
-      <div className="dashboard-page">
-        <section className="dashboard-page__hero">
+      <div className="dashboard-page dashboard-page--analytics">
+        <section className="dashboard-page__hero dashboard-page__hero--analytics">
           <div>
             <h2>{t('processes.dashboard.heroTitle')}</h2>
             <p>{t('processes.dashboard.sourceDescription')}</p>
           </div>
         </section>
-        <DashboardFilterBar mode="processes" filters={filters} onApply={applyFilters} onReset={resetFilters} />
+        <DashboardFilterBar mode="processes" filters={filters} options={filterOptions} onApply={applyFilters} onReset={resetFilters} />
         {isForbidden ? (
           <ForbiddenState title={t('processes.dashboard.forbiddenTitle')} description={t('processes.dashboard.forbiddenDescription')} />
         ) : (
@@ -83,14 +94,14 @@ export function ProcessesDashboardScreen() {
 
   if (!dashboardQuery.data) {
     return (
-      <div className="dashboard-page">
-        <section className="dashboard-page__hero">
+      <div className="dashboard-page dashboard-page--analytics">
+        <section className="dashboard-page__hero dashboard-page__hero--analytics">
           <div>
             <h2>{t('processes.dashboard.heroTitle')}</h2>
             <p>{t('processes.dashboard.sourceDescription')}</p>
           </div>
         </section>
-        <DashboardFilterBar mode="processes" filters={filters} onApply={applyFilters} onReset={resetFilters} />
+        <DashboardFilterBar mode="processes" filters={filters} options={filterOptions} onApply={applyFilters} onReset={resetFilters} />
         <ErrorState title={t('processes.dashboard.noDataTitle')} description={t('processes.dashboard.noDataDescription')} />
       </div>
     );
@@ -98,7 +109,7 @@ export function ProcessesDashboardScreen() {
 
   if (!viewModel) {
     return (
-      <div className="dashboard-page">
+      <div className="dashboard-page dashboard-page--analytics">
         <ErrorState title={t('processes.dashboard.mappingTitle')} description={t('processes.dashboard.mappingDescription')} />
       </div>
     );
@@ -111,10 +122,10 @@ export function ProcessesDashboardScreen() {
       : null;
 
   return (
-    <div className="dashboard-page dashboard-page--processes">
+    <div className="dashboard-page dashboard-page--analytics dashboard-page--processes">
       <DashboardSystemAlerts warnings={processesViewModel.warnings} partial={processesViewModel.isPartial} />
 
-      <section className="dashboard-page__hero">
+      <section className="dashboard-page__hero dashboard-page__hero--analytics">
         <div>
           <h2>{t('processes.dashboard.heroTitle')}</h2>
           <p>{t('processes.dashboard.heroDescription')}</p>
@@ -124,7 +135,7 @@ export function ProcessesDashboardScreen() {
 
       <DashboardSummaryCards cards={processesViewModel.summaryCards} />
 
-      <DashboardFilterBar mode="processes" filters={filters} onApply={applyFilters} onReset={resetFilters} />
+      <DashboardFilterBar mode="processes" filters={filters} options={filterOptions} onApply={applyFilters} onReset={resetFilters} />
 
       {primaryRole === 'viewer' ? (
         <ReadOnlyNotice title={t('processes.dashboard.readOnlyTitle')} description={t('processes.dashboard.readOnlyDescription')} />
@@ -135,11 +146,11 @@ export function ProcessesDashboardScreen() {
       ) : (
         <section className="dashboard-page__content dashboard-page__content--workspace">
           <div className="dashboard-page__primary">
-            <DashboardTableShell
+            <AnalyticsTable
               title={t('processes.dashboard.tableTitle')}
               description={t('processes.dashboard.tableDescription')}
-              columns={[...processesDashboardColumns]}
-              rows={mapProcessesRowsToTableRows(processesViewModel.rows, selectedProcessId, selectProcess, primaryRole)}
+              columns={processesDashboardColumns}
+              rows={tableRows}
             />
           </div>
 
@@ -189,3 +200,8 @@ export function ProcessesDashboardScreen() {
     </div>
   );
 }
+
+
+
+
+

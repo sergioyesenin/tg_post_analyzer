@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { i18n } from '@shared/i18n/i18n';
 import type { UserRole } from '@shared/auth/roles';
 import type { DashboardSummaryCard } from '@shared/dashboard/components/DashboardSummaryCards';
-import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
+import type { DataTableColumn, DataTableRow } from '@shared/tables/types';
 import type { ProcessGraphResponse, ProcessesDashboardItemDto, ProcessesDashboardResponse } from '@shared/dashboard/contracts';
 import { ReportStatusBadge } from '@shared/ui/status/ReportStatusBadge';
 import { formatConfidencePercent, formatNullableRatio, formatUtcDateTime } from '@shared/utils/formatters';
@@ -31,7 +31,7 @@ export type ProcessesDashboardViewModel = {
   rows: ProcessDashboardRowViewModel[];
 };
 
-export const processesDashboardColumns: DashboardTableColumn[] = [
+export const processesDashboardColumns: DataTableColumn[] = [
   { id: 'process', label: i18n.t('processes.table.process') },
   { id: 'timeline', label: i18n.t('processes.table.timeline') },
   { id: 'events_count', label: i18n.t('processes.table.events'), align: 'right' },
@@ -80,7 +80,7 @@ export function mapProcessesRowsToTableRows(
   selectedProcessId: number | null,
   onSelect: (processId: number) => void,
   role: UserRole | null,
-): DashboardTableRow[] {
+): DataTableRow[] {
   return rows.map((row) => {
     const isSelected = row.processId === selectedProcessId;
 
@@ -218,3 +218,4 @@ export function mapProcessGraphToViewModel(response: ProcessGraphResponse): Proc
     })),
   };
 }
+

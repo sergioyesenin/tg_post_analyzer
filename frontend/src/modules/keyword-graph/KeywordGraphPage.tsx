@@ -1,10 +1,10 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { useSession } from '@app/providers/SessionProvider';
 import { ApiError } from '@shared/api/client';
 import { DashboardSummaryCards } from '@shared/dashboard/components/DashboardSummaryCards';
-import { DashboardTableShell } from '@shared/dashboard/components/DashboardTableShell';
+import { AnalyticsTable } from '@shared/dashboard/components/DashboardTableShell';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
@@ -90,7 +90,7 @@ export function KeywordGraphPage() {
         id: channel.id,
         label: channel.title ? `${channel.title} (@${channel.username})` : `@${channel.username}`,
         meta: channel.category
-          ? `${channel.category}${channel.is_active ? '' : ` • ${t('common.inactive')}`}`
+          ? `${channel.category}${channel.is_active ? '' : ` � ${t('common.inactive')}`}`
           : channel.is_active
             ? t('common.active')
             : t('common.inactive'),
@@ -108,8 +108,8 @@ export function KeywordGraphPage() {
   }
 
   return (
-    <div className="dashboard-page">
-      <section className="dashboard-page__hero">
+    <div className="dashboard-page dashboard-page--analytics">
+      <section className="dashboard-page__hero dashboard-page__hero--analytics">
         <div>
           <span className="state-card__eyebrow">{t('states.advancedAnalysis')}</span>
           <h2>{t('navigation.keywordGraph')}</h2>
@@ -245,7 +245,7 @@ export function KeywordGraphPage() {
           ) : searchRows.length === 0 ? (
             <EmptyState title={t('keywordGraph.noResultsTitle')} description={t('keywordGraph.noResultsDescription')} />
           ) : (
-            <DashboardTableShell
+            <AnalyticsTable
               title={t('keywordGraph.resultsTitle')}
               description={resultMeta.tookMs ? t('keywordGraph.resultsDescriptionWithTiming', { tookMs: resultMeta.tookMs }) : t('keywordGraph.resultsDescription')}
               columns={keywordSearchColumns}
@@ -415,5 +415,8 @@ export function KeywordGraphPage() {
     </div>
   );
 }
+
+
+
 
 

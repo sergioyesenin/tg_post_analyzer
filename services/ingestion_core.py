@@ -152,6 +152,7 @@ class IngestionCore:
 
     async def _pick_album_representative_message(self, entity, message):
         grouped_id = getattr(message, "grouped_id", None)
+        print (grouped_id)
         if not isinstance(grouped_id, int):
             return message
 

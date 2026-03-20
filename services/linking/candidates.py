@@ -253,6 +253,10 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
 
 
 async def _ensure_post_metadata(session: AsyncSession, post: Post) -> Post:
+    normalized = _safe_text(post.text).lower()
+    version = "linking-retrieval-v2"
+    if post.text_normalized == normalized and post.analyzer_version == version:
+        return post
     await session.execute(
         Post.__table__.update()
         .where(Post.id == post.id)

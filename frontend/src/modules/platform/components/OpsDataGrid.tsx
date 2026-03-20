@@ -1,29 +1,27 @@
 import { memo } from 'react';
-import { useTranslation } from 'react-i18next';
 
 import { BaseDataTable } from '@shared/tables/components/BaseDataTable';
 import type { DataTableColumn, DataTableRow } from '@shared/tables/types';
 
-type AdminDataGridProps = {
+type OpsDataGridProps = {
   title: string;
   description: string;
   columns: DataTableColumn[];
   rows: DataTableRow[];
+  eyebrowLabel: string;
 };
 
-export const AdminDataGrid = memo(function AdminDataGrid({ title, description, columns, rows }: AdminDataGridProps) {
-  const { t } = useTranslation();
-
+export const OpsDataGrid = memo(function OpsDataGrid({ title, description, columns, rows, eyebrowLabel }: OpsDataGridProps) {
   return (
-    <div className="admin-data-grid">
+    <div className="ops-data-grid">
       <BaseDataTable
         title={title}
         description={description}
         columns={columns}
         rows={rows}
         variant="compact"
-        eyebrowLabel={t('states.admin')}
-        className="admin-table"
+        eyebrowLabel={eyebrowLabel}
+        className="ops-table"
       />
     </div>
   );

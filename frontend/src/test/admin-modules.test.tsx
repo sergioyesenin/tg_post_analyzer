@@ -123,6 +123,10 @@ describe('Admin modules', () => {
       expect(screen.getByText(/Signal Watch/i)).toBeInTheDocument();
     });
 
+    expect(screen.getByRole('button', { name: ru('\\u0414\\u043e\\u0431\\u0430\\u0432\\u0438\\u0442\\u044c \\u043a\\u0430\\u043d\\u0430\\u043b') })).toHaveClass('admin-console-button--secondary');
+    expect(screen.getByRole('button', { name: ru('\\u0421\\u043e\\u0445\\u0440\\u0430\\u043d\\u0438\\u0442\\u044c \\u043a\\u0430\\u043d\\u0430\\u043b') })).toHaveClass('admin-console-button--primary');
+    expect(screen.getByRole('button', { name: ru('\\u0423\\u0434\\u0430\\u043b\\u0438\\u0442\\u044c') })).toHaveClass('admin-console-button--danger');
+
     await user.type(screen.getByPlaceholderText(/@channel_name/i), '@new_channel');
     await user.click(screen.getByRole('button', { name: ru('\u0414\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043a\u0430\u043d\u0430\u043b') }));
 
@@ -203,8 +207,11 @@ describe('Admin modules', () => {
     renderAdmin('/users');
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: ru('\u0421\u043e\u0437\u0434\u0430\u0442\u044c \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f') })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: ru('\\u0421\\u043e\\u0437\\u0434\\u0430\\u0442\\u044c \\u043f\\u043e\\u043b\\u044c\\u0437\\u043e\\u0432\\u0430\\u0442\\u0435\\u043b\\u044f') })).toBeInTheDocument();
     });
+
+    expect(screen.getByRole('button', { name: ru('\\u0421\\u043e\\u0437\\u0434\\u0430\\u0442\\u044c \\u043f\\u043e\\u043b\\u044c\\u0437\\u043e\\u0432\\u0430\\u0442\\u0435\\u043b\\u044f') })).toHaveClass('admin-console-button--secondary');
+    expect(screen.getByRole('button', { name: ru('\\u0421\\u043e\\u0445\\u0440\\u0430\\u043d\\u0438\\u0442\\u044c \\u0440\\u043e\\u043b\\u0438') })).toHaveClass('admin-console-button--primary');
 
     await user.type(screen.getByLabelText(ru('\u0418\u043c\u044f \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f')), 'new_user');
     await user.type(screen.getByLabelText(ru('\u041f\u0430\u0440\u043e\u043b\u044c')), 'password123');

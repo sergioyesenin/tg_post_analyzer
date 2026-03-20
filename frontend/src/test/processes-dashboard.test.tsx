@@ -137,6 +137,23 @@ function installProcessesApiMock(options?: {
 }
 
 describe('Processes dashboard', () => {
+  it('applies supported process filters from product controls', async () => {
+    const user = userEvent.setup();
+    const getSpy = installProcessesApiMock();
+
+    renderWorkspace('/dashboard/processes?unsupported=raw');
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /active/i })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /active/i }));
+    await user.click(screen.getByRole('button', { name: ru('\\u041f\\u0440\\u0438\\u043c\\u0435\\u043d\\u0438\\u0442\\u044c \\u0444\\u0438\\u043b\\u044c\\u0442\\u0440\\u044b') }));
+
+    await waitFor(() => {
+      expect(getSpy).toHaveBeenCalledWith('/api/dashboard/processes?status=active');
+    });
+  });
   beforeEach(() => {
     vi.restoreAllMocks();
   });
@@ -460,3 +477,5 @@ describe('Processes dashboard', () => {
     });
   });
 });
+
+

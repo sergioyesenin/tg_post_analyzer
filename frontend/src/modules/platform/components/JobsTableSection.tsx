@@ -1,5 +1,5 @@
-import { AdminDataGrid } from '@modules/admin/components/AdminDataGrid';
-import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
+import { OpsDataGrid } from '@modules/platform/components/OpsDataGrid';
+import type { DataTableColumn, DataTableRow } from '@shared/tables/types';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 
 type JobsTableSectionProps = {
@@ -7,8 +7,9 @@ type JobsTableSectionProps = {
   description: string;
   emptyTitle: string;
   emptyDescription: string;
-  columns: DashboardTableColumn[];
-  rows: DashboardTableRow[];
+  eyebrowLabel: string;
+  columns: DataTableColumn[];
+  rows: DataTableRow[];
 };
 
 export function JobsTableSection({
@@ -16,6 +17,7 @@ export function JobsTableSection({
   description,
   emptyTitle,
   emptyDescription,
+  eyebrowLabel,
   columns,
   rows,
 }: JobsTableSectionProps) {
@@ -23,5 +25,5 @@ export function JobsTableSection({
     return <EmptyState title={emptyTitle} description={emptyDescription} />;
   }
 
-  return <AdminDataGrid title={title} description={description} columns={columns} rows={rows} />;
+  return <OpsDataGrid title={title} description={description} eyebrowLabel={eyebrowLabel} columns={columns} rows={rows} />;
 }

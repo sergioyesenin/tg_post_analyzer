@@ -224,12 +224,18 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         )
         telegram_replies_count = None
 
+    is_album = bool(getattr(head_msg, "grouped_id", None)) if head_msg is not None else False
+
     if isinstance(telegram_replies_count, int):
         if telegram_replies_count != existing_comments_count and isinstance(head_views, int):
             await set_post_views(session, post_id=post.id, views=head_views)
             post.views = head_views
-        # replies_count==0 is not reliable for album-linked discussion threads.
-        if telegram_replies_count > 0 and telegram_replies_count <= existing_comments_count:
+
+        if (
+            not is_album
+            and telegram_replies_count > 0
+            and telegram_replies_count <= existing_comments_count
+        ):
             await set_post_last_comments_scan_at(session, post_id=post.id)
             return {
                 "status": "unchanged",
@@ -239,12 +245,13 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 "telegram_replies_count": telegram_replies_count,
             }
 
-    discussion, discussion_msg_id, discussion_status, wait_seconds = await _resolve_discussion_with_fallback(
+    discussion, discussion_msg_id, discussion_status, wait_seconds, discussion_source_msg_id = (
+    await _resolve_discussion_for_post_or_album(
         tg_client=tg_client,
         entity=entity,
-        tg_message_id=post.tg_message_id,
-        original_message_date=getattr(head_msg, "date", None),
+        head_msg=head_msg,
     )
+)
     if discussion is None:
         if discussion_status == "flood_wait":
             return {
@@ -432,3 +439,82 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         "involvement": involvement,
         "telegram_replies_count": telegram_replies_count,
     }
+
+async def _resolve_discussion_for_post_or_album(
+    tg_client,
+    entity,
+    head_msg,
+):
+    if head_msg is None:
+        return None, None, "no_discussion", None, None
+    candidate_ids = [head_msg.id]
+
+    if getattr(head_msg, "grouped_id", None):
+        candidate_ids = await _collect_album_message_ids(
+            tg_client=tg_client,
+            entity=entity,
+            head_msg=head_msg,
+        )
+
+    last_status = "no_discussion"
+    last_wait_seconds = 0
+
+    for candidate_msg_id in candidate_ids:
+        discussion, discussion_msg_id, status, wait_seconds = await _resolve_discussion_with_fallback(
+            tg_client=tg_client,
+            entity=entity,
+            tg_message_id=candidate_msg_id,
+            original_message_date=getattr(head_msg, "date", None),
+        )
+
+        if discussion is not None:
+            return discussion, discussion_msg_id, status, wait_seconds, candidate_msg_id
+
+        if status == "flood_wait":
+            return None, None, status, wait_seconds, candidate_msg_id
+
+        last_status = status
+        last_wait_seconds = wait_seconds or 0
+
+    return None, None, last_status, last_wait_seconds, None
+
+async def _collect_album_message_ids(
+    tg_client,
+    entity,
+    head_msg,
+    window_before: int = 10,
+    window_after: int = 10,
+) -> list[int]:
+    grouped_id = getattr(head_msg, "grouped_id", None)
+    if not grouped_id:
+        return [head_msg.id]
+
+    ids: list[int] = []
+    seen: set[int] = set()
+
+    # Берём небольшой диапазон вокруг head_msg.id.
+    # У альбома сообщения обычно идут подряд.
+    min_id = max(0, head_msg.id - window_before - 1)
+    max_id = head_msg.id + window_after + 1
+
+    msgs = await tg_client.get_messages(
+        entity,
+        min_id=min_id,
+        max_id=max_id,
+        limit=window_before + window_after + 5,
+    )
+
+    for m in msgs:
+        if not m:
+            continue
+        if getattr(m, "grouped_id", None) == grouped_id:
+            if m.id not in seen:
+                seen.add(m.id)
+                ids.append(m.id)
+
+    # На всякий случай гарантируем наличие исходного сообщения
+    if head_msg.id not in seen:
+        ids.append(head_msg.id)
+
+    ids.sort()
+    return ids

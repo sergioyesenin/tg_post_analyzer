@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, apiClient } from '@shared/api/client';
 import {
   createAcceptedJobResponse,
+  createChannelsResponse,
   createEventGraphResponse,
   createEventsDashboardResponse,
   createJobResultResponse,
@@ -91,6 +92,9 @@ function installEventsApiMock(options?: {
   const jobResult = options?.jobResult ?? createJobResultResponse({ status: 'draft', event_id: 81, report_id: 23 });
 
   return vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+    if (path === '/api/channels/') {
+      return createChannelsResponse();
+    }
     if (path.startsWith('/api/dashboard/events?') || path === '/api/dashboard/events') {
       return dashboard;
     }
@@ -134,6 +138,24 @@ describe('Events dashboard', () => {
     expect(screen.getAllByRole('link', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u043f\u043e\u0441\u0442') }).length).toBeGreaterThan(0);
   });
 
+  it('applies supported event filters from product controls', async () => {
+    const user = userEvent.setup();
+    const getSpy = installEventsApiMock();
+
+    renderWorkspace('/dashboard/events?unsupported=raw');
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Signal Watch/i })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /Signal Watch/i }));
+    await user.click(screen.getByRole('button', { name: /active/i }));
+    await user.click(screen.getByRole('button', { name: ru('\\u041f\\u0440\\u0438\\u043c\\u0435\\u043d\\u0438\\u0442\\u044c \\u0444\\u0438\\u043b\\u044c\\u0442\\u0440\\u044b') }));
+
+    await waitFor(() => {
+      expect(getSpy).toHaveBeenCalledWith('/api/dashboard/events?status=active&channel_ids=1');
+    });
+  });
   it('keeps selection stable and loads the graph for the selected event', async () => {
     const user = userEvent.setup();
     const getSpy = installEventsApiMock();
@@ -158,6 +180,14 @@ describe('Events dashboard', () => {
     let resolveGraph: ((value: ReturnType<typeof createEventGraphResponse>) => void) | undefined;
 
     vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/channels/') {
+        return createChannelsResponse();
+      }
+
+      if (path === '/api/channels/') {
+        return createChannelsResponse();
+      }
+
       if (path === '/api/dashboard/events') {
         return createEventsDashboardResponse();
       }
@@ -233,6 +263,14 @@ describe('Events dashboard', () => {
 
   it('renders graph error state while keeping selected event details visible', async () => {
     vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/channels/') {
+        return createChannelsResponse();
+      }
+
+      if (path === '/api/channels/') {
+        return createChannelsResponse();
+      }
+
       if (path === '/api/dashboard/events') {
         return createEventsDashboardResponse();
       }
@@ -259,6 +297,10 @@ describe('Events dashboard', () => {
     let dashboardVersion = 0;
 
     vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/channels/') {
+        return createChannelsResponse();
+      }
+
       if (path === '/api/dashboard/events') {
         dashboardVersion += 1;
 
@@ -352,6 +394,14 @@ describe('Events dashboard', () => {
     let resolveRefresh: ((value: ReturnType<typeof createEventGraphResponse>) => void) | undefined;
 
     vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/channels/') {
+        return createChannelsResponse();
+      }
+
+      if (path === '/api/channels/') {
+        return createChannelsResponse();
+      }
+
       if (path === '/api/dashboard/events') {
         return createEventsDashboardResponse();
       }
@@ -420,3 +470,5 @@ describe('Events dashboard', () => {
     });
   });
 });
+
+

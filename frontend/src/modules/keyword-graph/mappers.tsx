@@ -1,7 +1,7 @@
-﻿import { Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
 import { i18n } from '@shared/i18n/i18n';
-import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
+import type { DataTableColumn, DataTableRow } from '@shared/tables/types';
 import type { DashboardSummaryCard } from '@shared/dashboard/components/DashboardSummaryCards';
 import { formatNullableRatio, formatUtcDateTime } from '@shared/utils/formatters';
 import type {
@@ -16,7 +16,7 @@ function formatNullableNumber(value: number | null) {
   return value === null ? i18n.t('common.na') : String(value);
 }
 
-export const keywordSearchColumns: DashboardTableColumn[] = [
+export const keywordSearchColumns: DataTableColumn[] = [
   { id: 'select', label: i18n.t('keywordGraph.table.seed') },
   { id: 'post', label: i18n.t('keywordGraph.table.post') },
   { id: 'lemmas', label: i18n.t('keywordGraph.table.lemmas') },
@@ -30,7 +30,7 @@ export function mapKeywordSearchRows(
   excludedPostIds: number[],
   onToggleSelected: (postId: number) => void,
   onToggleExcluded: (postId: number) => void,
-): DashboardTableRow[] {
+): DataTableRow[] {
   return items.map((item) => {
     const isSelected = selectedPostIds.includes(item.post_id);
     const isExcluded = excludedPostIds.includes(item.post_id);
@@ -181,3 +181,4 @@ export function mapKeywordGraphToPanel(result: KeywordGraphBuildResponseDto | nu
     edges: result.edges.map(mapEdge),
   };
 }
+

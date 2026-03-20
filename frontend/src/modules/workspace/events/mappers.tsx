@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { i18n } from '@shared/i18n/i18n';
 import type { UserRole } from '@shared/auth/roles';
 import type { DashboardSummaryCard } from '@shared/dashboard/components/DashboardSummaryCards';
-import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
+import type { DataTableColumn, DataTableRow } from '@shared/tables/types';
 import type { EventGraphResponse, EventsDashboardItemDto, EventsDashboardResponse } from '@shared/dashboard/contracts';
 import { ReportStatusBadge } from '@shared/ui/status/ReportStatusBadge';
 import { formatConfidencePercent, formatNullableRatio, formatUtcDateTime } from '@shared/utils/formatters';
@@ -33,7 +33,7 @@ export type EventsDashboardViewModel = {
   rows: EventDashboardRowViewModel[];
 };
 
-export const eventsDashboardColumns: DashboardTableColumn[] = [
+export const eventsDashboardColumns: DataTableColumn[] = [
   { id: 'event', label: i18n.t('events.table.event') },
   { id: 'status', label: i18n.t('events.table.status') },
   { id: 'started_at', label: i18n.t('events.table.startedAt') },
@@ -85,7 +85,7 @@ export function mapEventsRowsToTableRows(
   selectedEventId: number | null,
   onSelect: (eventId: number) => void,
   role: UserRole | null,
-): DashboardTableRow[] {
+): DataTableRow[] {
   return rows.map((row) => {
     const isSelected = row.eventId === selectedEventId;
 
@@ -201,3 +201,4 @@ export function mapEventGraphToViewModel(response: EventGraphResponse): EventGra
     })),
   };
 }
+

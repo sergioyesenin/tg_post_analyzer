@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 
 import { i18n } from '@shared/i18n/i18n';
-import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
+import type { DataTableColumn, DataTableRow } from '@shared/tables/types';
 import { ReportStatusBadge } from '@shared/ui/status/ReportStatusBadge';
 import { formatUtcDateTime } from '@shared/utils/formatters';
 import type {
@@ -12,7 +12,7 @@ import type {
   ReportsListResponseByType,
 } from '@modules/reports/contracts';
 
-export function getReportsColumnsByType(): Record<ReportType, DashboardTableColumn[]> {
+export function getReportsColumnsByType(): Record<ReportType, DataTableColumn[]> {
   return {
     posts: [
       { id: 'entity', label: i18n.t('reports.columns.post', { defaultValue: 'Пост' }) },
@@ -38,7 +38,7 @@ export function getReportsColumnsByType(): Record<ReportType, DashboardTableColu
   };
 }
 
-function mapPostRow(item: PostReportListItemDto): DashboardTableRow {
+function mapPostRow(item: PostReportListItemDto): DataTableRow {
   return {
     id: String(item.report_id),
     cells: {
@@ -67,7 +67,7 @@ function mapPostRow(item: PostReportListItemDto): DashboardTableRow {
   };
 }
 
-function mapEventRow(item: EventReportListItemDto): DashboardTableRow {
+function mapEventRow(item: EventReportListItemDto): DataTableRow {
   return {
     id: String(item.report_id),
     cells: {
@@ -91,7 +91,7 @@ function mapEventRow(item: EventReportListItemDto): DashboardTableRow {
   };
 }
 
-function mapProcessRow(item: ProcessReportListItemDto): DashboardTableRow {
+function mapProcessRow(item: ProcessReportListItemDto): DataTableRow {
   return {
     id: String(item.report_id),
     cells: {
@@ -118,7 +118,7 @@ function mapProcessRow(item: ProcessReportListItemDto): DashboardTableRow {
 export function mapReportsRowsToTableRows<TType extends ReportType>(
   type: TType,
   items: ReportsListResponseByType[TType],
-): DashboardTableRow[] {
+): DataTableRow[] {
   if (type === 'posts') {
     return (items as ReportsListResponseByType['posts']).map(mapPostRow);
   }
@@ -158,3 +158,4 @@ export function getReportsCopyByType(): Record<
     },
   };
 }
+

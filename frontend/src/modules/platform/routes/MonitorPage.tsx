@@ -1,6 +1,6 @@
-﻿import { useTranslation } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 
-import { AdminDataGrid } from '@modules/admin/components/AdminDataGrid';
+import { OpsDataGrid } from '@modules/platform/components/OpsDataGrid';
 import { useMonitorFullQuery } from '@modules/platform/hooks';
 import {
   mapMonitorAlertRows,
@@ -84,9 +84,10 @@ export function MonitorPage() {
             </div>
           </section>
 
-          <AdminDataGrid
-            title={t('platform.monitor.dependenciesTitle')}
-            description={t('platform.monitor.dependenciesDescription')}
+          <OpsDataGrid
+            title={t('platform.monitor.dependenciesTitle')} 
+            description={t('platform.monitor.dependenciesDescription')} 
+            eyebrowLabel={t('states.monitor')}
             columns={monitorDependencyColumns}
             rows={dependencyRows}
           />
@@ -94,9 +95,10 @@ export function MonitorPage() {
 
         <div className="dashboard-page__secondary">
           {alertRows.length > 0 ? (
-            <AdminDataGrid
-              title={t('platform.monitor.alertsTitle')}
-              description={t('platform.monitor.alertsDescription')}
+            <OpsDataGrid
+              title={t('platform.monitor.alertsTitle')} 
+              description={t('platform.monitor.alertsDescription')} 
+              eyebrowLabel={t('states.monitor')}
               columns={monitorAlertColumns}
               rows={alertRows}
             />
@@ -150,3 +152,4 @@ export function MonitorPage() {
     </div>
   );
 }
+

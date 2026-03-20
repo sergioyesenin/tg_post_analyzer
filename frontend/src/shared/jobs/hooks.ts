@@ -89,6 +89,14 @@ export function useAsyncJobAction<TVariables>({
 
     const result = jobResultQuery.data ?? null;
     const nextStatus = jobStatusQuery.data.status === 'done' ? 'success' : 'failed';
+    const hasSameTerminalState =
+      terminalState?.jobId === activeJob.job_id &&
+      terminalState.status === nextStatus &&
+      terminalState.actionLabel === actionLabel;
+
+    if (hasSameTerminalState) {
+      return;
+    }
 
     setTerminalState({
       actionLabel,
@@ -102,7 +110,7 @@ export function useAsyncJobAction<TVariables>({
         void queryClient.invalidateQueries({ queryKey: ['jobs', activeJob.job_id] });
       });
     }
-  }, [actionLabel, activeJob, jobResultQuery.data, jobStatusQuery.data, onInvalidate, queryClient]);
+  }, [actionLabel, activeJob, jobResultQuery.data, jobStatusQuery.data, onInvalidate, queryClient, terminalState]);
 
   const currentStatus = useMemo(() => {
     if (mutation.isPending) {

@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useTranslation } from 'react-i18next';
@@ -68,8 +68,10 @@ export function UsersPage() {
     return <ErrorState title={t('admin.users.errorTitle')} description={t('admin.users.errorDescription')} />;
   }
 
+  const isEditBusy = mutations.updateRoles.isPending || mutations.setActive.isPending;
+
   return (
-    <div className="dashboard-page">
+    <div className="dashboard-page admin-console-page">
       <section className="dashboard-page__hero">
         <div>
           <span className="state-card__eyebrow">{t('states.admin')}</span>
@@ -78,7 +80,7 @@ export function UsersPage() {
         </div>
       </section>
 
-      <section className="dashboard-page__content dashboard-page__content--workspace">
+      <section className="dashboard-page__content dashboard-page__content--workspace admin-console-page__content">
         <div className="dashboard-page__primary">
           {users.length === 0 ? (
             <EmptyState title={t('admin.users.emptyTitle')} description={t('admin.users.emptyDescription')} />
@@ -92,8 +94,8 @@ export function UsersPage() {
           )}
         </div>
 
-        <div className="dashboard-page__secondary">
-          <section className="detail-block">
+        <div className="dashboard-page__secondary admin-console-page__rail">
+          <section className="detail-block admin-console-card">
             <div className="detail-block__header">
               <div>
                 <span className="state-card__eyebrow">{t('states.create')}</span>
@@ -102,7 +104,7 @@ export function UsersPage() {
             </div>
 
             <form
-              className="dashboard-filter-grid"
+              className="dashboard-filter-grid admin-console-form"
               onSubmit={createForm.handleSubmit(async (values) => {
                 await mutations.create.mutateAsync({
                   username: values.username,
@@ -114,42 +116,42 @@ export function UsersPage() {
                 createForm.reset({ username: '', password: '', email: '', full_name: '', roles: ['analyst'] });
               })}
             >
-              <label>
+              <label className="admin-console-form__field">
                 <span>{t('fields.username')}</span>
                 <input {...createForm.register('username')} />
               </label>
-              <label>
+              <label className="admin-console-form__field">
                 <span>{t('fields.password')}</span>
                 <input type="password" {...createForm.register('password')} />
               </label>
-              <label>
+              <label className="admin-console-form__field">
                 <span>{t('fields.email')}</span>
                 <input {...createForm.register('email')} />
               </label>
-              <label>
+              <label className="admin-console-form__field">
                 <span>{t('fields.fullName')}</span>
                 <input {...createForm.register('full_name')} />
               </label>
-              <fieldset>
+              <fieldset className="admin-console-form__fieldset">
                 <legend>{t('fields.roles')}</legend>
-                {availableRoles.map((role) => (
-                  <label key={role}>
-                    <span>
+                <div className="admin-console-form__checkbox-list">
+                  {availableRoles.map((role) => (
+                    <label key={role} className="admin-console-form__checkbox">
                       <input type="checkbox" value={role} {...createForm.register('roles')} />
-                      {t(`admin.roles.${role}`)}
-                    </span>
-                  </label>
-                ))}
+                      <span>{t(`admin.roles.${role}`)}</span>
+                    </label>
+                  ))}
+                </div>
               </fieldset>
-              <div className="dashboard-filter-bar__actions">
-                <button type="submit" className="dashboard-button" disabled={mutations.create.isPending}>
+              <div className="dashboard-filter-bar__actions admin-console-actions">
+                <button type="submit" className="admin-console-button admin-console-button--secondary" disabled={mutations.create.isPending}>
                   {t('actions.createUser')}
                 </button>
               </div>
             </form>
           </section>
 
-          <section className="detail-block">
+          <section className="detail-block admin-console-card">
             <div className="detail-block__header">
               <div>
                 <span className="state-card__eyebrow">{t('states.edit')}</span>
@@ -159,7 +161,7 @@ export function UsersPage() {
 
             {selectedUser ? (
               <form
-                className="dashboard-filter-grid"
+                className="dashboard-filter-grid admin-console-form"
                 onSubmit={rolesForm.handleSubmit(async (values) => {
                   if (!window.confirm(t('admin.users.confirmRoles', { username: selectedUser.username }))) {
                     return;
@@ -167,25 +169,26 @@ export function UsersPage() {
                   await mutations.updateRoles.mutateAsync({ userId: selectedUser.id, payload: { roles: values.roles } });
                 })}
               >
-                <fieldset>
+                <fieldset className="admin-console-form__fieldset">
                   <legend>{t('fields.roles')}</legend>
-                  {availableRoles.map((role) => (
-                    <label key={role}>
-                      <span>
+                  <div className="admin-console-form__checkbox-list">
+                    {availableRoles.map((role) => (
+                      <label key={role} className="admin-console-form__checkbox">
                         <input type="checkbox" value={role} {...rolesForm.register('roles')} />
-                        {t(`admin.roles.${role}`)}
-                      </span>
-                    </label>
-                  ))}
+                        <span>{t(`admin.roles.${role}`)}</span>
+                      </label>
+                    ))}
+                  </div>
                 </fieldset>
                 {rolesForm.formState.errors.roles ? <small>{rolesForm.formState.errors.roles.message}</small> : null}
-                <div className="dashboard-filter-bar__actions">
-                  <button type="submit" className="dashboard-button" disabled={mutations.updateRoles.isPending}>
+                <div className="dashboard-filter-bar__actions admin-console-actions">
+                  <button type="submit" className="admin-console-button admin-console-button--primary" disabled={isEditBusy}>
                     {t('actions.saveRoles')}
                   </button>
                   <button
                     type="button"
-                    className="dashboard-button dashboard-button--ghost"
+                    className="admin-console-button admin-console-button--secondary"
+                    disabled={isEditBusy}
                     onClick={async () => {
                       const nextActive = !selectedUser.is_active;
                       if (!window.confirm(t('admin.users.confirmToggle', { username: selectedUser.username }))) {

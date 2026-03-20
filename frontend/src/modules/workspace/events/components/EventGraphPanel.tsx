@@ -90,47 +90,104 @@ export function EventGraphPanel({ selectedTitle, isLoading, isError, viewModel, 
 
       {!isLoading && !isError && viewModel && viewModel.nodes.length > 0 ? (
         <div className="event-graph-panel">
-          <SharedFlowCanvas
-            ariaLabel={t('events.graph.title')}
-            nodes={flowNodes}
-            edges={flowEdges}
-            height={320}
-            resetSignal={resetSignal}
-            showMiniMap={false}
-            showEdgeLabels={false}
-            sourcePosition={Position.Bottom}
-            targetPosition={Position.Bottom}
-          />
+          <article className="graph-panel-summary graph-panel-summary--event">
+            <div className="graph-panel-summary__header">
+              <div>
+                <span className="state-card__eyebrow">{t('events.graph.toolbarEyebrow')}</span>
+                <strong>{viewModel.event.title}</strong>
+              </div>
+            </div>
+            <div className="graph-panel-summary__meta">
+              <span>{viewModel.event.status}</span>
+              <span>{t('events.graph.nodes', { value: viewModel.nodes.length })}</span>
+              <span>{t('events.graph.edges', { value: viewModel.edges.length })}</span>
+              <span>{t('events.graph.comments', { value: viewModel.event.commentsCount })}</span>
+              <span>{t('events.graph.involvement', { value: viewModel.event.involvement })}</span>
+            </div>
+          </article>
 
-          <div className="event-graph-panel__nodes">
-            {orderedNodes.map((node) => (
-              <article key={node.id} className={`event-graph-node ${node.isRoot ? 'event-graph-node--root' : ''}`.trim()}>
-                <div className="event-graph-node__meta">
-                  <strong>{node.isRoot ? t('events.graph.rootNode') : t('events.graph.linkedNode')} #{node.postId}</strong>
-                  <span>{node.date}</span>
-                </div>
-                <p>{node.title}</p>
-                <div className="event-graph-node__stats">
-                  <span>{t('events.graph.comments', { value: node.commentsCount })}</span>
-                  <span>{t('events.graph.views', { value: node.views })}</span>
-                  <span>{t('events.graph.involvement', { value: node.involvement })}</span>
-                </div>
-              </article>
-            ))}
+          <div className="graph-panel-section">
+            <div className="graph-panel-section__header">
+              <div>
+                <span className="state-card__eyebrow">{t('events.graph.title')}</span>
+                <strong>{selectedTitle ?? t('events.graph.selectedEvent')}</strong>
+              </div>
+            </div>
+            <SharedFlowCanvas
+              ariaLabel={t('events.graph.title')}
+              nodes={flowNodes}
+              edges={flowEdges}
+              height={300}
+              resetSignal={resetSignal}
+              showMiniMap={false}
+              showEdgeLabels={false}
+              sourcePosition={Position.Bottom}
+              targetPosition={Position.Bottom}
+            />
           </div>
 
-          {viewModel.edges.length === 0 ? (
-            <EmptyState title={t('events.graph.noEdgesTitle')} description={t('events.graph.noEdgesDescription')} />
-          ) : (
-            <div className="event-graph-panel__edges">
-              {viewModel.edges.map((edge) => (
-                <div key={edge.id} className="event-graph-edge">
-                  <strong>{edge.direction === 'dst_to_src' ? `${edge.targetPostId} -> ${edge.sourcePostId}` : `${edge.sourcePostId} -> ${edge.targetPostId}`}</strong>
-                  <span>{edge.label} | {edge.status} | {t('events.graph.score', { value: edge.score })}</span>
-                </div>
+          <div className="graph-panel-section">
+            <div className="graph-panel-section__header">
+              <div>
+                <span className="state-card__eyebrow">{t('events.detail.relatedEyebrow')}</span>
+                <strong>{t('events.detail.linkedPosts', { count: orderedNodes.length })}</strong>
+              </div>
+            </div>
+            <div className="event-graph-panel__nodes">
+              {orderedNodes.map((node) => (
+                <article key={node.id} className={`event-graph-node ${node.isRoot ? 'event-graph-node--root' : ''}`.trim()}>
+                  <div className="event-graph-node__meta">
+                    <span>{node.isRoot ? t('events.graph.rootNode') : t('events.graph.linkedNode')}</span>
+                    <span>{node.date}</span>
+                  </div>
+                  <strong className="event-graph-node__title">{node.isRoot ? t('events.detail.rootPostTitle', { id: node.postId }) : t('events.detail.postTitle', { id: node.postId })}</strong>
+                  <p>{node.title}</p>
+                  <div className="event-graph-node__stats">
+                    <span>{t('events.graph.comments', { value: node.commentsCount })}</span>
+                    <span>{t('events.graph.views', { value: node.views })}</span>
+                    <span>{t('events.graph.involvement', { value: node.involvement })}</span>
+                  </div>
+                </article>
               ))}
             </div>
-          )}
+          </div>
+
+          <div className="graph-panel-section">
+            <div className="graph-panel-section__header">
+              <div>
+                <span className="state-card__eyebrow">{t('events.graph.edges', { value: viewModel.edges.length })}</span>
+                <strong>{t('events.graph.title')}</strong>
+              </div>
+            </div>
+            {viewModel.edges.length === 0 ? (
+              <section className="graph-panel-empty-state" aria-label={t('events.graph.noEdgesTitle')}>
+                <div>
+                  <span className="state-card__eyebrow">{t('events.graph.edges', { value: 0 })}</span>
+                  <strong>{t('events.graph.noEdgesTitle')}</strong>
+                </div>
+                <p>{t('events.graph.noEdgesDescription')}</p>
+              </section>
+            ) : (
+              <div className="event-graph-panel__edges">
+                {viewModel.edges.map((edge) => {
+                  const directionLabel = edge.direction === 'dst_to_src'
+                    ? `${edge.targetPostId} -> ${edge.sourcePostId}`
+                    : `${edge.sourcePostId} -> ${edge.targetPostId}`;
+
+                  return (
+                    <div key={edge.id} className="event-graph-edge">
+                      <strong>{directionLabel}</strong>
+                      <span>{edge.label}</span>
+                      <div className="graph-panel-meta-list">
+                        <span>{edge.status}</span>
+                        <span>{t('events.graph.score', { value: edge.score })}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       ) : null}
     </section>

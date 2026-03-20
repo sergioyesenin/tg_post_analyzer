@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError, apiClient } from '@shared/api/client';
 import {
+  createChannelsResponse,
   createCommentsResponse,
   createLinksResponse,
   createPostDetailResponse,
@@ -44,13 +45,36 @@ function renderPostsDashboard(initialEntry = '/dashboard/posts', roles: string[]
   });
 }
 
+function installPostsApiMock(options?: {
+  dashboard?: ReturnType<typeof createPostsDashboardResponse>;
+  onPath?: (path: string) => unknown | Promise<unknown>;
+}) {
+  const dashboard = options?.dashboard ?? createPostsDashboardResponse();
+
+  return vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+    if (path === '/api/channels/') {
+      return createChannelsResponse();
+    }
+
+    if (path.startsWith('/api/dashboard/posts')) {
+      return dashboard;
+    }
+
+    if (options?.onPath) {
+      return await options.onPath(path);
+    }
+
+    throw new Error(`Unhandled GET path in posts test: ${path}`);
+  });
+}
+
 describe('Posts dashboard', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
   it('parses query params into API request URL', async () => {
-    const getSpy = vi.spyOn(apiClient, 'get').mockResolvedValue(createPostsDashboardResponse());
+    const getSpy = installPostsApiMock();
 
     renderPostsDashboard(
       '/dashboard/posts?date_from=2026-03-01&date_to=2026-03-10&channel_ids=7&categories=media&report_status=ready&sort_by=views&sort_order=asc',
@@ -63,8 +87,33 @@ describe('Posts dashboard', () => {
     });
   });
 
+  it('applies productized filters through supported controls and resets them', async () => {
+    const user = userEvent.setup();
+    const getSpy = installPostsApiMock();
+
+    renderPostsDashboard('/dashboard/posts?unsupported=raw');
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Signal Watch/i })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: /Signal Watch/i }));
+    await user.click(screen.getByRole('button', { name: ru('\u0413\u043e\u0442\u043e\u0432') }));
+    await user.click(screen.getByRole('button', { name: ru('\u041f\u0440\u0438\u043c\u0435\u043d\u0438\u0442\u044c \u0444\u0438\u043b\u044c\u0442\u0440\u044b') }));
+
+    await waitFor(() => {
+      expect(getSpy).toHaveBeenCalledWith('/api/dashboard/posts?channel_ids=1&report_status=ready');
+    });
+
+    await user.click(screen.getByRole('button', { name: ru('\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c \u0444\u0438\u043b\u044c\u0442\u0440\u044b') }));
+
+    await waitFor(() => {
+      expect(getSpy).toHaveBeenCalledWith('/api/dashboard/posts');
+    });
+  });
+
   it('renders posts dashboard data, summary cards, and report status badges', async () => {
-    vi.spyOn(apiClient, 'get').mockResolvedValue(createPostsDashboardResponse());
+    installPostsApiMock();
 
     renderPostsDashboard();
 
@@ -73,15 +122,21 @@ describe('Posts dashboard', () => {
     });
 
     expect(screen.getByText('537')).toBeInTheDocument();
-    expect(screen.getByText(/Signal Watch/i)).toBeInTheDocument();
-    expect(screen.getByText(/media/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Signal Watch/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/media/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Top post preview for posts dashboard rendering/i)).toBeInTheDocument();
-    expect(screen.getByText(ru('\u0413\u043e\u0442\u043e\u0432'))).toBeInTheDocument();
-    expect(screen.getByText(ru('\u0412 \u043e\u0436\u0438\u0434\u0430\u043d\u0438\u0438'))).toBeInTheDocument();
+    expect(screen.getAllByText(ru('\\u0413\\u043e\\u0442\\u043e\\u0432')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(ru('\\u0412 \\u043e\\u0436\\u0438\\u0434\\u0430\\u043d\\u0438\\u0438')).length).toBeGreaterThan(0);
   });
 
   it('renders loading state while snapshot request is pending', async () => {
-    vi.spyOn(apiClient, 'get').mockImplementation(() => new Promise(() => undefined) as never);
+    vi.spyOn(apiClient, 'get').mockImplementation((path: string) => {
+      if (path === '/api/channels/') {
+        return Promise.resolve(createChannelsResponse()) as never;
+      }
+
+      return new Promise(() => undefined) as never;
+    });
 
     renderPostsDashboard();
 
@@ -91,8 +146,8 @@ describe('Posts dashboard', () => {
   });
 
   it('renders empty state for successful response without items', async () => {
-    vi.spyOn(apiClient, 'get').mockResolvedValue(
-      createPostsDashboardResponse({
+    installPostsApiMock({
+      dashboard: createPostsDashboardResponse({
         summary: {
           posts_count: 0,
           total_comments: 0,
@@ -105,7 +160,7 @@ describe('Posts dashboard', () => {
         },
         items: [],
       }),
-    );
+    });
 
     renderPostsDashboard();
 
@@ -115,7 +170,13 @@ describe('Posts dashboard', () => {
   });
 
   it('renders error state for failed requests', async () => {
-    vi.spyOn(apiClient, 'get').mockRejectedValueOnce(new ApiError('Failed', 500));
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/channels/') {
+        return createChannelsResponse();
+      }
+
+      throw new ApiError('Failed', 500);
+    });
 
     renderPostsDashboard();
 
@@ -125,7 +186,13 @@ describe('Posts dashboard', () => {
   });
 
   it('renders forbidden state for 403 response', async () => {
-    vi.spyOn(apiClient, 'get').mockRejectedValueOnce(new ApiError('Forbidden', 403));
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/channels/') {
+        return createChannelsResponse();
+      }
+
+      throw new ApiError('Forbidden', 403);
+    });
 
     renderPostsDashboard('/dashboard/posts?limit=10');
 
@@ -135,8 +202,8 @@ describe('Posts dashboard', () => {
   });
 
   it('renders partial state and warnings banner without treating snapshot as hard error', async () => {
-    vi.spyOn(apiClient, 'get').mockResolvedValue(
-      createPostsDashboardResponse({
+    installPostsApiMock({
+      dashboard: createPostsDashboardResponse({
         partial: true,
         warnings: [
           {
@@ -146,7 +213,7 @@ describe('Posts dashboard', () => {
           },
         ],
       }),
-    );
+    });
 
     renderPostsDashboard();
 
@@ -160,28 +227,27 @@ describe('Posts dashboard', () => {
 
   it('navigates to post detail entry point from table actions', async () => {
     const user = userEvent.setup();
-    vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
-      if (path.startsWith('/api/dashboard/posts')) {
-        return createPostsDashboardResponse();
-      }
 
-      if (path === '/api/posts/4012') {
-        return createPostDetailResponse({ id: 4012 });
-      }
+    installPostsApiMock({
+      onPath: async (path) => {
+        if (path === '/api/posts/4012') {
+          return createPostDetailResponse({ id: 4012 });
+        }
 
-      if (path === '/api/posts/4012/comments') {
-        return createCommentsResponse();
-      }
+        if (path === '/api/posts/4012/comments') {
+          return createCommentsResponse();
+        }
 
-      if (path === '/api/reports/post/4012') {
-        return createReportResponse({ post_id: 4012 });
-      }
+        if (path === '/api/reports/post/4012') {
+          return createReportResponse({ post_id: 4012 });
+        }
 
-      if (path === '/api/posts/4012/links') {
-        return createLinksResponse();
-      }
+        if (path === '/api/posts/4012/links') {
+          return createLinksResponse();
+        }
 
-      throw new Error(`Unhandled GET path in test: ${path}`);
+        throw new Error(`Unhandled GET path in test: ${path}`);
+      },
     });
 
     renderPostsDashboard();
@@ -198,7 +264,7 @@ describe('Posts dashboard', () => {
   });
 
   it('hides mutation entry points for viewer while keeping detail navigation', async () => {
-    vi.spyOn(apiClient, 'get').mockResolvedValue(createPostsDashboardResponse());
+    installPostsApiMock();
 
     renderPostsDashboard('/dashboard/posts', ['viewer']);
 
@@ -211,3 +277,7 @@ describe('Posts dashboard', () => {
     expect(screen.queryByRole('link', { name: ru('\u041e\u0442\u0447\u0435\u0442') })).not.toBeInTheDocument();
   });
 });
+
+
+
+

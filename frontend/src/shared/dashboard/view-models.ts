@@ -1,6 +1,6 @@
-﻿import type { DashboardGeneratedAtProps } from '@shared/dashboard/components/DashboardGeneratedAt';
+import type { DashboardGeneratedAtProps } from '@shared/dashboard/components/DashboardGeneratedAt';
 import type { DashboardSummaryCard } from '@shared/dashboard/components/DashboardSummaryCards';
-import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
+import type { DataTableColumn, DataTableRow } from '@shared/tables/types';
 import type { DashboardTransportResponse } from '@shared/dashboard/contracts';
 import type { DashboardFiltersByMode } from '@shared/dashboard/filters';
 import { i18n } from '@shared/i18n/i18n';
@@ -16,8 +16,8 @@ export type DashboardScreenViewModel = {
   table: {
     title: string;
     description: string;
-    columns: DashboardTableColumn[];
-    rows: DashboardTableRow[];
+    columns: DataTableColumn[];
+    rows: DataTableRow[];
   };
   secondaryPanelTitle: string;
   secondaryPanelDescription: string;
@@ -60,7 +60,7 @@ export function mapDashboardTransportToScreenViewModel(transport: DashboardTrans
           href: `/posts/${item.post_id}`,
           cells: {
             channel: item.channel_title ?? item.channel_username ?? String(item.channel_id),
-            preview: item.text_preview ?? '—',
+            preview: item.text_preview ?? '�',
             comments: String(item.comments_count),
             report_status: item.report_status,
           },
@@ -147,4 +147,5 @@ export function mapDashboardTransportToScreenViewModel(transport: DashboardTrans
     secondaryPanelDescription: i18n.t('dashboard.foundation.processes.secondaryDescription'),
   };
 }
+
 

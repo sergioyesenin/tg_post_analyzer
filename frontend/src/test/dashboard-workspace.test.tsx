@@ -118,6 +118,20 @@ describe('Dashboard workspace shell', () => {
     expect(screen.queryByRole('link', { name: 'Каналы' })).not.toBeInTheDocument();
   });
 
+  it('renders a compact analytics session block without email and keeps logout available', async () => {
+    renderWorkspace('/dashboard/posts', ['admin', 'analyst']);
+
+    await waitFor(() => {
+      expect(document.querySelector('.app-session-chip__row--secondary .app-session-chip__action')).not.toBeNull();
+    });
+
+    expect(screen.queryByText('admin@example.com')).not.toBeInTheDocument();
+    expect(screen.getByText('admin')).toBeInTheDocument();
+    expect(screen.getByText('admin / analyst')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /ru/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /en/i })).toBeInTheDocument();
+  });
+
   it('applies filter edits back into URL-owned state', async () => {
     const user = userEvent.setup();
     renderWorkspace('/dashboard/posts');

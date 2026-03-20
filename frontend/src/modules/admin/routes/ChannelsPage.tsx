@@ -58,8 +58,10 @@ export function ChannelsPage() {
     return <ErrorState title={t('admin.channels.errorTitle')} description={t('admin.channels.errorDescription')} />;
   }
 
+  const isEditBusy = mutations.update.isPending || mutations.setActive.isPending || mutations.remove.isPending;
+
   return (
-    <div className="dashboard-page">
+    <div className="dashboard-page admin-console-page">
       <section className="dashboard-page__hero">
         <div>
           <span className="state-card__eyebrow">{t('states.admin')}</span>
@@ -68,7 +70,7 @@ export function ChannelsPage() {
         </div>
       </section>
 
-      <section className="dashboard-page__content dashboard-page__content--workspace">
+      <section className="dashboard-page__content dashboard-page__content--workspace admin-console-page__content">
         <div className="dashboard-page__primary">
           {channels.length === 0 ? (
             <EmptyState title={t('admin.channels.emptyTitle')} description={t('admin.channels.emptyDescription')} />
@@ -82,8 +84,8 @@ export function ChannelsPage() {
           )}
         </div>
 
-        <div className="dashboard-page__secondary">
-          <section className="detail-block">
+        <div className="dashboard-page__secondary admin-console-page__rail">
+          <section className="detail-block admin-console-card">
             <div className="detail-block__header">
               <div>
                 <span className="state-card__eyebrow">{t('states.create')}</span>
@@ -92,21 +94,21 @@ export function ChannelsPage() {
             </div>
 
             <form
-              className="dashboard-filter-grid"
+              className="dashboard-filter-grid admin-console-form"
               onSubmit={addForm.handleSubmit(async (values) => {
                 await mutations.add.runAsync({ username: values.username });
                 addForm.reset();
               })}
             >
-              <label>
+              <label className="admin-console-form__field">
                 <span>{t('fields.username')}</span>
                 <input {...addForm.register('username')} placeholder="@channel_name" />
                 {addForm.formState.errors.username ? <small>{addForm.formState.errors.username.message}</small> : null}
               </label>
-              <div className="dashboard-filter-bar__actions">
+              <div className="dashboard-filter-bar__actions admin-console-actions">
                 <button
                   type="submit"
-                  className="dashboard-button"
+                  className="admin-console-button admin-console-button--secondary"
                   disabled={mutations.add.isSubmitting || mutations.add.jobStatus === 'running'}
                 >
                   {t('actions.addChannel')}
@@ -128,7 +130,7 @@ export function ChannelsPage() {
             />
           ) : null}
 
-          <section className="detail-block">
+          <section className="detail-block admin-console-card">
             <div className="detail-block__header">
               <div>
                 <span className="state-card__eyebrow">{t('states.edit')}</span>
@@ -138,7 +140,7 @@ export function ChannelsPage() {
 
             {selectedChannel ? (
               <form
-                className="dashboard-filter-grid"
+                className="dashboard-filter-grid admin-console-form"
                 onSubmit={editForm.handleSubmit(async (values) => {
                   await mutations.update.mutateAsync({
                     channelId: selectedChannel.id,
@@ -150,27 +152,26 @@ export function ChannelsPage() {
                   });
                 })}
               >
-                <label>
+                <label className="admin-console-form__field">
                   <span>{t('fields.title')}</span>
                   <input {...editForm.register('title')} />
                 </label>
-                <label>
+                <label className="admin-console-form__field">
                   <span>{t('fields.category')}</span>
                   <input {...editForm.register('category')} />
                 </label>
-                <label>
-                  <span>
-                    <input type="checkbox" {...editForm.register('is_active')} />
-                    {t('fields.active')}
-                  </span>
+                <label className="admin-console-form__checkbox">
+                  <input type="checkbox" {...editForm.register('is_active')} />
+                  <span>{t('fields.active')}</span>
                 </label>
-                <div className="dashboard-filter-bar__actions">
-                  <button type="submit" className="dashboard-button" disabled={mutations.update.isPending}>
+                <div className="dashboard-filter-bar__actions admin-console-actions">
+                  <button type="submit" className="admin-console-button admin-console-button--primary" disabled={isEditBusy}>
                     {t('actions.saveChannel')}
                   </button>
                   <button
                     type="button"
-                    className="dashboard-button dashboard-button--ghost"
+                    className="admin-console-button admin-console-button--secondary"
+                    disabled={isEditBusy}
                     onClick={async () => {
                       const next = !selectedChannel.is_active;
                       if (!window.confirm(t('admin.channels.confirmToggle', { username: selectedChannel.username }))) {
@@ -183,7 +184,8 @@ export function ChannelsPage() {
                   </button>
                   <button
                     type="button"
-                    className="dashboard-button dashboard-button--ghost"
+                    className="admin-console-button admin-console-button--danger"
+                    disabled={isEditBusy}
                     onClick={async () => {
                       if (!window.confirm(t('admin.channels.confirmDelete', { username: selectedChannel.username }))) {
                         return;

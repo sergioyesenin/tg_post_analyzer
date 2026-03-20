@@ -1,16 +1,16 @@
-﻿import { i18n } from '@shared/i18n/i18n';
-import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
+import { i18n } from '@shared/i18n/i18n';
+import type { DataTableColumn, DataTableRow } from '@shared/tables/types';
 import type { ChannelDto, AdminUserDto, AppSettingDto } from '@modules/admin/contracts';
 import { formatUtcDateTime } from '@shared/utils/formatters';
 
-export const channelsColumns: DashboardTableColumn[] = [
+export const channelsColumns: DataTableColumn[] = [
   { id: 'channel', label: i18n.t('admin.channels.table.channel') },
   { id: 'category', label: i18n.t('admin.channels.table.category') },
   { id: 'active', label: i18n.t('admin.channels.table.active') },
   { id: 'actions', label: i18n.t('admin.channels.table.actions') },
 ];
 
-export const usersColumns: DashboardTableColumn[] = [
+export const usersColumns: DataTableColumn[] = [
   { id: 'user', label: i18n.t('admin.users.table.user') },
   { id: 'roles', label: i18n.t('admin.users.table.roles') },
   { id: 'active', label: i18n.t('admin.users.table.active') },
@@ -18,7 +18,7 @@ export const usersColumns: DashboardTableColumn[] = [
   { id: 'actions', label: i18n.t('admin.users.table.actions') },
 ];
 
-export const settingsColumns: DashboardTableColumn[] = [
+export const settingsColumns: DataTableColumn[] = [
   { id: 'key', label: i18n.t('admin.settings.table.key') },
   { id: 'description', label: i18n.t('admin.settings.table.description') },
   { id: 'updated_by', label: i18n.t('admin.settings.table.updatedBy') },
@@ -29,7 +29,7 @@ export function mapChannelsToRows(
   channels: ChannelDto[],
   selectedChannelId: number | null,
   onSelect: (channelId: number) => void,
-): DashboardTableRow[] {
+): DataTableRow[] {
   return channels.map((channel) => ({
     id: String(channel.id),
     isSelected: channel.id === selectedChannelId,
@@ -43,7 +43,13 @@ export function mapChannelsToRows(
       category: channel.category ?? i18n.t('common.na'),
       active: channel.is_active ? i18n.t('common.yes') : i18n.t('common.no'),
       actions: (
-        <button type="button" className="dashboard-button dashboard-button--ghost" onClick={() => onSelect(channel.id)}>
+        <button
+          type="button"
+          className={`admin-console-button admin-console-button--secondary admin-console-button--table ${
+            channel.id === selectedChannelId ? 'admin-console-button--selected' : ''
+          }`.trim()}
+          onClick={() => onSelect(channel.id)}
+        >
           {channel.id === selectedChannelId ? i18n.t('common.selected') : i18n.t('admin.common.manage')}
         </button>
       ),
@@ -55,7 +61,7 @@ export function mapUsersToRows(
   users: AdminUserDto[],
   selectedUserId: number | null,
   onSelect: (userId: number) => void,
-): DashboardTableRow[] {
+): DataTableRow[] {
   return users.map((user) => ({
     id: String(user.id),
     isSelected: user.id === selectedUserId,
@@ -70,7 +76,13 @@ export function mapUsersToRows(
       active: user.is_active ? i18n.t('common.yes') : i18n.t('common.no'),
       created: formatUtcDateTime(user.created_at),
       actions: (
-        <button type="button" className="dashboard-button dashboard-button--ghost" onClick={() => onSelect(user.id)}>
+        <button
+          type="button"
+          className={`admin-console-button admin-console-button--secondary admin-console-button--table ${
+            user.id === selectedUserId ? 'admin-console-button--selected' : ''
+          }`.trim()}
+          onClick={() => onSelect(user.id)}
+        >
           {user.id === selectedUserId ? i18n.t('common.selected') : i18n.t('admin.common.manage')}
         </button>
       ),
@@ -78,7 +90,7 @@ export function mapUsersToRows(
   }));
 }
 
-export function mapSettingsToRows(settings: AppSettingDto[]): DashboardTableRow[] {
+export function mapSettingsToRows(settings: AppSettingDto[]): DataTableRow[] {
   return settings.map((setting) => ({
     id: setting.key,
     cells: {
@@ -89,3 +101,4 @@ export function mapSettingsToRows(settings: AppSettingDto[]): DashboardTableRow[
     },
   }));
 }
+

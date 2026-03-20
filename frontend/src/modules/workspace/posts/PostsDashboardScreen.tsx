@@ -6,7 +6,8 @@ import { DashboardFilterBar } from '@shared/dashboard/components/DashboardFilter
 import { DashboardGeneratedAt } from '@shared/dashboard/components/DashboardGeneratedAt';
 import { DashboardSummaryCards } from '@shared/dashboard/components/DashboardSummaryCards';
 import { DashboardSystemAlerts } from '@shared/dashboard/components/DashboardSystemAlerts';
-import { DashboardTableShell } from '@shared/dashboard/components/DashboardTableShell';
+import { AnalyticsTable } from '@shared/dashboard/components/DashboardTableShell';
+import { getPostsDashboardFilterOptions, type DashboardFilterOptionsByMode } from '@shared/dashboard/filter-options';
 import type { PostsDashboardFiltersDto } from '@shared/dashboard/contracts';
 import { useDashboardFilters } from '@shared/dashboard/hooks';
 import { ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
@@ -15,6 +16,7 @@ import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
 import { useSession } from '@app/providers/SessionProvider';
+import { useChannelsQuery } from '@modules/admin/hooks';
 import { usePostsDashboardQuery } from '@modules/workspace/posts/hooks';
 import {
   mapPostsDashboardToViewModel,
@@ -25,26 +27,37 @@ import {
 function PostsDashboardScaffold({
   children,
   filters,
+  filterOptions,
+  channelOptionsState,
   applyFilters,
   resetFilters,
 }: {
   children: ReactNode;
   filters: PostsDashboardFiltersDto;
+  filterOptions: DashboardFilterOptionsByMode['posts'];
+  channelOptionsState: 'ready' | 'loading' | 'error';
   applyFilters: (filters: PostsDashboardFiltersDto) => void;
   resetFilters: () => void;
 }) {
   const { t } = useTranslation();
 
   return (
-    <div className="dashboard-page">
-      <section className="dashboard-page__hero">
+    <div className="dashboard-page dashboard-page--analytics">
+      <section className="dashboard-page__hero dashboard-page__hero--analytics">
         <div>
           <h2>{t('posts.dashboard.heroTitle')}</h2>
           <p>{t('posts.dashboard.sourceDescription')}</p>
         </div>
       </section>
 
-      <DashboardFilterBar mode="posts" filters={filters} onApply={applyFilters} onReset={resetFilters} />
+      <DashboardFilterBar
+        mode="posts"
+        filters={filters}
+        options={filterOptions}
+        channelOptionsState={channelOptionsState}
+        onApply={applyFilters}
+        onReset={resetFilters}
+      />
       {children}
     </div>
   );
@@ -55,10 +68,23 @@ export function PostsDashboardScreen() {
   const { filters, applyFilters, resetFilters } = useDashboardFilters('posts');
   const { primaryRole } = useSession();
   const query = usePostsDashboardQuery(filters);
+  const channelsQuery = useChannelsQuery();
+  const filterOptions = getPostsDashboardFilterOptions({
+    filters,
+    dashboardData: query.data ?? null,
+    channels: channelsQuery.data,
+  });
+  const channelOptionsState = channelsQuery.isLoading ? 'loading' : channelsQuery.isError ? 'error' : 'ready';
 
   if (query.isLoading) {
     return (
-      <PostsDashboardScaffold filters={filters} applyFilters={applyFilters} resetFilters={resetFilters}>
+      <PostsDashboardScaffold
+        filters={filters}
+        filterOptions={filterOptions}
+        channelOptionsState={channelOptionsState}
+        applyFilters={applyFilters}
+        resetFilters={resetFilters}
+      >
         <LoadingState title={t('posts.dashboard.loadingTitle')} description={t('posts.dashboard.loadingDescription')} />
       </PostsDashboardScaffold>
     );
@@ -69,7 +95,13 @@ export function PostsDashboardScreen() {
     const isForbidden = error instanceof ApiError && error.status === 403;
 
     return (
-      <PostsDashboardScaffold filters={filters} applyFilters={applyFilters} resetFilters={resetFilters}>
+      <PostsDashboardScaffold
+        filters={filters}
+        filterOptions={filterOptions}
+        channelOptionsState={channelOptionsState}
+        applyFilters={applyFilters}
+        resetFilters={resetFilters}
+      >
         {isForbidden ? (
           <ForbiddenState title={t('posts.dashboard.forbiddenTitle')} description={t('posts.dashboard.forbiddenDescription')} />
         ) : (
@@ -81,7 +113,13 @@ export function PostsDashboardScreen() {
 
   if (!query.data) {
     return (
-      <PostsDashboardScaffold filters={filters} applyFilters={applyFilters} resetFilters={resetFilters}>
+      <PostsDashboardScaffold
+        filters={filters}
+        filterOptions={filterOptions}
+        channelOptionsState={channelOptionsState}
+        applyFilters={applyFilters}
+        resetFilters={resetFilters}
+      >
         <ErrorState title={t('posts.dashboard.noDataTitle')} description={t('posts.dashboard.noDataDescription')} />
       </PostsDashboardScaffold>
     );
@@ -90,10 +128,10 @@ export function PostsDashboardScreen() {
   const viewModel = mapPostsDashboardToViewModel(query.data, primaryRole);
 
   return (
-    <div className="dashboard-page">
+    <div className="dashboard-page dashboard-page--analytics">
       <DashboardSystemAlerts warnings={viewModel.warnings} partial={viewModel.isPartial} />
 
-      <section className="dashboard-page__hero">
+      <section className="dashboard-page__hero dashboard-page__hero--analytics">
         <div>
           <h2>{t('posts.dashboard.heroTitle')}</h2>
           <p>{t('posts.dashboard.heroDescription')}</p>
@@ -103,7 +141,14 @@ export function PostsDashboardScreen() {
 
       <DashboardSummaryCards cards={viewModel.summaryCards} />
 
-      <DashboardFilterBar mode="posts" filters={filters} onApply={applyFilters} onReset={resetFilters} />
+      <DashboardFilterBar
+        mode="posts"
+        filters={filters}
+        options={filterOptions}
+        channelOptionsState={channelOptionsState}
+        onApply={applyFilters}
+        onReset={resetFilters}
+      />
 
       {primaryRole === 'viewer' ? (
         <ReadOnlyNotice title={t('posts.dashboard.readOnlyTitle')} description={t('posts.dashboard.readOnlyDescription')} />
@@ -114,10 +159,10 @@ export function PostsDashboardScreen() {
       ) : (
         <section className="dashboard-page__content dashboard-page__content--single">
           <div className="dashboard-page__primary">
-            <DashboardTableShell
+            <AnalyticsTable
               title={t('posts.dashboard.tableTitle')}
               description={t('posts.dashboard.tableDescription')}
-              columns={[...postsDashboardColumns]}
+              columns={postsDashboardColumns}
               rows={mapPostsRowsToTableRows(viewModel.rows)}
             />
           </div>
@@ -126,3 +171,9 @@ export function PostsDashboardScreen() {
     </div>
   );
 }
+
+
+
+
+
+

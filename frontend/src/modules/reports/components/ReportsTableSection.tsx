@@ -1,4 +1,4 @@
-import { DashboardTableShell } from '@shared/dashboard/components/DashboardTableShell';
+import { AnalyticsTable } from '@shared/dashboard/components/DashboardTableShell';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import type { ReportType } from '@modules/reports/contracts';
 import { getReportsColumnsByType, getReportsCopyByType, mapReportsRowsToTableRows } from '@modules/reports/mappers';
@@ -18,7 +18,7 @@ export function ReportsTableSection<TType extends ReportType>({ type, items }: R
   }
 
   return (
-    <DashboardTableShell
+    <AnalyticsTable
       title={copy.tableTitle}
       description={copy.description}
       columns={columns}
@@ -26,3 +26,5 @@ export function ReportsTableSection<TType extends ReportType>({ type, items }: R
     />
   );
 }
+
+

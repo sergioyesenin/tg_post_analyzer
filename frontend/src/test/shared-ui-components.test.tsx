@@ -1,8 +1,10 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
+import { AdminDataGrid } from '@modules/admin/components/AdminDataGrid';
+import { OpsDataGrid } from '@modules/platform/components/OpsDataGrid';
 import { DashboardSystemAlerts } from '@shared/dashboard/components/DashboardSystemAlerts';
-import { DashboardTableShell } from '@shared/dashboard/components/DashboardTableShell';
+import { AnalyticsTable } from '@shared/dashboard/components/DashboardTableShell';
 import { ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { JobStatusInline } from '@shared/ui/status/JobStatusInline';
 import { MonitorStatusBadge } from '@shared/ui/status/MonitorStatusBadge';
@@ -28,29 +30,73 @@ describe('Shared UI components', () => {
     expect(screen.getByText(/Экран остается доступным при частично обогащенных данных/i)).toBeInTheDocument();
   });
 
-  it('keeps shared table shells accessible by title and description', () => {
-    render(
-      <DashboardTableShell
-        title="Accessible table"
-        description="Shared table shell description."
-        columns={[
-          { id: 'name', label: 'Name' },
-          { id: 'status', label: 'Status', align: 'right' },
-        ]}
-        rows={[
-          {
-            id: '1',
-            cells: {
-              name: 'Row one',
-              status: 'Ready',
+  it('renders analytics, admin, and ops tables through production-equivalent grids', () => {
+    const { container } = render(
+      <div>
+        <AnalyticsTable
+          title="Accessible analytics table"
+          description="Shared analytics table description."
+          columns={[
+            { id: 'name', label: 'Name' },
+            { id: 'status', label: 'Status', align: 'right' },
+            { id: 'actions', label: 'Actions' },
+          ]}
+          rows={[
+            {
+              id: '1',
+              isSelected: true,
+              cells: {
+                name: 'Row one',
+                status: 'Ready',
+                actions: <button type="button">Inspect row</button>,
+              },
             },
-          },
-        ]}
-      />,
+          ]}
+        />
+        <AdminDataGrid
+          title="Accessible admin table"
+          description="Shared admin table description."
+          columns={[{ id: 'user', label: 'User' }]}
+          rows={[
+            {
+              id: '2',
+              cells: {
+                user: 'Admin user',
+              },
+            },
+          ]}
+        />
+        <OpsDataGrid
+          title="Accessible ops table"
+          description="Shared ops table description."
+          eyebrowLabel="ops"
+          columns={[{ id: 'job', label: 'Job' }]}
+          rows={[
+            {
+              id: '3',
+              cells: {
+                job: 'Retry queue',
+              },
+            },
+          ]}
+        />
+      </div>,
     );
 
-    expect(screen.getByRole('table', { name: /Accessible table/i })).toBeInTheDocument();
-    expect(screen.getByText(/Shared table shell description/i)).toBeInTheDocument();
+    const analyticsGrid = screen.getByRole('grid', { name: /Accessible analytics table/i });
+    const adminGrid = screen.getByRole('grid', { name: /Accessible admin table/i });
+    const opsGrid = screen.getByRole('grid', { name: /Accessible ops table/i });
+
+    expect(analyticsGrid).toBeInTheDocument();
+    expect(adminGrid).toBeInTheDocument();
+    expect(opsGrid).toBeInTheDocument();
+    expect(screen.getByText(/Shared analytics table description/i)).toBeInTheDocument();
+    expect(screen.getByText(/Shared admin table description/i)).toBeInTheDocument();
+    expect(screen.getByText(/Shared ops table description/i)).toBeInTheDocument();
+    expect(within(analyticsGrid).getByRole('button', { name: /Inspect row/i })).toBeInTheDocument();
+    expect(within(analyticsGrid).getByText(/Row one/i)).toBeInTheDocument();
+    expect(within(analyticsGrid).getByText(/Ready/i)).toBeInTheDocument();
+    expect(container.querySelector('.dashboard-table-shell__row--selected')).not.toBeNull();
   });
 
   it('uses one shared read-only notice pattern across modules', () => {

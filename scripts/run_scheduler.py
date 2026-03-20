@@ -30,9 +30,9 @@ async def main_async() -> None:
     async with AsyncSessionLocal() as session:
         effective_settings = await get_all_settings(session)
 
-    if not retention_scheduler_enabled(effective_settings):
-        logging.info("Scheduler process is disabled by settings.")
-        return
+    #if not retention_scheduler_enabled(effective_settings):
+    #    logging.info("Scheduler process is disabled by settings.")
+    #    return
 
     scheduler = build_scheduler()
     register_periodic_jobs(scheduler, effective_settings=effective_settings)

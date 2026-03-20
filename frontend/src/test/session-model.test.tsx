@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { apiClient } from '@shared/api/client';
+import type { AuthApiContract } from '@shared/auth/auth-api';
 import { AuthApiError } from '@shared/auth/auth-errors';
 import type { SessionTokens } from '@shared/auth/session-types';
 import { createPostsDashboardResponse } from '@test/dashboard-fixtures';
@@ -10,14 +11,14 @@ import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness'
 
 const ru = (value: string) => JSON.parse('"' + value + '"') as string;
 
-function createAuthApiMock(overrides: Record<string, unknown> = {}) {
+function createAuthApiMock(overrides: Partial<AuthApiContract> = {}): AuthApiContract {
   return {
     login: vi.fn(),
     logout: vi.fn().mockResolvedValue({ status: 'ok', refresh_revoked: true }),
     me: vi.fn().mockRejectedValue(new AuthApiError('Unauthorized', 401)),
     refresh: vi.fn().mockRejectedValue(new AuthApiError('Unauthorized', 401)),
     ...overrides,
-  } as never;
+  };
 }
 
 describe('Session model', () => {
@@ -97,3 +98,4 @@ describe('Session model', () => {
     expect(authApi.logout).toHaveBeenCalledTimes(1);
   });
 });
+

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { i18n } from '@shared/i18n/i18n';
 import type { PostsDashboardResponse } from '@shared/dashboard/contracts';
 import type { DashboardSummaryCard } from '@shared/dashboard/components/DashboardSummaryCards';
-import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
+import type { DataTableColumn, DataTableRow } from '@shared/tables/types';
 import { ReportStatusBadge } from '@shared/ui/status/ReportStatusBadge';
 import type { UserRole } from '@shared/auth/roles';
 import { buildPostDetailHref } from '@modules/workspace/posts/links';
@@ -99,7 +99,7 @@ export function mapPostsDashboardToViewModel(
   };
 }
 
-export const postsDashboardColumns: readonly DashboardTableColumn[] = [
+export const postsDashboardColumns: readonly DataTableColumn[] = [
   { id: 'date', label: i18n.t('posts.table.date') },
   { id: 'channel', label: i18n.t('posts.table.channel') },
   { id: 'preview', label: i18n.t('posts.table.preview') },
@@ -111,7 +111,7 @@ export const postsDashboardColumns: readonly DashboardTableColumn[] = [
   { id: 'actions', label: i18n.t('posts.table.actions') },
 ] as const;
 
-export function mapPostsRowsToTableRows(rows: PostsDashboardRowViewModel[]): DashboardTableRow[] {
+export function mapPostsRowsToTableRows(rows: PostsDashboardRowViewModel[]): DataTableRow[] {
   return rows.map((row) => ({
     id: row.id,
     href: row.detailHref,
@@ -144,3 +144,4 @@ export function mapPostsRowsToTableRows(rows: PostsDashboardRowViewModel[]): Das
     },
   }));
 }
+

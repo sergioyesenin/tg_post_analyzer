@@ -45,11 +45,11 @@ async def resolve_and_upsert_channel(
     if not isinstance(entity, TgChannel):
         raise ValueError(f"{ident} is not a Telegram channel")
 
-    try:
-        await tg_client(JoinChannelRequest(entity))
-    except RPCError:
+    # try:
+        # await tg_client(JoinChannelRequest(entity))
+    # except RPCError:
         # Already joined or join is not required for public reads.
-        pass
+    #    pass
 
     username: Optional[str] = entity.username
     title: Optional[str] = getattr(entity, "title", None)

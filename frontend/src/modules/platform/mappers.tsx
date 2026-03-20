@@ -1,6 +1,6 @@
-﻿import { i18n } from '@shared/i18n/i18n';
+import { i18n } from '@shared/i18n/i18n';
 import type { DashboardSummaryCard } from '@shared/dashboard/components/DashboardSummaryCards';
-import type { DashboardTableColumn, DashboardTableRow } from '@shared/dashboard/components/DashboardTableShell';
+import type { DataTableColumn, DataTableRow } from '@shared/tables/types';
 import { JobStatusInline } from '@shared/ui/status/JobStatusInline';
 import { MonitorStatusBadge } from '@shared/ui/status/MonitorStatusBadge';
 import { formatNullableNumber, formatUtcDateTime } from '@shared/utils/formatters';
@@ -35,7 +35,7 @@ function formatSeconds(value: number | null | undefined) {
   return `${(value / 3600).toFixed(1)}h`;
 }
 
-export const pendingJobsColumns: DashboardTableColumn[] = [
+export const pendingJobsColumns: DataTableColumn[] = [
   { id: 'job', label: i18n.t('platform.jobs.table.job') },
   { id: 'status', label: i18n.t('platform.jobs.table.status') },
   { id: 'schedule', label: i18n.t('platform.jobs.table.schedule') },
@@ -45,7 +45,7 @@ export const pendingJobsColumns: DashboardTableColumn[] = [
   { id: 'actions', label: i18n.t('platform.jobs.table.actions') },
 ];
 
-export const deadLetterColumns: DashboardTableColumn[] = [
+export const deadLetterColumns: DataTableColumn[] = [
   { id: 'job', label: i18n.t('platform.jobs.table.deadLetter') },
   { id: 'attempts', label: i18n.t('platform.jobs.table.attempts') },
   { id: 'failed_at', label: i18n.t('platform.jobs.table.failedAt') },
@@ -53,13 +53,13 @@ export const deadLetterColumns: DashboardTableColumn[] = [
   { id: 'actions', label: i18n.t('platform.jobs.table.actions') },
 ];
 
-export const monitorDependencyColumns: DashboardTableColumn[] = [
+export const monitorDependencyColumns: DataTableColumn[] = [
   { id: 'dependency', label: i18n.t('platform.monitor.dependenciesTable.dependency') },
   { id: 'status', label: i18n.t('platform.monitor.dependenciesTable.status') },
   { id: 'details', label: i18n.t('platform.monitor.dependenciesTable.details') },
 ];
 
-export const monitorAlertColumns: DashboardTableColumn[] = [
+export const monitorAlertColumns: DataTableColumn[] = [
   { id: 'metric', label: i18n.t('platform.monitor.alertsTable.metric') },
   { id: 'severity', label: i18n.t('platform.monitor.alertsTable.severity') },
   { id: 'current', label: i18n.t('platform.monitor.alertsTable.current') },
@@ -82,7 +82,7 @@ export function mapPendingJobsToRows(
   jobs: PendingJobDto[],
   onRetry: (jobId: number) => void,
   activeRetryJobId: number | null,
-): DashboardTableRow[] {
+): DataTableRow[] {
   return jobs.map((job) => ({
     id: String(job.id),
     cells: {
@@ -123,7 +123,7 @@ export function mapDeadLetterRows(
   rows: DeadLetterJobDto[],
   onRetry: (deadLetterId: number) => void,
   activeRetryId: number | null,
-): DashboardTableRow[] {
+): DataTableRow[] {
   return rows.map((row) => ({
     id: String(row.id),
     cells: {
@@ -162,7 +162,7 @@ export function mapMonitorSummaryCards(monitor: MonitorFullDto): DashboardSummar
   ];
 }
 
-export function mapMonitorDependencyRows(monitor: MonitorFullDto): DashboardTableRow[] {
+export function mapMonitorDependencyRows(monitor: MonitorFullDto): DataTableRow[] {
   return Object.entries(monitor.health.dependencies).map(([key, dependency]) => ({
     id: key,
     cells: {
@@ -179,7 +179,7 @@ export function mapMonitorDependencyRows(monitor: MonitorFullDto): DashboardTabl
   }));
 }
 
-export function mapMonitorAlertRows(monitor: MonitorFullDto): DashboardTableRow[] {
+export function mapMonitorAlertRows(monitor: MonitorFullDto): DataTableRow[] {
   return monitor.alerts.alerts.map((alert, index) => ({
     id: `${alert.metric}-${index}`,
     cells: {
@@ -244,3 +244,4 @@ export function mapMonitorOverview(monitor: MonitorFullDto) {
     ],
   };
 }
+

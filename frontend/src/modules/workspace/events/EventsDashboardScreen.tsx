@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ApiError } from '@shared/api/client';
@@ -5,7 +6,8 @@ import { DashboardFilterBar } from '@shared/dashboard/components/DashboardFilter
 import { DashboardGeneratedAt } from '@shared/dashboard/components/DashboardGeneratedAt';
 import { DashboardSummaryCards } from '@shared/dashboard/components/DashboardSummaryCards';
 import { DashboardSystemAlerts } from '@shared/dashboard/components/DashboardSystemAlerts';
-import { DashboardTableShell } from '@shared/dashboard/components/DashboardTableShell';
+import { AnalyticsTable } from '@shared/dashboard/components/DashboardTableShell';
+import { getEventsDashboardFilterOptions } from '@shared/dashboard/filter-options';
 import { useDashboardFilters } from '@shared/dashboard/hooks';
 import { canPerformAction } from '@shared/routing/policy';
 import { AsyncActionIndicator } from '@shared/ui/async/AsyncActionIndicator';
@@ -15,6 +17,7 @@ import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
 import { useSession } from '@app/providers/SessionProvider';
+import { useChannelsQuery } from '@modules/admin/hooks';
 import { EventDetailPanel } from '@modules/workspace/events/components/EventDetailPanel';
 import { EventGraphPanel } from '@modules/workspace/events/components/EventGraphPanel';
 import {
@@ -36,7 +39,14 @@ export function EventsDashboardScreen() {
   const { user, primaryRole } = useSession();
   const roles = user?.roles ?? [];
   const dashboardQuery = useEventsDashboardQuery(filters);
+  const channelsQuery = useChannelsQuery();
   const dashboardData = dashboardQuery.data ?? null;
+  const filterOptions = getEventsDashboardFilterOptions({
+    filters,
+    dashboardData,
+    channels: channelsQuery.data,
+  });
+  const channelOptionsState = channelsQuery.isLoading ? 'loading' : channelsQuery.isError ? 'error' : 'ready';
   const viewModel = dashboardData ? mapEventsDashboardToViewModel(dashboardData) : null;
   const { selectedEventId, selectEvent } = useSelectedEventId(dashboardData?.items ?? []);
   const selectedEvent = viewModel?.rows.find((row) => row.eventId === selectedEventId) ?? null;
@@ -44,17 +54,28 @@ export function EventsDashboardScreen() {
   const graphViewModel = graphQuery.data ? mapEventGraphToViewModel(graphQuery.data) : null;
   const canMutate = canPerformAction('reports.generate', roles);
   const reportAction = useUpdateEventReportAction(selectedEventId);
+  const tableRows = useMemo(
+    () => (viewModel ? mapEventsRowsToTableRows(viewModel.rows, selectedEventId, selectEvent, primaryRole) : []),
+    [viewModel, selectedEventId, selectEvent, primaryRole],
+  );
 
   if (dashboardQuery.isLoading) {
     return (
-      <div className="dashboard-page">
-        <section className="dashboard-page__hero">
+      <div className="dashboard-page dashboard-page--analytics">
+        <section className="dashboard-page__hero dashboard-page__hero--analytics">
           <div>
             <h2>{t('events.dashboard.heroTitle')}</h2>
             <p>{t('events.dashboard.sourceDescription')}</p>
           </div>
         </section>
-        <DashboardFilterBar mode="events" filters={filters} onApply={applyFilters} onReset={resetFilters} />
+        <DashboardFilterBar
+          mode="events"
+          filters={filters}
+          options={filterOptions}
+          channelOptionsState={channelOptionsState}
+          onApply={applyFilters}
+          onReset={resetFilters}
+        />
         <LoadingState title={t('events.dashboard.loadingTitle')} description={t('events.dashboard.loadingDescription')} />
       </div>
     );
@@ -65,14 +86,21 @@ export function EventsDashboardScreen() {
     const isForbidden = error instanceof ApiError && error.status === 403;
 
     return (
-      <div className="dashboard-page">
-        <section className="dashboard-page__hero">
+      <div className="dashboard-page dashboard-page--analytics">
+        <section className="dashboard-page__hero dashboard-page__hero--analytics">
           <div>
             <h2>{t('events.dashboard.heroTitle')}</h2>
             <p>{t('events.dashboard.sourceDescription')}</p>
           </div>
         </section>
-        <DashboardFilterBar mode="events" filters={filters} onApply={applyFilters} onReset={resetFilters} />
+        <DashboardFilterBar
+          mode="events"
+          filters={filters}
+          options={filterOptions}
+          channelOptionsState={channelOptionsState}
+          onApply={applyFilters}
+          onReset={resetFilters}
+        />
         {isForbidden ? (
           <ForbiddenState title={t('events.dashboard.forbiddenTitle')} description={t('events.dashboard.forbiddenDescription')} />
         ) : (
@@ -84,14 +112,21 @@ export function EventsDashboardScreen() {
 
   if (!dashboardQuery.data) {
     return (
-      <div className="dashboard-page">
-        <section className="dashboard-page__hero">
+      <div className="dashboard-page dashboard-page--analytics">
+        <section className="dashboard-page__hero dashboard-page__hero--analytics">
           <div>
             <h2>{t('events.dashboard.heroTitle')}</h2>
             <p>{t('events.dashboard.sourceDescription')}</p>
           </div>
         </section>
-        <DashboardFilterBar mode="events" filters={filters} onApply={applyFilters} onReset={resetFilters} />
+        <DashboardFilterBar
+          mode="events"
+          filters={filters}
+          options={filterOptions}
+          channelOptionsState={channelOptionsState}
+          onApply={applyFilters}
+          onReset={resetFilters}
+        />
         <ErrorState title={t('events.dashboard.noDataTitle')} description={t('events.dashboard.noDataDescription')} />
       </div>
     );
@@ -99,7 +134,7 @@ export function EventsDashboardScreen() {
 
   if (!viewModel) {
     return (
-      <div className="dashboard-page">
+      <div className="dashboard-page dashboard-page--analytics">
         <ErrorState title={t('events.dashboard.mappingTitle')} description={t('events.dashboard.mappingDescription')} />
       </div>
     );
@@ -109,10 +144,10 @@ export function EventsDashboardScreen() {
   const graphPartialHint = selectedEvent && (!selectedEvent.graphReady || eventsViewModel.isPartial) ? t('events.dashboard.partialHint') : null;
 
   return (
-    <div className="dashboard-page">
+    <div className="dashboard-page dashboard-page--analytics">
       <DashboardSystemAlerts warnings={eventsViewModel.warnings} partial={eventsViewModel.isPartial} />
 
-      <section className="dashboard-page__hero">
+      <section className="dashboard-page__hero dashboard-page__hero--analytics">
         <div>
           <h2>{t('events.dashboard.heroTitle')}</h2>
           <p>{t('events.dashboard.heroDescription')}</p>
@@ -122,7 +157,14 @@ export function EventsDashboardScreen() {
 
       <DashboardSummaryCards cards={eventsViewModel.summaryCards} />
 
-      <DashboardFilterBar mode="events" filters={filters} onApply={applyFilters} onReset={resetFilters} />
+      <DashboardFilterBar
+        mode="events"
+        filters={filters}
+        options={filterOptions}
+        channelOptionsState={channelOptionsState}
+        onApply={applyFilters}
+        onReset={resetFilters}
+      />
 
       {primaryRole === 'viewer' ? (
         <ReadOnlyNotice title={t('events.dashboard.readOnlyTitle')} description={t('events.dashboard.readOnlyDescription')} />
@@ -133,11 +175,11 @@ export function EventsDashboardScreen() {
       ) : (
         <section className="dashboard-page__content dashboard-page__content--workspace">
           <div className="dashboard-page__primary">
-            <DashboardTableShell
+            <AnalyticsTable
               title={t('events.dashboard.tableTitle')}
               description={t('events.dashboard.tableDescription')}
-              columns={[...eventsDashboardColumns]}
-              rows={mapEventsRowsToTableRows(eventsViewModel.rows, selectedEventId, selectEvent, primaryRole)}
+              columns={eventsDashboardColumns}
+              rows={tableRows}
             />
           </div>
 
@@ -187,3 +229,8 @@ export function EventsDashboardScreen() {
     </div>
   );
 }
+
+
+
+
+

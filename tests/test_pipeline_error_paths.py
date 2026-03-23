@@ -63,6 +63,65 @@ def test_split_jobs_for_telegram_worker_separates_comment_jobs():
     assert [job.id for job in other_jobs] == [3, 4]
 
 
+def test_build_post_links_priority_is_higher_than_collect_comments():
+    post = SimpleNamespace(comments_count=1000, views=100000, involvement=0.9)
+
+    collect_priority = pipeline_runtime._collect_comments_job_priority(post=post, scan_index=0)
+
+    assert pipeline_runtime.PRIORITY_BUILD_POST_LINKS < collect_priority
+
+
+@pytest.mark.asyncio
+async def test_run_telegram_jobs_executes_non_comment_jobs_before_comment_jobs(monkeypatch: pytest.MonkeyPatch):
+    jobs = [
+        SimpleNamespace(id=1, type=JobType.COLLECT_COMMENTS),
+        SimpleNamespace(id=2, type=JobType.BUILD_POST_LINKS),
+    ]
+    call_order: list[str] = []
+
+    async def _fake_get_all_settings(_session):
+        return {"ingest": {"collect_comments_sleep_min_ms": 0, "collect_comments_sleep_max_ms": 0}}
+
+    async def _fake_fetch_and_lock_jobs(_session, **_kwargs):
+        return jobs
+
+    async def _fake_run_comment_job(**_kwargs):
+        call_order.append("comment")
+        return 1, 1, None, 0, False
+
+    async def _fake_run_link_job(**_kwargs):
+        call_order.append("link")
+        return 1
+
+    class _FakeSession:
+        async def commit(self):
+            return None
+
+    class _FakeSessionContext:
+        async def __aenter__(self):
+            return _FakeSession()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(pipeline_runtime, "AsyncSessionLocal", _FakeSessionContext)
+    monkeypatch.setattr(pipeline_runtime, "get_all_settings", _fake_get_all_settings)
+    monkeypatch.setattr(pipeline_runtime, "fetch_and_lock_jobs", _fake_fetch_and_lock_jobs)
+    monkeypatch.setattr(pipeline_runtime, "_run_comment_job", _fake_run_comment_job)
+    monkeypatch.setattr(pipeline_runtime, "_run_link_job", _fake_run_link_job)
+
+    executed = await pipeline_runtime.run_telegram_jobs(
+        job_batch_size=10,
+        worker_id="worker-1",
+        collect_comments_quota_per_run=5,
+        tg_client=object(),
+        job_worker_concurrency=2,
+    )
+
+    assert executed == 2
+    assert call_order == ["link", "comment"]
+
+
 @pytest.mark.asyncio
 async def test_run_telegram_cycle_serializes_channel_ingest_with_shared_telethon_session(monkeypatch):
     channels = [

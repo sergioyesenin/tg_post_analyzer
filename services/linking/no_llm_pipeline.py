@@ -9,7 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import settings
 from db.models import LinkDirection, Post, PostLink, PostLinkType, VerificationStatus
 from schemas.linking import LinkRunResponse
-from services.linking.candidates import Candidate, retrieve_candidates
+from services.linking.candidates import (
+    Candidate,
+    get_or_prepare_post_features,
+    retrieve_candidates,
+)
+from services.linking.embeddings import EmbeddingProvider
 
 
 @dataclass(slots=True)
@@ -26,7 +31,6 @@ class NoLlmLinkingPipeline:
         if not post.parent_post_id:
             return 0
 
-        # Canonical domain semantics: native Telegram reply relation is UPDATE.
         stmt = (
             insert(PostLink)
             .values(
@@ -74,10 +78,9 @@ class NoLlmLinkingPipeline:
         src_post: Post,
         candidate: Candidate,
     ) -> int:
-        # For same_event we keep a canonical order to avoid mirrored duplicate edges.
         left_id, right_id = sorted((src_post.id, candidate.post.id))
-
         score = max(0.0, min(1.0, candidate.embedding_similarity))
+
         stmt = (
             insert(PostLink)
             .values(
@@ -143,24 +146,37 @@ class NoLlmLinkingPipeline:
         return True
 
     async def run_for_post(self, session: AsyncSession, post: Post) -> LinkRunResponse:
-        links_verified = await self._commit_reply_update_link(session, post)
-        _, candidates = await retrieve_candidates(session, post=post)
+        provider = EmbeddingProvider()
+
+        prepared_post, src_facts, src_vector = await get_or_prepare_post_features(
+            session,
+            post=post,
+            provider=provider,
+        )
+
+        links_verified = await self._commit_reply_update_link(session, prepared_post)
+        _, candidates = await retrieve_candidates(
+            session,
+            post=prepared_post,
+            src_facts=src_facts,
+            src_vector=src_vector,
+        )
 
         links_rejected = 0
         candidates_checked = 0
         for candidate in candidates:
             candidates_checked += 1
-            if self._is_same_event_candidate(post, candidate):
+            if self._is_same_event_candidate(prepared_post, candidate):
                 links_verified += await self._commit_same_event_link(
                     session,
-                    src_post=post,
+                    src_post=prepared_post,
                     candidate=candidate,
                 )
             else:
                 links_rejected += 1
 
         return LinkRunResponse(
-            post_id=post.id,
+            post_id=prepared_post.id,
             links_verified=links_verified,
             links_proposed=0,
             links_rejected=links_rejected,

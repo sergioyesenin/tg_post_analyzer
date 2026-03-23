@@ -4,6 +4,7 @@ import asyncio
 import logging
 import random
 from collections import deque
+from datetime import timedelta
 
 from telethon.errors import FloodWaitError, RPCError
 from telethon.errors.rpcerrorlist import MsgIdInvalidError
@@ -98,9 +99,125 @@ async def _resolve_discussion_with_fallback(
         return None, None, "rpc_error", None
     return None, None, "no_discussion", None
 
+async def _load_top_level_thread_comments(
+    tg_client,
+    *,
+    entity,
+    discussion_chat,
+    discussion_root,
+    discussion_msg_id,
+    discussion_source_msg_id,
+    head_msg,
+    post_date,
+):
+    discussion_chat_roots: list[int] = []
+    source_entity_roots: list[int] = []
+
+    seen_discussion: set[int] = set()
+    seen_source: set[int] = set()
+
+    discussion_root_id = getattr(discussion_root, "id", None)
+    if isinstance(discussion_root_id, int) and discussion_root_id > 0:
+        discussion_chat_roots.append(discussion_root_id)
+        seen_discussion.add(discussion_root_id)
+
+    for value in [
+        discussion_msg_id,
+        discussion_source_msg_id,
+        getattr(head_msg, "id", None) if head_msg is not None else None,
+    ]:
+        if isinstance(value, int) and value > 0 and value not in seen_source:
+            seen_source.add(value)
+            source_entity_roots.append(value)
+
+    logger.info(
+        "thread root candidates discussion_chat_roots=%s source_entity_roots=%s",
+        discussion_chat_roots,
+        source_entity_roots,
+    )
+
+    # 1) linked discussion chat: only discussion_root.id
+    for root_id in discussion_chat_roots:
+        items = []
+        try:
+            async for c in tg_client.iter_messages(discussion_chat, reply_to=root_id):
+                items.append(c)
+        except FloodWaitError:
+            raise
+        except Exception:
+            logger.exception(
+                "top-level scan failed in discussion chat root_id=%s chat_id=%s",
+                root_id,
+                getattr(discussion_chat, "id", None),
+            )
+            items = []
+
+        logger.info(
+            "top-level scan discussion_chat root_id=%s found=%s",
+            root_id,
+            len(items),
+        )
+
+        # sanity filter: comments must not be older than the post itself
+        filtered = [
+            c for c in items
+            if getattr(c, "date", None) is not None
+            and c.date >= post_date - timedelta(days=1)
+            and getattr(c, "id", None) != root_id
+        ]
+
+        logger.info(
+            "top-level scan discussion_chat root_id=%s filtered=%s",
+            root_id,
+            len(filtered),
+        )
+
+        if filtered:
+            return discussion_chat, root_id, filtered
+
+    # 2) source channel entity: only source ids
+    for root_id in source_entity_roots:
+        items = []
+        try:
+            async for c in tg_client.iter_messages(entity, reply_to=root_id):
+                items.append(c)
+        except FloodWaitError:
+            raise
+        except Exception:
+            logger.exception(
+                "top-level scan failed in source entity root_id=%s",
+                root_id,
+            )
+            items = []
+
+        logger.info(
+            "top-level scan source entity root_id=%s found=%s",
+            root_id,
+            len(items),
+        )
+
+        filtered = [
+            c for c in items
+            if getattr(c, "date", None) is not None
+            and c.date >= post_date - timedelta(days=1)
+            and getattr(c, "id", None) != root_id
+        ]
+
+        logger.info(
+            "top-level scan source entity root_id=%s filtered=%s",
+            root_id,
+            len(filtered),
+        )
+
+        if filtered:
+            return entity, root_id, filtered
+
+    return None, None, []
+
 
 async def update_post_comments(session: AsyncSession, post_id: int, tg_client=None) -> dict:
     tg_client = tg_client or default_client
+
     row = await get_post_with_channel_by_post_id(session, post_id)
     if row is None:
         return {"status": "not_found", "post_id": post_id, "comments_saved": 0, "commenters_count": 0}
@@ -182,14 +299,18 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
     telegram_replies_count = None
     head_views = None
     head_msg = None
+
     try:
         head_msg = await tg_client.get_messages(entity, ids=post.tg_message_id)
         if isinstance(head_msg, list):
             head_msg = head_msg[0] if head_msg else None
+
         replies_obj = getattr(head_msg, "replies", None) if head_msg is not None else None
         replies_count = getattr(replies_obj, "replies", None) if replies_obj is not None else None
+
         if isinstance(replies_count, int) and replies_count >= 0:
             telegram_replies_count = replies_count
+
         current_views = getattr(head_msg, "views", None) if head_msg is not None else None
         if isinstance(current_views, int) and current_views >= 0:
             head_views = current_views
@@ -231,6 +352,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             await set_post_views(session, post_id=post.id, views=head_views)
             post.views = head_views
 
+        # Для альбомов не выходим раньше времени, even if counts look unchanged.
         if (
             not is_album
             and telegram_replies_count > 0
@@ -246,12 +368,13 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             }
 
     discussion, discussion_msg_id, discussion_status, wait_seconds, discussion_source_msg_id = (
-    await _resolve_discussion_for_post_or_album(
-        tg_client=tg_client,
-        entity=entity,
-        head_msg=head_msg,
+        await _resolve_discussion_for_post_or_album(
+            tg_client=tg_client,
+            entity=entity,
+            head_msg=head_msg,
+        )
     )
-)
+
     if discussion is None:
         if discussion_status == "flood_wait":
             return {
@@ -261,9 +384,18 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 "flood_source": "resolve_discussion",
                 "comments_saved": 0,
                 "commenters_count": 0,
+                "album_grouped_id": getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
+                "discussion_source_msg_id": discussion_source_msg_id,
             }
         if discussion_status == "rpc_error":
-            return {"status": "rpc_error", "post_id": post_id, "comments_saved": 0, "commenters_count": 0}
+            return {
+                "status": "rpc_error",
+                "post_id": post_id,
+                "comments_saved": 0,
+                "commenters_count": 0,
+                "album_grouped_id": getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
+                "discussion_source_msg_id": discussion_source_msg_id,
+            }
         if discussion_status == "no_discussion":
             if isinstance(telegram_replies_count, int) and telegram_replies_count > 0:
                 return {
@@ -272,16 +404,41 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                     "comments_saved": 0,
                     "commenters_count": 0,
                     "telegram_replies_count": telegram_replies_count,
+                    "album_grouped_id": getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
+                    "discussion_source_msg_id": discussion_source_msg_id,
                     "error": "discussion_not_resolved_with_positive_replies",
                 }
-            return {"status": "no_discussion", "post_id": post_id, "comments_saved": 0, "commenters_count": 0}
-        return {"status": "discussion_error", "post_id": post_id, "comments_saved": 0, "commenters_count": 0}
+            return {
+                "status": "no_discussion",
+                "post_id": post_id,
+                "comments_saved": 0,
+                "commenters_count": 0,
+                "album_grouped_id": getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
+                "discussion_source_msg_id": discussion_source_msg_id,
+            }
+        return {
+            "status": "discussion_error",
+            "post_id": post_id,
+            "comments_saved": 0,
+            "commenters_count": 0,
+            "album_grouped_id": getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
+            "discussion_source_msg_id": discussion_source_msg_id,
+        }
 
     if not discussion.chats or not discussion.messages:
         return {"status": "no_discussion", "post_id": post_id, "comments_saved": 0, "commenters_count": 0}
 
     discussion_chat = discussion.chats[0]
     discussion_root = discussion.messages[0]
+
+    logger.info(
+        "discussion root resolved post_id=%s discussion_msg_id=%s discussion_root_id=%s discussion_chat_id=%s grouped_id=%s",
+        post.id,
+        discussion_msg_id,
+        getattr(discussion_root, "id", None),
+        getattr(discussion_chat, "id", None),
+        getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
+    )
 
     existing_rows = await session.execute(
         select(Comment.tg_message_id, Comment.id, Comment.depth).where(Comment.post_id == post.id)
@@ -296,15 +453,109 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
     sender_meta_cache: dict[int, tuple[bool, str | None]] = {}
     comments_saved = 0
     k = 0
-
-    queue: deque[tuple[int, int]] = deque([(discussion_root.id, -1)])
     seen_comment_ids: set[int] = set()
 
+    thread_entity, top_level_root_id, top_level_comments = await _load_top_level_thread_comments(
+    tg_client=tg_client,
+    entity=entity,
+    discussion_chat=discussion_chat,
+    discussion_root=discussion_root,
+    discussion_msg_id=discussion_msg_id,
+    discussion_source_msg_id=discussion_source_msg_id,
+    head_msg=head_msg,
+    post_date=post.date,
+)
+
+    if thread_entity is None:
+        logger.warning(
+            "no top-level thread comments resolved post_id=%s discussion_msg_id=%s discussion_root_id=%s telegram_replies_count=%s",
+            post.id,
+            discussion_msg_id,
+            getattr(discussion_root, "id", None),
+            telegram_replies_count,
+        )
+        top_level_comments = []
+
+    queue: deque[tuple[int, int]] = deque()
+
     try:
+        # Сначала сохраняем top-level comments
+        for c in top_level_comments:
+            if c.id in seen_comment_ids:
+                continue
+            seen_comment_ids.add(c.id)
+            k += 1
+
+            if c.date is None:
+                continue
+
+            author_id = None
+            author_key_id = None
+            from_id = getattr(c, "from_id", None)
+            if isinstance(from_id, PeerUser):
+                author_id = from_id.user_id
+                author_key_id = f"id:{author_id}"
+
+            author_username = None
+            author_key_username = None
+            is_bot = False
+            sender = getattr(c, "sender", None)
+
+            if isinstance(from_id, PeerUser) and isinstance(author_id, int):
+                cached = sender_meta_cache.get(author_id)
+                if cached is not None:
+                    is_bot, author_username = cached
+                elif isinstance(sender, User):
+                    is_bot = bool(sender.bot)
+                    author_username = getattr(sender, "username", None)
+                    sender_meta_cache[author_id] = (is_bot, author_username)
+            elif isinstance(sender, User):
+                is_bot = bool(sender.bot)
+                author_username = getattr(sender, "username", None)
+
+            if author_username:
+                author_key_username = f"u:{author_username.lower()}"
+
+            if is_bot:
+                continue
+
+            if author_key_id:
+                commenters.add(author_key_id)
+            if author_key_username:
+                commenters.add(author_key_username)
+
+            saved_comment = await upsert_comment(
+                session,
+                channel_id=channel.id,
+                post_id=post.id,
+                tg_message_id=c.id,
+                parent_tg_message_id=top_level_root_id,
+                parent_comment_id=None,
+                thread_root_tg_message_id=top_level_root_id,
+                depth=0,
+                date=c.date,
+                author_id=author_id,
+                author_username=author_username,
+                text=c.message,
+            )
+            tg_to_comment_id[c.id] = saved_comment.id
+            tg_to_depth[c.id] = 0
+            comments_saved += 1
+
+            comment_replies_obj = getattr(c, "replies", None)
+            nested_replies_count = getattr(comment_replies_obj, "replies", 0) if comment_replies_obj is not None else 0
+            if isinstance(nested_replies_count, int) and nested_replies_count > 0:
+                queue.append((c.id, 0))
+
+            if k >= COMMENTS_SLEEP_EVERY:
+                k = 0
+                await polite_sleep(COMMENTS_SLEEP_BASE_SEC, COMMENTS_SLEEP_JITTER_SEC)
+
+        # Потом обходим вложенные ответы
         while queue:
             parent_tg_message_id, parent_depth = queue.popleft()
 
-            async for c in tg_client.iter_messages(discussion_chat, reply_to=parent_tg_message_id):
+            async for c in tg_client.iter_messages(thread_entity, reply_to=parent_tg_message_id):
                 if c.id in seen_comment_ids:
                     continue
                 seen_comment_ids.add(c.id)
@@ -346,11 +597,8 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 reply_to_msg_id = getattr(reply_to, "reply_to_msg_id", None) if reply_to is not None else None
                 effective_parent_tg = reply_to_msg_id or parent_tg_message_id
 
-                if effective_parent_tg == discussion_root.id:
-                    depth = 0
-                else:
-                    parent_known_depth = tg_to_depth.get(effective_parent_tg, parent_depth)
-                    depth = max(0, parent_known_depth + 1)
+                parent_known_depth = tg_to_depth.get(effective_parent_tg, parent_depth)
+                depth = max(1, parent_known_depth + 1)
 
                 if author_key_id:
                     commenters.add(author_key_id)
@@ -364,7 +612,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                     tg_message_id=c.id,
                     parent_tg_message_id=effective_parent_tg,
                     parent_comment_id=tg_to_comment_id.get(effective_parent_tg),
-                    thread_root_tg_message_id=discussion_root.id,
+                    thread_root_tg_message_id=top_level_root_id or getattr(discussion_root, "id", None),
                     depth=depth,
                     date=c.date,
                     author_id=author_id,
@@ -383,6 +631,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 if k >= COMMENTS_SLEEP_EVERY:
                     k = 0
                     await polite_sleep(COMMENTS_SLEEP_BASE_SEC, COMMENTS_SLEEP_JITTER_SEC)
+
     except FloodWaitError as e:
         return {
             "status": "flood_wait",
@@ -393,7 +642,12 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             "commenters_count": len(commenters),
         }
     except MsgIdInvalidError:
-        return {"status": "no_discussion", "post_id": post_id, "comments_saved": comments_saved, "commenters_count": len(commenters)}
+        return {
+            "status": "no_discussion",
+            "post_id": post_id,
+            "comments_saved": comments_saved,
+            "commenters_count": len(commenters),
+        }
     except RPCError as exc:
         logger.warning(
             "telegram rpc while iterating comments op=iter_comments post_id=%s channel_id=%s err=%r",
@@ -422,11 +676,50 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             "error": "unexpected_iter_comments_error",
         }
 
-    await set_post_comments_count(session, post_id=post.id, comments_count=comments_saved)
+    actual_comments_count = int(
+        await session.scalar(
+            select(func.count()).select_from(Comment).where(Comment.post_id == post.id)
+        )
+        or 0
+    )
+
+    if (
+        isinstance(telegram_replies_count, int)
+        and telegram_replies_count > 0
+        and actual_comments_count == 0
+    ):
+        logger.warning(
+            "comments scan produced zero persisted rows despite positive telegram replies "
+            "post_id=%s discussion_msg_id=%s discussion_source_msg_id=%s telegram_replies_count=%s grouped_id=%s",
+            post.id,
+            discussion_msg_id,
+            discussion_source_msg_id,
+            telegram_replies_count,
+            getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
+        )
+        return {
+            "status": "discussion_error",
+            "post_id": post.id,
+            "discussion_msg_id": discussion_msg_id,
+            "discussion_source_msg_id": discussion_source_msg_id,
+            "album_grouped_id": getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
+            "comments_saved": comments_saved,
+            "comments_count": actual_comments_count,
+            "commenters_count": len(commenters),
+            "telegram_replies_count": telegram_replies_count,
+            "error": "discussion_resolved_but_no_comments_persisted",
+        }
+
+    await set_post_comments_count(
+        session,
+        post_id=post.id,
+        comments_count=actual_comments_count,
+    )
 
     involvement = None
     if isinstance(post.views, int) and post.views > 0:
         involvement = len(commenters) / post.views
+
     await set_post_involvement(session, post_id=post.id, involvement=involvement)
     await set_post_last_comments_scan_at(session, post_id=post.id)
 
@@ -434,7 +727,10 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         "status": "ok",
         "post_id": post.id,
         "discussion_msg_id": discussion_msg_id,
+        "discussion_source_msg_id": discussion_source_msg_id,
+        "album_grouped_id": getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
         "comments_saved": comments_saved,
+        "comments_count": actual_comments_count,
         "commenters_count": len(commenters),
         "involvement": involvement,
         "telegram_replies_count": telegram_replies_count,
@@ -447,14 +743,42 @@ async def _resolve_discussion_for_post_or_album(
 ):
     if head_msg is None:
         return None, None, "no_discussion", None, None
-    candidate_ids = [head_msg.id]
 
-    if getattr(head_msg, "grouped_id", None):
-        candidate_ids = await _collect_album_message_ids(
+    head_msg_id = int(head_msg.id)
+    grouped_id = getattr(head_msg, "grouped_id", None)
+
+    candidate_ids: list[int] = [head_msg_id]
+
+    if grouped_id:
+        album_ids = await _collect_album_message_ids(
             tg_client=tg_client,
             entity=entity,
             head_msg=head_msg,
         )
+
+        ordered: list[int] = []
+        seen: set[int] = set()
+
+        preferred_ids = []
+        if album_ids:
+            preferred_ids.append(min(album_ids))
+        preferred_ids.append(head_msg_id)
+        preferred_ids.extend(album_ids)
+
+        for cid in preferred_ids:
+            cid = int(cid)
+            if cid not in seen:
+                seen.add(cid)
+                ordered.append(cid)
+
+        candidate_ids = ordered
+
+    logger.info(
+        "album discussion candidates head_msg_id=%s grouped_id=%s candidate_ids=%s",
+        head_msg_id,
+        grouped_id,
+        candidate_ids,
+    )
 
     last_status = "no_discussion"
     last_wait_seconds = 0
@@ -468,10 +792,29 @@ async def _resolve_discussion_for_post_or_album(
         )
 
         if discussion is not None:
+            logger.info(
+                "album discussion resolved source_msg_id=%s discussion_msg_id=%s grouped_id=%s",
+                candidate_msg_id,
+                discussion_msg_id,
+                grouped_id,
+            )
             return discussion, discussion_msg_id, status, wait_seconds, candidate_msg_id
 
         if status == "flood_wait":
+            logger.warning(
+                "album discussion flood_wait source_msg_id=%s grouped_id=%s wait_seconds=%s",
+                candidate_msg_id,
+                grouped_id,
+                int(wait_seconds or 0),
+            )
             return None, None, status, wait_seconds, candidate_msg_id
+
+        logger.info(
+            "album discussion miss source_msg_id=%s grouped_id=%s status=%s",
+            candidate_msg_id,
+            grouped_id,
+            status,
+        )
 
         last_status = status
         last_wait_seconds = wait_seconds or 0
@@ -487,34 +830,45 @@ async def _collect_album_message_ids(
 ) -> list[int]:
     grouped_id = getattr(head_msg, "grouped_id", None)
     if not grouped_id:
-        return [head_msg.id]
+        return [int(head_msg.id)]
 
-    ids: list[int] = []
+    result: list[int] = []
     seen: set[int] = set()
 
-    # Берём небольшой диапазон вокруг head_msg.id.
-    # У альбома сообщения обычно идут подряд.
-    min_id = max(0, head_msg.id - window_before - 1)
-    max_id = head_msg.id + window_after + 1
-
-    msgs = await tg_client.get_messages(
-        entity,
-        min_id=min_id,
-        max_id=max_id,
-        limit=window_before + window_after + 5,
+    candidate_ids = list(
+        range(
+            max(1, int(head_msg.id) - int(window_before)),
+            int(head_msg.id) + int(window_after) + 1,
+        )
     )
+
+    try:
+        msgs = await tg_client.get_messages(entity, ids=candidate_ids)
+    except FloodWaitError:
+        raise
+    except Exception:
+        logger.exception(
+            "album candidate fetch failed op=collect_album_message_ids head_msg_id=%s grouped_id=%s",
+            getattr(head_msg, "id", None),
+            grouped_id,
+        )
+        return [int(head_msg.id)]
+
+    if not isinstance(msgs, list):
+        msgs = [msgs] if msgs is not None else []
 
     for m in msgs:
         if not m:
             continue
         if getattr(m, "grouped_id", None) == grouped_id:
-            if m.id not in seen:
-                seen.add(m.id)
-                ids.append(m.id)
+            mid = int(m.id)
+            if mid not in seen:
+                seen.add(mid)
+                result.append(mid)
 
-    # На всякий случай гарантируем наличие исходного сообщения
-    if head_msg.id not in seen:
-        ids.append(head_msg.id)
+    head_id = int(head_msg.id)
+    if head_id not in seen:
+        result.append(head_id)
 
-    ids.sort()
-    return ids
+    result.sort()
+    return result

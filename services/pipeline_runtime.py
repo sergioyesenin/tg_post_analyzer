@@ -57,6 +57,7 @@ PRIORITY_API_REPORT = 1
 PRIORITY_API_COMMENT_REFRESH = 1
 PRIORITY_API_POST_REPORT = 1
 PRIORITY_API_POST_REPORT_BATCH = 5
+PRIORITY_BUILD_POST_LINKS = 4
 PRIORITY_BUILD_POST_REPORT = 40
 PRIORITY_ARCHIVE_RETENTION = 95
 PRIORITY_JOBS_RETENTION = 96
@@ -489,7 +490,7 @@ async def _schedule_post_jobs(
         job_type=JobType.BUILD_POST_LINKS,
         payload={"post_id": post.id},
         run_at=datetime.now(timezone.utc),
-        priority=10,
+        priority=PRIORITY_BUILD_POST_LINKS,
         max_attempts=5,
         dedupe_key=f"build_post_links:{post.id}",
     )
@@ -941,6 +942,20 @@ async def run_telegram_jobs(
 
     comment_jobs, other_jobs = split_jobs_for_telegram_worker(jobs)
 
+    if other_jobs:
+        parallelism = _clamp_positive_int(job_worker_concurrency, default=2, minimum=1, maximum=16)
+        semaphore = asyncio.Semaphore(parallelism)
+
+        async def _run_other(job: Job) -> int:
+            async with semaphore:
+                if job.type == JobType.ADD_CHANNEL:
+                    return await _run_add_channel_job(job=job, tg_client=tg_client, worker_id=worker_id)
+                if job.type == JobType.BUILD_POST_LINKS:
+                    return await _run_link_job(job=job, worker_id=worker_id)
+                return await _run_maintenance_job(job=job, worker_id=worker_id)
+
+        executed += sum(await asyncio.gather(*[_run_other(job) for job in other_jobs]))
+
     for job in comment_jobs:
         result = await _run_comment_job(
             job=job,
@@ -958,21 +973,6 @@ async def run_telegram_jobs(
         if should_break:
             break
 
-    if not other_jobs:
-        return executed
-
-    parallelism = _clamp_positive_int(job_worker_concurrency, default=2, minimum=1, maximum=16)
-    semaphore = asyncio.Semaphore(parallelism)
-
-    async def _run_other(job: Job) -> int:
-        async with semaphore:
-            if job.type == JobType.ADD_CHANNEL:
-                return await _run_add_channel_job(job=job, tg_client=tg_client, worker_id=worker_id)
-            if job.type == JobType.BUILD_POST_LINKS:
-                return await _run_link_job(job=job, worker_id=worker_id)
-            return await _run_maintenance_job(job=job, worker_id=worker_id)
-
-    executed += sum(await asyncio.gather(*[_run_other(job) for job in other_jobs]))
     return executed
 
 
@@ -1162,7 +1162,6 @@ async def run_telegram_cycle(
                     channel.username,
                     exc,
                 )
-
     if not skip_rebuild_graphs and total_processed_posts > 0:
         await _rebuild_event_process_graphs(date_from=since_utc, date_to=datetime.now(timezone.utc))
     elif not skip_rebuild_graphs:

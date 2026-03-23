@@ -152,7 +152,6 @@ class IngestionCore:
 
     async def _pick_album_representative_message(self, entity, message):
         grouped_id = getattr(message, "grouped_id", None)
-        print (grouped_id)
         if not isinstance(grouped_id, int):
             return message
 
@@ -182,14 +181,10 @@ class IngestionCore:
         if not grouped_messages:
             return message
 
-        return max(
-            grouped_messages,
-            key=lambda m: (
-                extract_comments_count(m),
-                1 if str(getattr(m, "message", "") or "").strip() else 0,
-                -int(getattr(m, "id", 0) or 0),
-            ),
-        )
+        grouped_messages.sort(key=lambda m: int(getattr(m, "id", 0) or 0))
+        representative = grouped_messages[0]
+
+        return representative
 
     async def ingest_channel(
         self,

@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+﻿import { Link } from 'react-router-dom';
 
 import { i18n } from '@shared/i18n/i18n';
 import type { UserRole } from '@shared/auth/roles';
@@ -54,8 +54,6 @@ export function mapEventsDashboardToViewModel(response: EventsDashboardResponse)
       { id: 'linked_posts', label: i18n.t('events.table.linkedPosts'), value: String(response.summary.total_linked_posts) },
       { id: 'comments', label: i18n.t('events.table.comments'), value: String(response.summary.total_comments) },
       { id: 'avg_involvement', label: i18n.t('events.table.avgInvolvement'), value: formatNullableRatio(response.summary.avg_involvement) },
-      { id: 'draft_reports', label: i18n.t('events.table.draftReports'), value: String(response.summary.draft_reports) },
-      { id: 'ready_reports', label: i18n.t('events.table.readyReports'), value: String(response.summary.ready_reports) },
     ],
     rows: response.items.map((item) => mapEventItemToRow(item)),
   };
@@ -94,8 +92,11 @@ export function mapEventsRowsToTableRows(
       isSelected,
       cells: {
         event: (
-          <div className="dashboard-table-shell__cell-stack">
-            <strong>{row.title}</strong>
+          <div className="dashboard-table-shell__cell-stack dashboard-table-shell__cell-stack--selection">
+            <div className="dashboard-table-shell__cell-title">
+              <strong>{row.title}</strong>
+              {isSelected ? <span className="dashboard-table-shell__selection-badge">{i18n.t('events.rows.selected')}</span> : null}
+            </div>
             <span>{row.channels}</span>
           </div>
         ),
@@ -120,6 +121,7 @@ export function mapEventsRowsToTableRows(
             <button
               type="button"
               className={`dashboard-button ${isSelected ? 'dashboard-button--ghost' : ''}`.trim()}
+              aria-pressed={isSelected}
               onClick={() => onSelect(row.eventId)}
             >
               {isSelected ? i18n.t('events.rows.selected') : i18n.t('events.rows.inspect')}
@@ -201,4 +203,3 @@ export function mapEventGraphToViewModel(response: EventGraphResponse): EventGra
     })),
   };
 }
-

@@ -1,4 +1,4 @@
-import { useTranslation } from 'react-i18next';
+﻿import { useTranslation } from 'react-i18next';
 
 import type { DashboardMode } from '@shared/dashboard/contracts';
 import { DashboardFilterBar } from '@shared/dashboard/components/DashboardFilterBar';
@@ -41,12 +41,18 @@ export function DashboardModePage({ mode }: DashboardModePageProps) {
             <h2>{viewModel.title}</h2>
             <p>{viewModel.description}</p>
           </div>
-          <DashboardGeneratedAt generatedAt={viewModel.generatedAt} />
         </section>
 
         <DashboardSummaryCards cards={viewModel.summaryCards} />
 
-        <DashboardFilterBar mode="posts" filters={filters} options={filterOptions} onApply={applyFilters} onReset={resetFilters} />
+        <DashboardFilterBar
+          mode="posts"
+          filters={filters}
+          options={filterOptions}
+          headerSlot={<DashboardGeneratedAt generatedAt={viewModel.generatedAt} />}
+          onApply={applyFilters}
+          onReset={resetFilters}
+        />
 
         <section className="dashboard-page__content">
           <div className="dashboard-page__primary">
@@ -91,12 +97,18 @@ export function DashboardModePage({ mode }: DashboardModePageProps) {
             <h2>{viewModel.title}</h2>
             <p>{viewModel.description}</p>
           </div>
-          <DashboardGeneratedAt generatedAt={viewModel.generatedAt} />
         </section>
 
         <DashboardSummaryCards cards={viewModel.summaryCards} />
 
-        <DashboardFilterBar mode="events" filters={filters} options={filterOptions} onApply={applyFilters} onReset={resetFilters} />
+        <DashboardFilterBar
+          mode="events"
+          filters={filters}
+          options={filterOptions}
+          headerSlot={<DashboardGeneratedAt generatedAt={viewModel.generatedAt} />}
+          onApply={applyFilters}
+          onReset={resetFilters}
+        />
 
         <section className="dashboard-page__content">
           <div className="dashboard-page__primary">
@@ -140,12 +152,18 @@ export function DashboardModePage({ mode }: DashboardModePageProps) {
           <h2>{viewModel.title}</h2>
           <p>{viewModel.description}</p>
         </div>
-        <DashboardGeneratedAt generatedAt={viewModel.generatedAt} />
       </section>
 
       <DashboardSummaryCards cards={viewModel.summaryCards} />
 
-      <DashboardFilterBar mode="processes" filters={filters} options={filterOptions} onApply={applyFilters} onReset={resetFilters} />
+      <DashboardFilterBar
+        mode="processes"
+        filters={filters}
+        options={filterOptions}
+        headerSlot={<DashboardGeneratedAt generatedAt={viewModel.generatedAt} />}
+        onApply={applyFilters}
+        onReset={resetFilters}
+      />
 
       <section className="dashboard-page__content">
         <div className="dashboard-page__primary">

@@ -144,10 +144,11 @@ describe('Processes dashboard', () => {
     renderWorkspace('/dashboard/processes?unsupported=raw');
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /active/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /\u0421\u0442\u0430\u0442\u0443\u0441/i })).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: /active/i }));
+    await user.click(screen.getByRole('button', { name: /\u0421\u0442\u0430\u0442\u0443\u0441/i }));
+    await user.click(screen.getAllByRole('button', { name: /active/i }).find((button) => button.className.includes('dashboard-filter-chip')) as HTMLButtonElement);
     await user.click(screen.getByRole('button', { name: ru('\\u041f\\u0440\\u0438\\u043c\\u0435\\u043d\\u0438\\u0442\\u044c \\u0444\\u0438\\u043b\\u044c\\u0442\\u0440\\u044b') }));
 
     await waitFor(() => {

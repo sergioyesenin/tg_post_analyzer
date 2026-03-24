@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+﻿import { useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { DataGrid, type GridColDef, type GridRenderCellParams, type GridRowClassNameParams } from '@mui/x-data-grid';
 import { useTranslation } from 'react-i18next';
@@ -104,7 +104,11 @@ export function BaseDataTable({
               backgroundColor: 'rgba(182, 73, 38, 0.05)',
             },
             '& .dashboard-table-shell__row--selected': {
-              backgroundColor: 'rgba(182, 73, 38, 0.1)',
+              backgroundColor: 'rgba(182, 73, 38, 0.12)',
+            },
+            '& .dashboard-table-shell__row--selected .MuiDataGrid-cell': {
+              borderTop: '1px solid rgba(182, 73, 38, 0.18)',
+              borderBottom: '1px solid rgba(182, 73, 38, 0.18)',
             },
           }}
         />
@@ -112,5 +116,3 @@ export function BaseDataTable({
     </section>
   );
 }
-
-

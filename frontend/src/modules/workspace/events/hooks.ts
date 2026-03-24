@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type { EventsDashboardFiltersDto, EventsDashboardItemDto } from '@shared/dashboard/contracts';
@@ -31,7 +31,7 @@ export function useSelectedEventId(items: EventsDashboardItemDto[]) {
         return current;
       }
 
-      return items[0]?.event_id ?? null;
+      return null;
     });
   }, [items]);
 

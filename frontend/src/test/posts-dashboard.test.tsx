@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -94,11 +94,18 @@ describe('Posts dashboard', () => {
     renderPostsDashboard('/dashboard/posts?unsupported=raw');
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /Signal Watch/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /\u041a\u0430\u043d\u0430\u043b\u044b/i })).toBeEnabled();
     });
 
-    await user.click(screen.getByRole('button', { name: /Signal Watch/i }));
-    await user.click(screen.getByRole('button', { name: ru('\u0413\u043e\u0442\u043e\u0432') }));
+    await user.click(screen.getByRole('button', { name: /\u041a\u0430\u043d\u0430\u043b\u044b/i }));
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /Signal Watch/i }).some((button) => button.className.includes('dashboard-filter-chip'))).toBe(true);
+    });
+
+    await user.click(screen.getAllByRole('button', { name: /Signal Watch/i }).find((button) => button.className.includes('dashboard-filter-chip')) as HTMLButtonElement);
+    await user.click(screen.getByRole('button', { name: /\u0421\u0442\u0430\u0442\u0443\u0441 \u043e\u0442\u0447\u0435\u0442\u0430/i }));
+    await user.click(screen.getAllByRole('button', { name: ru('\u0413\u043e\u0442\u043e\u0432') }).find((button) => button.className.includes('dashboard-filter-chip')) as HTMLButtonElement);
     await user.click(screen.getByRole('button', { name: ru('\u041f\u0440\u0438\u043c\u0435\u043d\u0438\u0442\u044c \u0444\u0438\u043b\u044c\u0442\u0440\u044b') }));
 
     await waitFor(() => {
@@ -109,6 +116,51 @@ describe('Posts dashboard', () => {
 
     await waitFor(() => {
       expect(getSpy).toHaveBeenCalledWith('/api/dashboard/posts');
+    });
+  });
+  it('shows inline validation and blocks apply when the date range is invalid', async () => {
+    const user = userEvent.setup();
+    const getSpy = installPostsApiMock();
+
+    renderPostsDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: ru('\u041f\u0440\u0438\u043c\u0435\u043d\u0438\u0442\u044c \u0444\u0438\u043b\u044c\u0442\u0440\u044b') })).toBeInTheDocument();
+    });
+
+    const dateFromInput = screen.getByLabelText(ru('\u0414\u0430\u0442\u0430 \u043e\u0442'));
+    const dateToInput = screen.getByLabelText(ru('\u0414\u0430\u0442\u0430 \u0434\u043e'));
+    const applyButton = screen.getByRole('button', { name: ru('\u041f\u0440\u0438\u043c\u0435\u043d\u0438\u0442\u044c \u0444\u0438\u043b\u044c\u0442\u0440\u044b') });
+    const callsBeforeInvalidApply = getSpy.mock.calls.length;
+
+    fireEvent.change(dateFromInput, { target: { value: '2026-03-20' } });
+    fireEvent.change(dateToInput, { target: { value: '2026-03-10' } });
+
+    expect(screen.getAllByText(/\u0414\u0430\u0442\u0430 "\u043e\u0442" \u0434\u043e\u043b\u0436\u043d\u0430 \u0431\u044b\u0442\u044c \u0440\u0430\u043d\u044c\u0448\u0435 \u0438\u043b\u0438 \u0441\u043e\u0432\u043f\u0430\u0434\u0430\u0442\u044c \u0441 \u0434\u0430\u0442\u043e\u0439 "\u0434\u043e"/i).length).toBeGreaterThan(0);
+    expect(applyButton).toBeDisabled();
+
+    await user.click(applyButton);
+
+    expect(getSpy).toHaveBeenCalledTimes(callsBeforeInvalidApply);
+  });
+
+  it('keeps reset disabled until local filter state changes and explains reset scope', async () => {
+    const user = userEvent.setup();
+
+    installPostsApiMock();
+    renderPostsDashboard();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: ru('\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c \u0444\u0438\u043b\u044c\u0442\u0440\u044b') })).toBeDisabled();
+    });
+
+    expect(screen.getByText(/\u0421\u0431\u0440\u043e\u0441 \u043e\u0447\u0438\u0449\u0430\u0435\u0442 \u0442\u043e\u043b\u044c\u043a\u043e \u0444\u0438\u043b\u044c\u0442\u0440\u044b \u0442\u0435\u043a\u0443\u0449\u0435\u0433\u043e \u0440\u0435\u0436\u0438\u043c\u0430 \u0434\u0430\u0448\u0431\u043e\u0440\u0434\u0430/i)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText(ru('\u0414\u0430\u0442\u0430 \u043e\u0442')), { target: { value: '2026-03-01' } });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: ru('\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c \u0444\u0438\u043b\u044c\u0442\u0440\u044b') })).toBeEnabled();
+      expect(screen.getByRole('button', { name: ru('\u041f\u0440\u0438\u043c\u0435\u043d\u0438\u0442\u044c \u0444\u0438\u043b\u044c\u0442\u0440\u044b') })).toBeEnabled();
     });
   });
 
@@ -165,7 +217,30 @@ describe('Posts dashboard', () => {
     renderPostsDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText(ru('\u041d\u0435\u0442 \u043f\u043e\u0441\u0442\u043e\u0432, \u043f\u043e\u0434\u0445\u043e\u0434\u044f\u0449\u0438\u0445 \u043f\u043e\u0434 \u0442\u0435\u043a\u0443\u0449\u0438\u0435 \u0444\u0438\u043b\u044c\u0442\u0440\u044b'))).toBeInTheDocument();
+      expect(screen.getByText(/\u0412 \u0442\u0435\u043a\u0443\u0449\u0435\u043c \u0441\u043d\u0438\u043c\u043a\u0435 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442 \u0441\u0442\u0440\u043e\u043a/i)).toBeInTheDocument();
+      expect(screen.getByText(/\u0412 \u044d\u0442\u043e\u043c \u0441\u043d\u0438\u043c\u043a\u0435 \u0434\u0430\u043d\u043d\u044b\u0445 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442/i)).toBeInTheDocument();
+    });
+  });
+  it('distinguishes an empty result caused by narrow filters', async () => {
+    installPostsApiMock({
+      dashboard: createPostsDashboardResponse({
+        summary: {
+          posts_count: 0,
+          total_comments: 0,
+          avg_involvement: null,
+          channels_count: 0,
+          reports_ready: 0,
+          reports_missing: 0,
+          reports_pending: 0,
+          reports_failed: 0,
+        },
+        items: [],
+      }),
+    });
+    renderPostsDashboard('/dashboard/posts?channel_ids=1');
+    await waitFor(() => {
+      expect(screen.getByText(/\u041f\u043e \u0442\u0435\u043a\u0443\u0449\u0438\u043c \u0444\u0438\u043b\u044c\u0442\u0440\u0430\u043c \u043d\u0438\u0447\u0435\u0433\u043e \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e/i)).toBeInTheDocument();
+      expect(screen.getByText(/\u0414\u043b\u044f \u044d\u0442\u043e\u0439 \u043a\u043e\u043c\u0431\u0438\u043d\u0430\u0446\u0438\u0438 \u0444\u0438\u043b\u044c\u0442\u0440\u043e\u0432 \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u043e\u0432 \u043d\u0435\u0442/i)).toBeInTheDocument();
     });
   });
 
@@ -183,6 +258,9 @@ describe('Posts dashboard', () => {
     await waitFor(() => {
       expect(screen.getByText(ru('\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0434\u0430\u0448\u0431\u043e\u0440\u0434 \u043f\u043e\u0441\u0442\u043e\u0432'))).toBeInTheDocument();
     });
+
+    expect(screen.getByText(/\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u0442\u044c \u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442 \u043f\u043e \u0444\u0438\u043b\u044c\u0442\u0440\u0430\u043c/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Filters could not be applied/i)).not.toBeInTheDocument();
   });
 
   it('renders forbidden state for 403 response', async () => {
@@ -277,6 +355,9 @@ describe('Posts dashboard', () => {
     expect(screen.queryByRole('link', { name: ru('\u041e\u0442\u0447\u0435\u0442') })).not.toBeInTheDocument();
   });
 });
+
+
+
 
 
 

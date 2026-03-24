@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+﻿import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ApiError } from '@shared/api/client';
@@ -7,6 +7,11 @@ import { DashboardGeneratedAt } from '@shared/dashboard/components/DashboardGene
 import { DashboardSummaryCards } from '@shared/dashboard/components/DashboardSummaryCards';
 import { DashboardSystemAlerts } from '@shared/dashboard/components/DashboardSystemAlerts';
 import { AnalyticsTable } from '@shared/dashboard/components/DashboardTableShell';
+import {
+  getDashboardEmptyFeedback,
+  getDashboardErrorFilterFeedback,
+  type DashboardFilterFeedback,
+} from '@shared/dashboard/filter-feedback';
 import { getPostsDashboardFilterOptions, type DashboardFilterOptionsByMode } from '@shared/dashboard/filter-options';
 import type { PostsDashboardFiltersDto } from '@shared/dashboard/contracts';
 import { useDashboardFilters } from '@shared/dashboard/hooks';
@@ -31,6 +36,7 @@ function PostsDashboardScaffold({
   channelOptionsState,
   applyFilters,
   resetFilters,
+  feedback = null,
 }: {
   children: ReactNode;
   filters: PostsDashboardFiltersDto;
@@ -38,6 +44,7 @@ function PostsDashboardScaffold({
   channelOptionsState: 'ready' | 'loading' | 'error';
   applyFilters: (filters: PostsDashboardFiltersDto) => void;
   resetFilters: () => void;
+  feedback?: DashboardFilterFeedback | null;
 }) {
   const { t } = useTranslation();
 
@@ -55,6 +62,8 @@ function PostsDashboardScaffold({
         filters={filters}
         options={filterOptions}
         channelOptionsState={channelOptionsState}
+        feedback={feedback}
+        headerSlot={null}
         onApply={applyFilters}
         onReset={resetFilters}
       />
@@ -101,6 +110,7 @@ export function PostsDashboardScreen() {
         channelOptionsState={channelOptionsState}
         applyFilters={applyFilters}
         resetFilters={resetFilters}
+        feedback={getDashboardErrorFilterFeedback(t)}
       >
         {isForbidden ? (
           <ForbiddenState title={t('posts.dashboard.forbiddenTitle')} description={t('posts.dashboard.forbiddenDescription')} />
@@ -119,6 +129,7 @@ export function PostsDashboardScreen() {
         channelOptionsState={channelOptionsState}
         applyFilters={applyFilters}
         resetFilters={resetFilters}
+        feedback={getDashboardErrorFilterFeedback(t)}
       >
         <ErrorState title={t('posts.dashboard.noDataTitle')} description={t('posts.dashboard.noDataDescription')} />
       </PostsDashboardScaffold>
@@ -126,6 +137,7 @@ export function PostsDashboardScreen() {
   }
 
   const viewModel = mapPostsDashboardToViewModel(query.data, primaryRole);
+  const emptyUiState = getDashboardEmptyFeedback('posts', filters, t);
 
   return (
     <div className="dashboard-page dashboard-page--analytics">
@@ -136,7 +148,6 @@ export function PostsDashboardScreen() {
           <h2>{t('posts.dashboard.heroTitle')}</h2>
           <p>{t('posts.dashboard.heroDescription')}</p>
         </div>
-        <DashboardGeneratedAt generatedAt={viewModel.generatedAt} />
       </section>
 
       <DashboardSummaryCards cards={viewModel.summaryCards} />
@@ -146,6 +157,8 @@ export function PostsDashboardScreen() {
         filters={filters}
         options={filterOptions}
         channelOptionsState={channelOptionsState}
+        feedback={viewModel.rows.length === 0 ? emptyUiState.filterBar : null}
+        headerSlot={<DashboardGeneratedAt generatedAt={viewModel.generatedAt} />}
         onApply={applyFilters}
         onReset={resetFilters}
       />
@@ -155,7 +168,7 @@ export function PostsDashboardScreen() {
       ) : null}
 
       {viewModel.rows.length === 0 ? (
-        <EmptyState title={t('posts.dashboard.emptyTitle')} description={t('posts.dashboard.emptyDescription')} />
+        <EmptyState title={emptyUiState.stateCard.title} description={emptyUiState.stateCard.description} />
       ) : (
         <section className="dashboard-page__content dashboard-page__content--single">
           <div className="dashboard-page__primary">
@@ -171,9 +184,3 @@ export function PostsDashboardScreen() {
     </div>
   );
 }
-
-
-
-
-
-

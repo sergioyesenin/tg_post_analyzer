@@ -72,8 +72,6 @@ export function mapPostsDashboardToViewModel(
       { id: 'comments', label: i18n.t('posts.table.comments'), value: String(response.summary.total_comments) },
       { id: 'channels', label: i18n.t('posts.table.channels'), value: String(response.summary.channels_count) },
       { id: 'avg_involvement', label: i18n.t('posts.table.avgInvolvement'), value: formatNullableRatio(response.summary.avg_involvement) },
-      { id: 'reports_ready', label: i18n.t('posts.table.readyReports'), value: String(response.summary.reports_ready) },
-      { id: 'reports_pending', label: i18n.t('posts.table.pendingReports'), value: String(response.summary.reports_pending) },
     ],
     rows: response.items.map((item) => ({
       id: String(item.post_id),

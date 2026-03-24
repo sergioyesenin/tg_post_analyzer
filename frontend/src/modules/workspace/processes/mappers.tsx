@@ -51,8 +51,6 @@ export function mapProcessesDashboardToViewModel(response: ProcessesDashboardRes
       { id: 'total_events', label: i18n.t('processes.table.linkedEvents'), value: String(response.summary.total_events) },
       { id: 'comments', label: i18n.t('processes.table.comments'), value: String(response.summary.total_comments) },
       { id: 'avg_involvement', label: i18n.t('processes.table.avgInvolvement'), value: formatNullableRatio(response.summary.avg_involvement) },
-      { id: 'draft_reports', label: i18n.t('processes.table.draftReports'), value: String(response.summary.draft_reports) },
-      { id: 'failed_reports', label: i18n.t('processes.table.failedReports'), value: String(response.summary.failed_reports) },
     ],
     rows: response.items.map((item) => mapProcessItemToRow(item)),
   };

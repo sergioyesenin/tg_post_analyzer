@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+﻿import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ApiError } from '@shared/api/client';
@@ -7,6 +7,7 @@ import { DashboardGeneratedAt } from '@shared/dashboard/components/DashboardGene
 import { DashboardSummaryCards } from '@shared/dashboard/components/DashboardSummaryCards';
 import { DashboardSystemAlerts } from '@shared/dashboard/components/DashboardSystemAlerts';
 import { AnalyticsTable } from '@shared/dashboard/components/DashboardTableShell';
+import { getDashboardEmptyFeedback, getDashboardErrorFilterFeedback } from '@shared/dashboard/filter-feedback';
 import { getProcessesDashboardFilterOptions } from '@shared/dashboard/filter-options';
 import { useDashboardFilters } from '@shared/dashboard/hooks';
 import { canPerformAction } from '@shared/routing/policy';
@@ -82,7 +83,14 @@ export function ProcessesDashboardScreen() {
             <p>{t('processes.dashboard.sourceDescription')}</p>
           </div>
         </section>
-        <DashboardFilterBar mode="processes" filters={filters} options={filterOptions} onApply={applyFilters} onReset={resetFilters} />
+        <DashboardFilterBar
+          mode="processes"
+          filters={filters}
+          options={filterOptions}
+          feedback={getDashboardErrorFilterFeedback(t)}
+          onApply={applyFilters}
+          onReset={resetFilters}
+        />
         {isForbidden ? (
           <ForbiddenState title={t('processes.dashboard.forbiddenTitle')} description={t('processes.dashboard.forbiddenDescription')} />
         ) : (
@@ -101,7 +109,14 @@ export function ProcessesDashboardScreen() {
             <p>{t('processes.dashboard.sourceDescription')}</p>
           </div>
         </section>
-        <DashboardFilterBar mode="processes" filters={filters} options={filterOptions} onApply={applyFilters} onReset={resetFilters} />
+        <DashboardFilterBar
+          mode="processes"
+          filters={filters}
+          options={filterOptions}
+          feedback={getDashboardErrorFilterFeedback(t)}
+          onApply={applyFilters}
+          onReset={resetFilters}
+        />
         <ErrorState title={t('processes.dashboard.noDataTitle')} description={t('processes.dashboard.noDataDescription')} />
       </div>
     );
@@ -120,6 +135,7 @@ export function ProcessesDashboardScreen() {
     selectedProcess && (!selectedProcess.graphReady || processesViewModel.isPartial)
       ? t('processes.dashboard.partialHint')
       : null;
+  const emptyUiState = getDashboardEmptyFeedback('processes', filters, t);
 
   return (
     <div className="dashboard-page dashboard-page--analytics dashboard-page--processes">
@@ -130,19 +146,26 @@ export function ProcessesDashboardScreen() {
           <h2>{t('processes.dashboard.heroTitle')}</h2>
           <p>{t('processes.dashboard.heroDescription')}</p>
         </div>
-        <DashboardGeneratedAt generatedAt={processesViewModel.generatedAt} />
       </section>
 
       <DashboardSummaryCards cards={processesViewModel.summaryCards} />
 
-      <DashboardFilterBar mode="processes" filters={filters} options={filterOptions} onApply={applyFilters} onReset={resetFilters} />
+      <DashboardFilterBar
+        mode="processes"
+        filters={filters}
+        options={filterOptions}
+        feedback={processesViewModel.rows.length === 0 ? emptyUiState.filterBar : null}
+        headerSlot={<DashboardGeneratedAt generatedAt={processesViewModel.generatedAt} />}
+        onApply={applyFilters}
+        onReset={resetFilters}
+      />
 
       {primaryRole === 'viewer' ? (
         <ReadOnlyNotice title={t('processes.dashboard.readOnlyTitle')} description={t('processes.dashboard.readOnlyDescription')} />
       ) : null}
 
       {processesViewModel.rows.length === 0 ? (
-        <EmptyState title={t('processes.dashboard.emptyTitle')} description={t('processes.dashboard.emptyDescription')} />
+        <EmptyState title={emptyUiState.stateCard.title} description={emptyUiState.stateCard.description} />
       ) : (
         <section className="dashboard-page__content dashboard-page__content--workspace">
           <div className="dashboard-page__primary">
@@ -200,8 +223,3 @@ export function ProcessesDashboardScreen() {
     </div>
   );
 }
-
-
-
-
-

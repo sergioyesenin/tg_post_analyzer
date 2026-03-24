@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+﻿import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { DashboardMode } from '@shared/dashboard/contracts';
+import type { DashboardFilterFeedback } from '@shared/dashboard/filter-feedback';
 import type { DashboardFilterOptionsByMode } from '@shared/dashboard/filter-options';
 import {
   getDashboardFilterConfig,
@@ -10,6 +11,7 @@ import {
 } from '@shared/dashboard/filters';
 
 type ChannelOptionsState = 'ready' | 'loading' | 'error';
+type CompactSelectorKey = 'channel_ids' | 'status' | 'report_status';
 
 type DashboardFilterBarProps<TMode extends DashboardMode> = {
   mode: TMode;
@@ -18,6 +20,8 @@ type DashboardFilterBarProps<TMode extends DashboardMode> = {
   onApply: (filters: DashboardFiltersByMode[TMode]) => void;
   onReset: () => void;
   channelOptionsState?: ChannelOptionsState;
+  feedback?: DashboardFilterFeedback | null;
+  headerSlot?: ReactNode;
 };
 
 type FilterFormState = {
@@ -32,6 +36,48 @@ type FilterFormState = {
   status: string[];
   report_status: string[];
 };
+
+type FilterValidationErrors = Partial<Record<'date_from' | 'date_to' | 'min_comments', string>>;
+
+type FilterOption<TValue extends string | number> = {
+  value: TValue;
+  label: string;
+  description?: string | null;
+};
+
+function buildFiltersFromFormState<TMode extends DashboardMode>(
+  mode: TMode,
+  currentFilters: DashboardFiltersByMode[TMode],
+  formState: FilterFormState,
+) {
+  const nextFilters = {
+    ...currentFilters,
+    date_from: formState.date_from || (mode === 'posts' ? '' : null),
+    date_to: formState.date_to || (mode === 'posts' ? '' : null),
+    limit: Number(formState.limit) || currentFilters.limit,
+    min_comments: formState.min_comments ? Number(formState.min_comments) : null,
+    sort_by: formState.sort_by,
+    sort_order: formState.sort_order,
+  } as DashboardFiltersByMode[TMode];
+
+  if ('channel_ids' in nextFilters) {
+    nextFilters.channel_ids = [...formState.channel_ids];
+  }
+
+  if ('categories' in nextFilters) {
+    nextFilters.categories = [...formState.categories];
+  }
+
+  if ('status' in nextFilters) {
+    nextFilters.status = [...formState.status];
+  }
+
+  if ('report_status' in nextFilters) {
+    nextFilters.report_status = [...formState.report_status];
+  }
+
+  return nextFilters;
+}
 
 function buildFormState<TMode extends DashboardMode>(filters: DashboardFiltersByMode[TMode]): FilterFormState {
   return {
@@ -52,16 +98,23 @@ function toggleArrayValue<TValue extends string | number>(currentValues: TValue[
   return currentValues.includes(value) ? currentValues.filter((item) => item !== value) : [...currentValues, value];
 }
 
-function FilterField({ label, children }: { label: string; children: ReactNode }) {
+function FilterField({ label, children }: { label?: string; children: ReactNode }) {
   return (
     <div className="dashboard-filter-field">
-      <span className="dashboard-filter-field__label">{label}</span>
+      {label ? <span className="dashboard-filter-field__label">{label}</span> : null}
       {children}
     </div>
   );
 }
 
-function FilterChipGroup<TValue extends string | number>({
+function getOptionLabel<TValue extends string | number>(
+  option: FilterOption<TValue>,
+  getLabel?: (option: { value: TValue; label: string }) => string,
+) {
+  return getLabel ? getLabel(option) : option.label;
+}
+
+function FilterChipButtons<TValue extends string | number>({
   legend,
   options,
   selectedValues,
@@ -69,35 +122,167 @@ function FilterChipGroup<TValue extends string | number>({
   getLabel,
 }: {
   legend: string;
-  options: Array<{ value: TValue; label: string; description?: string | null }>;
+  options: Array<FilterOption<TValue>>;
   selectedValues: TValue[];
   onToggle: (value: TValue) => void;
   getLabel?: (option: { value: TValue; label: string }) => string;
 }) {
   return (
+    <div className="dashboard-chip-group" role="group" aria-label={legend}>
+      {options.map((option) => {
+        const isSelected = selectedValues.includes(option.value);
+
+        return (
+          <button
+            key={String(option.value)}
+            type="button"
+            className={`dashboard-filter-chip ${isSelected ? 'dashboard-filter-chip--selected' : ''}`.trim()}
+            aria-pressed={isSelected}
+            onClick={() => onToggle(option.value)}
+            title={option.description ?? undefined}
+          >
+            <span>{getOptionLabel(option, getLabel)}</span>
+            {option.description ? <small>{option.description}</small> : null}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function FilterChipSection<TValue extends string | number>(props: {
+  legend: string;
+  options: Array<FilterOption<TValue>>;
+  selectedValues: TValue[];
+  onToggle: (value: TValue) => void;
+  getLabel?: (option: { value: TValue; label: string }) => string;
+}) {
+  const { legend, ...rest } = props;
+
+  return (
     <fieldset className="dashboard-chip-fieldset">
       <legend className="dashboard-chip-fieldset__legend">{legend}</legend>
-      <div className="dashboard-chip-group" role="group" aria-label={legend}>
-        {options.map((option) => {
-          const isSelected = selectedValues.includes(option.value);
-
-          return (
-            <button
-              key={String(option.value)}
-              type="button"
-              className={`dashboard-filter-chip ${isSelected ? 'dashboard-filter-chip--selected' : ''}`.trim()}
-              aria-pressed={isSelected}
-              onClick={() => onToggle(option.value)}
-              title={option.description ?? undefined}
-            >
-              <span>{getLabel ? getLabel(option) : option.label}</span>
-              {option.description ? <small>{option.description}</small> : null}
-            </button>
-          );
-        })}
-      </div>
+      <FilterChipButtons legend={legend} {...rest} />
     </fieldset>
   );
+}
+
+function FilterSelector({
+  label,
+  selectorId,
+  summary,
+  isOpen,
+  disabled = false,
+  note,
+  clearDisabled = true,
+  onToggle,
+  onClear,
+  children,
+}: {
+  label: string;
+  selectorId: string;
+  summary: string;
+  isOpen: boolean;
+  disabled?: boolean;
+  note?: string | null;
+  clearDisabled?: boolean;
+  onToggle: () => void;
+  onClear: () => void;
+  children: ReactNode;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <FilterField label={label}>
+      <div className={`dashboard-filter-selector ${isOpen ? 'dashboard-filter-selector--open' : ''}`.trim()}>
+        <button
+          type="button"
+          className="dashboard-filter-selector__trigger"
+          aria-expanded={isOpen}
+          aria-controls={selectorId}
+          aria-label={`${label}: ${summary}`}
+          disabled={disabled}
+          onClick={onToggle}
+        >
+          <span className="dashboard-filter-selector__summary">{summary}</span>
+          <span className="dashboard-filter-selector__icon" aria-hidden="true">
+            ▾
+          </span>
+        </button>
+
+        {isOpen ? (
+          <div id={selectorId} className="dashboard-filter-selector__panel" role="region" aria-label={label}>
+            <div className="dashboard-filter-selector__panel-header">
+              <strong>{label}</strong>
+              <button
+                type="button"
+                className="dashboard-filter-selector__clear"
+                disabled={clearDisabled}
+                onClick={onClear}
+              >
+                {t('dashboard.filters.selector.clear', { defaultValue: 'Clear' })}
+              </button>
+            </div>
+            {children}
+          </div>
+        ) : null}
+      </div>
+      {note ? <p className="dashboard-filter-field__note">{note}</p> : null}
+    </FilterField>
+  );
+}
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) {
+    return null;
+  }
+
+  return <small className="dashboard-filter-field__error">{message}</small>;
+}
+
+function validateFormState(formState: FilterFormState, t: ReturnType<typeof useTranslation>['t']): FilterValidationErrors {
+  const errors: FilterValidationErrors = {};
+  const dateRangeMessage = t('dashboard.filters.validation.dateRange', {
+    defaultValue: 'Date from must be earlier than or equal to date to.',
+  });
+
+  if (formState.date_from && formState.date_to && formState.date_from > formState.date_to) {
+    errors.date_from = dateRangeMessage;
+    errors.date_to = dateRangeMessage;
+  }
+
+  if (formState.min_comments) {
+    const isInteger = /^\d+$/.test(formState.min_comments.trim());
+    if (!isInteger) {
+      errors.min_comments = t('dashboard.filters.validation.minComments', {
+        defaultValue: 'Min comments must be a whole number greater than or equal to 0.',
+      });
+    }
+  }
+
+  return errors;
+}
+
+function buildSelectionSummary<TValue extends string | number>(params: {
+  selectedValues: TValue[];
+  options: Array<FilterOption<TValue>>;
+  getLabel?: (option: { value: TValue; label: string }) => string;
+  allText: string;
+}) {
+  const { selectedValues, options, getLabel, allText } = params;
+
+  if (selectedValues.length === 0) {
+    return allText;
+  }
+
+  const optionByValue = new Map(options.map((option) => [option.value, getOptionLabel(option, getLabel)]));
+  const labels = selectedValues.map((value) => optionByValue.get(value) ?? String(value));
+
+  if (labels.length === 1) {
+    return labels[0];
+  }
+
+  return `${labels[0]} +${labels.length - 1}`;
 }
 
 export function DashboardFilterBar<TMode extends DashboardMode>({
@@ -107,16 +292,30 @@ export function DashboardFilterBar<TMode extends DashboardMode>({
   onApply,
   onReset,
   channelOptionsState = 'ready',
+  feedback = null,
+  headerSlot = null,
 }: DashboardFilterBarProps<TMode>) {
   const { t } = useTranslation();
   const config = getDashboardFilterConfig(mode);
+  const selectorIdBase = useId();
   const [formState, setFormState] = useState(() => buildFormState(filters));
+  const [openSelector, setOpenSelector] = useState<CompactSelectorKey | null>(null);
 
-  const previewQuery = useMemo(() => serializeDashboardFilters(mode, filters), [filters, mode]);
+  const validationErrors = useMemo(() => validateFormState(formState, t), [formState, t]);
+  const hasValidationErrors = Object.keys(validationErrors).length > 0;
+  const appliedQuery = useMemo(() => serializeDashboardFilters(mode, filters), [filters, mode]);
+  const pendingFilters = useMemo(() => buildFiltersFromFormState(mode, filters, formState), [filters, formState, mode]);
+  const previewQuery = useMemo(() => serializeDashboardFilters(mode, pendingFilters), [mode, pendingFilters]);
+  const isDirty = useMemo(() => appliedQuery !== previewQuery, [appliedQuery, previewQuery]);
+  const actionHint = isDirty ? t('dashboard.filters.pendingChanges') : t('dashboard.filters.resetHint');
+  const isApplyDisabled = hasValidationErrors || !isDirty;
+  const isResetDisabled = !isDirty;
+  const allSelectedText = t('dashboard.filters.summary.all', { defaultValue: 'All' });
 
   useEffect(() => {
     setFormState(buildFormState(filters));
-  }, [filters]);
+    setOpenSelector(null);
+  }, [appliedQuery]);
 
   const updateField = (name: keyof FilterFormState, value: string) => {
     setFormState((current) => ({
@@ -132,77 +331,107 @@ export function DashboardFilterBar<TMode extends DashboardMode>({
     }));
   };
 
-  const handleApply = () => {
-    const nextFilters = {
-      ...filters,
-      date_from: formState.date_from || (mode === 'posts' ? '' : null),
-      date_to: formState.date_to || (mode === 'posts' ? '' : null),
-      limit: Number(formState.limit) || filters.limit,
-      min_comments: formState.min_comments ? Number(formState.min_comments) : null,
-      sort_by: formState.sort_by,
-      sort_order: formState.sort_order,
-    } as DashboardFiltersByMode[TMode];
-
-    if ('channel_ids' in nextFilters) {
-      nextFilters.channel_ids = [...formState.channel_ids];
-    }
-
-    if ('categories' in nextFilters) {
-      nextFilters.categories = [...formState.categories];
-    }
-
-    if ('status' in nextFilters) {
-      nextFilters.status = [...formState.status];
-    }
-
-    if ('report_status' in nextFilters) {
-      nextFilters.report_status = [...formState.report_status];
-    }
-
-    onApply(nextFilters);
+  const clearListField = <TKey extends 'channel_ids' | 'categories' | 'status' | 'report_status'>(field: TKey) => {
+    setFormState((current) => ({
+      ...current,
+      [field]: [],
+    }));
   };
 
-  const renderChannelState = () => {
-    if (channelOptionsState === 'loading') {
-      return <p className="dashboard-filter-field__note">{t('keywordGraph.channels.loading')}</p>;
+  const handleApply = () => {
+    if (isApplyDisabled) {
+      return;
     }
 
-    if (channelOptionsState === 'error') {
-      return <p className="dashboard-filter-field__note">{t('keywordGraph.channels.error')}</p>;
+    setOpenSelector(null);
+    onApply(pendingFilters);
+  };
+
+  const handleReset = () => {
+    if (isResetDisabled) {
+      return;
     }
 
-    if ('channel_ids' in options && options.channel_ids.length === 0) {
-      return (
-        <p className="dashboard-filter-field__note">
-          {t('keywordGraph.channels.empty', { defaultValue: 'No channels are available for filtering.' })}
-        </p>
-      );
-    }
-
-    return null;
+    setOpenSelector(null);
+    setFormState(buildFormState(getDashboardFilterConfig(mode).defaults));
+    onReset();
   };
 
   const translateStatusOption = (option: { value: string; label: string }) =>
     t(`statusLabels.${option.value}`, { defaultValue: option.label });
 
+  const channelSelectorNote =
+    channelOptionsState === 'loading'
+      ? t('keywordGraph.channels.loading')
+      : channelOptionsState === 'error'
+        ? t('keywordGraph.channels.error')
+        : 'channel_ids' in options && options.channel_ids.length === 0
+          ? t('keywordGraph.channels.empty', { defaultValue: 'No channels are available for filtering.' })
+          : null;
+  const isChannelSelectorDisabled = Boolean(channelSelectorNote);
+
+  const channelSummary =
+    channelSelectorNote ??
+    ('channel_ids' in options
+      ? buildSelectionSummary({
+          selectedValues: formState.channel_ids,
+          options: options.channel_ids,
+          allText: allSelectedText,
+        })
+      : allSelectedText);
+
+  const statusSummary =
+    'status' in options
+      ? buildSelectionSummary({
+          selectedValues: formState.status,
+          options: options.status,
+          getLabel: translateStatusOption,
+          allText: allSelectedText,
+        })
+      : allSelectedText;
+
+  const reportStatusSummary =
+    'report_status' in options
+      ? buildSelectionSummary({
+          selectedValues: formState.report_status,
+          options: options.report_status,
+          getLabel: translateStatusOption,
+          allText: allSelectedText,
+        })
+      : allSelectedText;
+
   return (
     <section className="dashboard-filter-bar" aria-label={t('dashboard.filters.ariaLabel', { defaultValue: 'Dashboard filters' })}>
       <div className="dashboard-filter-bar__header">
-        <div>
+        <div className="dashboard-filter-bar__title">
           <span className="state-card__eyebrow">{t('states.filters')}</span>
           <strong>{t('dashboard.filters.title', { defaultValue: 'URL-driven filter state' })}</strong>
         </div>
-        <code>{previewQuery || t('common.defaultDashboardFilters')}</code>
+        {headerSlot ? <div className="dashboard-filter-bar__header-slot">{headerSlot}</div> : null}
       </div>
 
       <div className="dashboard-filter-grid dashboard-filter-grid--foundation">
-        <label>
+        <label className={validationErrors.date_from ? 'dashboard-filter-grid__field--invalid' : ''}>
           <span>{t('fields.dateFrom')}</span>
-          <input type="date" value={formState.date_from} onChange={(event) => updateField('date_from', event.target.value)} />
+          <input
+            type="date"
+            value={formState.date_from}
+            aria-invalid={Boolean(validationErrors.date_from)}
+            className={validationErrors.date_from ? 'dashboard-filter-input--invalid' : ''}
+            onChange={(event) => updateField('date_from', event.target.value)}
+          />
+          <FieldError message={validationErrors.date_from} />
         </label>
-        <label>
+        <label className={validationErrors.date_to ? 'dashboard-filter-grid__field--invalid' : ''}>
           <span>{t('fields.dateTo')}</span>
-          <input type="date" value={formState.date_to} onChange={(event) => updateField('date_to', event.target.value)} />
+          <input
+            type="date"
+            value={formState.date_to}
+            aria-invalid={Boolean(validationErrors.date_to)}
+            className={validationErrors.date_to ? 'dashboard-filter-input--invalid' : ''}
+            onChange={(event) => updateField('date_to', event.target.value)}
+          />
+          <FieldError message={validationErrors.date_to} />
         </label>
         <label>
           <span>{t('fields.limit')}</span>
@@ -214,14 +443,18 @@ export function DashboardFilterBar<TMode extends DashboardMode>({
             ))}
           </select>
         </label>
-        <label>
+        <label className={validationErrors.min_comments ? 'dashboard-filter-grid__field--invalid' : ''}>
           <span>{t('fields.minComments')}</span>
           <input
             type="number"
             min="0"
+            step="1"
             value={formState.min_comments}
+            aria-invalid={Boolean(validationErrors.min_comments)}
+            className={validationErrors.min_comments ? 'dashboard-filter-input--invalid' : ''}
             onChange={(event) => updateField('min_comments', event.target.value)}
           />
+          <FieldError message={validationErrors.min_comments} />
         </label>
         <label>
           <span>{t('fields.sortBy')}</span>
@@ -240,24 +473,74 @@ export function DashboardFilterBar<TMode extends DashboardMode>({
             <option value="asc">{t('common.asc')}</option>
           </select>
         </label>
+
+        {'channel_ids' in options ? (
+          <FilterSelector
+            label={t('fields.channels', { defaultValue: t('fields.channelIds') })}
+            selectorId={`${selectorIdBase}-channels`}
+            summary={channelSummary}
+            isOpen={openSelector === 'channel_ids'}
+            disabled={isChannelSelectorDisabled}
+            note={channelSelectorNote}
+            clearDisabled={formState.channel_ids.length === 0}
+            onToggle={() => setOpenSelector((current) => (current === 'channel_ids' ? null : 'channel_ids'))}
+            onClear={() => clearListField('channel_ids')}
+          >
+            {'channel_ids' in options ? (
+              <FilterChipButtons
+                legend={t('fields.channels', { defaultValue: t('fields.channelIds') })}
+                options={options.channel_ids}
+                selectedValues={formState.channel_ids}
+                onToggle={(value) => toggleListField('channel_ids', value)}
+              />
+            ) : null}
+          </FilterSelector>
+        ) : null}
+
+        {'status' in options && options.status.length > 0 ? (
+          <FilterSelector
+            label={t('fields.status')}
+            selectorId={`${selectorIdBase}-status`}
+            summary={statusSummary}
+            isOpen={openSelector === 'status'}
+            clearDisabled={formState.status.length === 0}
+            onToggle={() => setOpenSelector((current) => (current === 'status' ? null : 'status'))}
+            onClear={() => clearListField('status')}
+          >
+            <FilterChipButtons
+              legend={t('fields.status')}
+              options={options.status}
+              selectedValues={formState.status}
+              onToggle={(value) => toggleListField('status', value)}
+              getLabel={translateStatusOption}
+            />
+          </FilterSelector>
+        ) : null}
+
+        {'report_status' in options && options.report_status.length > 0 ? (
+          <FilterSelector
+            label={t('fields.reportStatus')}
+            selectorId={`${selectorIdBase}-report-status`}
+            summary={reportStatusSummary}
+            isOpen={openSelector === 'report_status'}
+            clearDisabled={formState.report_status.length === 0}
+            onToggle={() => setOpenSelector((current) => (current === 'report_status' ? null : 'report_status'))}
+            onClear={() => clearListField('report_status')}
+          >
+            <FilterChipButtons
+              legend={t('fields.reportStatus')}
+              options={options.report_status}
+              selectedValues={formState.report_status}
+              onToggle={(value) => toggleListField('report_status', value)}
+              getLabel={translateStatusOption}
+            />
+          </FilterSelector>
+        ) : null}
       </div>
 
-      {'channel_ids' in options ? (
-        <FilterField label={t('fields.channels', { defaultValue: t('fields.channelIds') })}>
-          {renderChannelState() ?? (
-            <FilterChipGroup
-              legend={t('fields.channels', { defaultValue: t('fields.channelIds') })}
-              options={options.channel_ids}
-              selectedValues={formState.channel_ids}
-              onToggle={(value) => toggleListField('channel_ids', value)}
-            />
-          )}
-        </FilterField>
-      ) : null}
-
       {'categories' in options && options.categories.length > 0 ? (
-        <FilterField label={t('fields.categories')}>
-          <FilterChipGroup
+        <FilterField>
+          <FilterChipSection
             legend={t('fields.categories')}
             options={options.categories}
             selectedValues={formState.categories}
@@ -266,39 +549,22 @@ export function DashboardFilterBar<TMode extends DashboardMode>({
         </FilterField>
       ) : null}
 
-      {'status' in options && options.status.length > 0 ? (
-        <FilterField label={t('fields.status')}>
-          <FilterChipGroup
-            legend={t('fields.status')}
-            options={options.status}
-            selectedValues={formState.status}
-            onToggle={(value) => toggleListField('status', value)}
-            getLabel={translateStatusOption}
-          />
-        </FilterField>
-      ) : null}
-
-      {'report_status' in options && options.report_status.length > 0 ? (
-        <FilterField label={t('fields.reportStatus')}>
-          <FilterChipGroup
-            legend={t('fields.reportStatus')}
-            options={options.report_status}
-            selectedValues={formState.report_status}
-            onToggle={(value) => toggleListField('report_status', value)}
-            getLabel={translateStatusOption}
-          />
-        </FilterField>
+      {feedback ? (
+        <div className={`dashboard-filter-feedback dashboard-filter-feedback--${feedback.tone}`.trim()} role="status" aria-live="polite">
+          <strong>{feedback.title}</strong>
+          <p>{feedback.description}</p>
+        </div>
       ) : null}
 
       <div className="dashboard-filter-bar__actions">
-        <button type="button" className="dashboard-button dashboard-button--ghost" onClick={onReset}>
+        <p className="dashboard-filter-bar__action-note">{actionHint}</p>
+        <button type="button" className="dashboard-button dashboard-button--ghost" onClick={handleReset} disabled={isResetDisabled}>
           {t('actions.resetFilters')}
         </button>
-        <button type="button" className="dashboard-button" onClick={handleApply}>
+        <button type="button" className="dashboard-button" onClick={handleApply} disabled={isApplyDisabled}>
           {t('actions.applyFilters')}
         </button>
       </div>
     </section>
   );
 }
-

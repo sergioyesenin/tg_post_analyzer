@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+﻿import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Position } from 'reactflow';
 
@@ -40,6 +40,18 @@ function buildOrderedNodes(viewModel: EventGraphPanelViewModel) {
   return rootNode ? [rootNode, ...otherNodes] : [...viewModel.nodes].sort((left, right) => left.date.localeCompare(right.date));
 }
 
+function EventGraphSelectionHeader({ selectedTitle }: { selectedTitle: string | null }) {
+  const { t } = useTranslation();
+
+  return (
+    <section className={`workspace-selection-context ${selectedTitle ? 'workspace-selection-context--active' : ''}`.trim()}>
+      <span className="state-card__eyebrow">{t('events.graph.selectedEvent')}</span>
+      <strong>{selectedTitle ?? t('events.graph.noSelectionTitle')}</strong>
+      <p>{selectedTitle ? t('events.dashboard.sourceDescription') : t('events.graph.noSelectionDescription')}</p>
+    </section>
+  );
+}
+
 export function EventGraphPanel({ selectedTitle, isLoading, isError, viewModel, hasSelection, partialHint, onRefresh }: EventGraphPanelProps) {
   const [resetSignal, setResetSignal] = useState(0);
   const { t } = useTranslation();
@@ -66,6 +78,7 @@ export function EventGraphPanel({ selectedTitle, isLoading, isError, viewModel, 
     return (
       <section className="detail-block">
         <div className="detail-block__header"><div><span className="state-card__eyebrow">{t('events.graph.eyebrow')}</span><strong>{t('events.graph.title')}</strong></div></div>
+        <EventGraphSelectionHeader selectedTitle={null} />
         <EmptyState title={t('events.graph.noSelectionTitle')} description={t('events.graph.noSelectionDescription')} />
       </section>
     );
@@ -74,6 +87,7 @@ export function EventGraphPanel({ selectedTitle, isLoading, isError, viewModel, 
   return (
     <section className="detail-block">
       <div className="detail-block__header"><div><span className="state-card__eyebrow">{t('events.graph.eyebrow')}</span><strong>{t('events.graph.title')}</strong></div></div>
+      <EventGraphSelectionHeader selectedTitle={selectedTitle} />
       <EventGraphToolbar title={selectedTitle ?? t('events.graph.selectedEvent')} nodeCount={viewModel?.nodes.length ?? 0} edgeCount={viewModel?.edges.length ?? 0} isLoading={isLoading} onRefresh={onRefresh} onResetView={() => setResetSignal((value) => value + 1)} />
       <EventGraphLegend />
 

@@ -1,4 +1,4 @@
-{
+﻿{
   "app": {
     "name": "TG Post Analyzer",
     "brandEyebrow": "analytics workspace",
@@ -199,7 +199,43 @@
     },
     "filters": {
       "ariaLabel": "Dashboard filters",
-      "title": "URL-driven filter state"
+      "title": "URL-driven filter state",
+      "resetHint": "Reset clears only the filters for the current dashboard mode.",
+      "pendingChanges": "Apply updates the current dashboard snapshot. Reset returns only this mode to its default filters.",
+      "summary": {
+        "all": "All"
+      },
+      "selector": {
+        "clear": "Clear"
+      },
+      "validation": {
+        "dateRange": "Date from must be earlier than or equal to date to.",
+        "minComments": "Min comments must be a whole number greater than or equal to 0."
+      },
+      "feedback": {
+        "emptyNarrow": {
+          "title": "No rows match the current filters",
+          "description": "The request completed successfully, but the active filters are likely too narrow. Remove one or more filters and try again."
+        },
+        "emptySnapshot": {
+          "title": "This snapshot has no rows yet",
+          "description": "The dashboard loaded successfully, but there is no data in the current snapshot even without narrowing filters."
+        },
+        "requestError": {
+          "title": "The latest filter result could not be verified",
+          "description": "The request failed before the dashboard could confirm this filter combination. Retry later or simplify the filter set."
+        }
+      },
+      "state": {
+        "emptyNarrow": {
+          "title": "No results for this filter combination",
+          "description": "The dataset is reachable, but the current filter combination returned no rows. Broaden the date range, remove a status, or clear channel and category filters."
+        },
+        "emptySnapshot": {
+          "title": "No data is available in this snapshot",
+          "description": "The dashboard is working, but the source snapshot does not contain rows for this mode yet. Check upstream data or return later."
+        }
+      }
     },
     "foundation": {
       "eyebrow": "Split container foundation",
@@ -327,7 +363,7 @@
     "dashboard": {
       "heroTitle": "Events workspace",
       "heroDescription": "List, graph, and selected-event detail panel stay synchronized around `/api/dashboard/events` and graph-by-selection.",
-      "sourceDescription": "Primary source: `/api/dashboard/events`. Selection auto-stabilizes against the current snapshot.",
+      "sourceDescription": "Primary source: `/api/dashboard/events`. Once selected, the current event stays pinned while it is still present in refreshed data.",
       "loadingTitle": "Loading events dashboard",
       "loadingDescription": "The dashboard snapshot is being loaded from /api/dashboard/events.",
       "forbiddenTitle": "Events dashboard is not available for this role",
@@ -1065,3 +1101,4 @@
     }
   }
 }
+

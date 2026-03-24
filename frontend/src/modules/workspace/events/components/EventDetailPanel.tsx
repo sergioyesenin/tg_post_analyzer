@@ -27,6 +27,18 @@ type EventDetailPanelProps = {
   actionSlot?: ReactNode;
 };
 
+function EventDetailSelectionHeader({ title }: { title: string | null }) {
+  const { t } = useTranslation();
+
+  return (
+    <section className={`workspace-selection-context ${title ? 'workspace-selection-context--active' : ''}`.trim()}>
+      <span className="state-card__eyebrow">{t('events.detail.selectedTitle')}</span>
+      <strong>{title ?? t('events.graph.noSelectionTitle')}</strong>
+      <p>{title ? t('events.dashboard.sourceDescription') : t('events.detail.emptyDescription')}</p>
+    </section>
+  );
+}
+
 export function EventDetailPanel({ event, graph, actionSlot }: EventDetailPanelProps) {
   const { t } = useTranslation();
 
@@ -39,7 +51,8 @@ export function EventDetailPanel({ event, graph, actionSlot }: EventDetailPanelP
             <strong>{t('events.detail.selectedTitle')}</strong>
           </div>
         </div>
-        <p className="dashboard-panel-copy">{t('events.detail.emptyDescription')}</p>
+        <EventDetailSelectionHeader title={null} />
+ 
       </section>
     );
   }
@@ -67,6 +80,8 @@ export function EventDetailPanel({ event, graph, actionSlot }: EventDetailPanelP
       </div>
 
       <div className="event-detail-panel">
+        <EventDetailSelectionHeader title={event.title} />
+
         <div className="event-detail-panel__summary">
           <div><span>{t('events.detail.status')}</span><strong>{event.status}</strong></div>
           <div><span>{t('events.detail.started')}</span><strong>{event.startedAt}</strong></div>

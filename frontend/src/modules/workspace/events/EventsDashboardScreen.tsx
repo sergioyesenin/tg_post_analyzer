@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+﻿import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ApiError } from '@shared/api/client';
@@ -7,6 +7,7 @@ import { DashboardGeneratedAt } from '@shared/dashboard/components/DashboardGene
 import { DashboardSummaryCards } from '@shared/dashboard/components/DashboardSummaryCards';
 import { DashboardSystemAlerts } from '@shared/dashboard/components/DashboardSystemAlerts';
 import { AnalyticsTable } from '@shared/dashboard/components/DashboardTableShell';
+import { getDashboardEmptyFeedback, getDashboardErrorFilterFeedback } from '@shared/dashboard/filter-feedback';
 import { getEventsDashboardFilterOptions } from '@shared/dashboard/filter-options';
 import { useDashboardFilters } from '@shared/dashboard/hooks';
 import { canPerformAction } from '@shared/routing/policy';
@@ -98,6 +99,7 @@ export function EventsDashboardScreen() {
           filters={filters}
           options={filterOptions}
           channelOptionsState={channelOptionsState}
+          feedback={getDashboardErrorFilterFeedback(t)}
           onApply={applyFilters}
           onReset={resetFilters}
         />
@@ -124,6 +126,7 @@ export function EventsDashboardScreen() {
           filters={filters}
           options={filterOptions}
           channelOptionsState={channelOptionsState}
+          feedback={getDashboardErrorFilterFeedback(t)}
           onApply={applyFilters}
           onReset={resetFilters}
         />
@@ -142,6 +145,7 @@ export function EventsDashboardScreen() {
 
   const eventsViewModel = viewModel;
   const graphPartialHint = selectedEvent && (!selectedEvent.graphReady || eventsViewModel.isPartial) ? t('events.dashboard.partialHint') : null;
+  const emptyUiState = getDashboardEmptyFeedback('events', filters, t);
 
   return (
     <div className="dashboard-page dashboard-page--analytics">
@@ -152,7 +156,6 @@ export function EventsDashboardScreen() {
           <h2>{t('events.dashboard.heroTitle')}</h2>
           <p>{t('events.dashboard.heroDescription')}</p>
         </div>
-        <DashboardGeneratedAt generatedAt={viewModel.generatedAt} />
       </section>
 
       <DashboardSummaryCards cards={eventsViewModel.summaryCards} />
@@ -162,6 +165,8 @@ export function EventsDashboardScreen() {
         filters={filters}
         options={filterOptions}
         channelOptionsState={channelOptionsState}
+        feedback={eventsViewModel.rows.length === 0 ? emptyUiState.filterBar : null}
+        headerSlot={<DashboardGeneratedAt generatedAt={viewModel.generatedAt} />}
         onApply={applyFilters}
         onReset={resetFilters}
       />
@@ -171,7 +176,7 @@ export function EventsDashboardScreen() {
       ) : null}
 
       {eventsViewModel.rows.length === 0 ? (
-        <EmptyState title={t('events.dashboard.emptyTitle')} description={t('events.dashboard.emptyDescription')} />
+        <EmptyState title={emptyUiState.stateCard.title} description={emptyUiState.stateCard.description} />
       ) : (
         <section className="dashboard-page__content dashboard-page__content--workspace">
           <div className="dashboard-page__primary">
@@ -229,8 +234,3 @@ export function EventsDashboardScreen() {
     </div>
   );
 }
-
-
-
-
-

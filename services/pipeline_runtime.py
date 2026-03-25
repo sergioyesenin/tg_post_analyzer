@@ -911,6 +911,48 @@ async def _run_comment_job(
     return executed, collect_comments_processed, collect_comments_global_cooldown_until, collect_comments_flood_streak, should_break
 
 
+async def run_telegram_link_jobs_until_idle(
+    *,
+    job_batch_size: int,
+    worker_id: str,
+    job_worker_concurrency: int,
+) -> int:
+    executed = 0
+    parallelism = _clamp_positive_int(job_worker_concurrency, default=2, minimum=1, maximum=16)
+
+    while True:
+        async with AsyncSessionLocal() as session:
+            jobs = await fetch_and_lock_jobs(
+                session,
+                worker_id=worker_id,
+                limit=job_batch_size,
+                allowed_types={JobType.BUILD_POST_LINKS},
+            )
+            await session.commit()
+
+        if not jobs:
+            return executed
+
+        semaphore = asyncio.Semaphore(parallelism)
+
+        async def _run_one(job: Job) -> int:
+            async with semaphore:
+                return await _run_link_job(job=job, worker_id=worker_id)
+
+        executed += sum(await asyncio.gather(*[_run_one(job) for job in jobs]))
+
+
+async def count_incomplete_link_jobs() -> int:
+    async with AsyncSessionLocal() as session:
+        stmt = (
+            select(func.count())
+            .select_from(Job)
+            .where(Job.type == JobType.BUILD_POST_LINKS)
+            .where(Job.status.in_(("pending", "running")))
+        )
+        return int((await session.scalar(stmt)) or 0)
+
+
 async def run_telegram_jobs(
     *,
     job_batch_size: int,
@@ -1162,10 +1204,23 @@ async def run_telegram_cycle(
                     channel.username,
                     exc,
                 )
-    if not skip_rebuild_graphs and total_processed_posts > 0:
+
+    link_jobs_executed = await run_telegram_link_jobs_until_idle(
+        job_batch_size=job_batch_size,
+        worker_id=worker_id,
+        job_worker_concurrency=job_worker_concurrency,
+    )
+    incomplete_link_jobs = await count_incomplete_link_jobs()
+
+    if not skip_rebuild_graphs and incomplete_link_jobs > 0:
+        logger.info(
+            "Skip rebuild: build_post_links queue is not drained yet incomplete_link_jobs=%s",
+            incomplete_link_jobs,
+        )
+    elif not skip_rebuild_graphs and (total_processed_posts > 0 or link_jobs_executed > 0):
         await _rebuild_event_process_graphs(date_from=since_utc, date_to=datetime.now(timezone.utc))
     elif not skip_rebuild_graphs:
-        logger.info("Skip rebuild: no new posts in this cycle.")
+        logger.info("Skip rebuild: no new posts or completed link jobs in this cycle.")
 
     if not retention_scheduler_enabled(effective_settings):
         async with AsyncSessionLocal() as session:
@@ -1187,7 +1242,10 @@ async def run_telegram_cycle(
         tg_client=client,
         job_worker_concurrency=job_worker_concurrency,
     )
-    return TelegramCycleMetrics(processed_posts=total_processed_posts, executed_jobs=executed_jobs)
+    return TelegramCycleMetrics(
+        processed_posts=total_processed_posts,
+        executed_jobs=link_jobs_executed + executed_jobs,
+    )
 
 
 async def run_ai_cycle(*, worker_id: str, job_batch_size_arg: int, job_worker_concurrency_arg: int, post_report_age_hours_arg: int, scheduler_limit_arg: int) -> tuple[int, int]:

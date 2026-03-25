@@ -135,6 +135,11 @@ function installProcessesApiMock(options?: {
     throw new Error(`Unhandled GET path in processes test: ${path}`);
   });
 }
+async function selectProcess(index: number) {
+  const user = userEvent.setup();
+  const buttons = screen.getAllByRole('button', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c') });
+  await user.click(buttons[index] as HTMLButtonElement);
+}
 
 describe('Processes dashboard', () => {
   it('applies supported process filters from product controls', async () => {
@@ -160,7 +165,7 @@ describe('Processes dashboard', () => {
   });
 
   it('renders processes dashboard summary, table, hierarchy graph, and detail panel', async () => {
-    installProcessesApiMock();
+    const getSpy = installProcessesApiMock();
 
     renderWorkspace();
 
@@ -168,23 +173,47 @@ describe('Processes dashboard', () => {
       expect(screen.getAllByText(/Narrative escalation chain/i).length).toBeGreaterThan(0);
     });
 
-    expect(screen.getAllByText(ru('\u0421\u0432\u044f\u0437\u0430\u043d\u043d\u044b\u0435 \u0441\u043e\u0431\u044b\u0442\u0438\u044f'), { exact: false }).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(ru('\u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044f \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0430')).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('link', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0441\u043e\u0431\u044b\u0442\u0438\u0435') }).length).toBeGreaterThan(0);
-    expect(screen.getByText(ru('\u043f\u0440\u043e\u0446\u0435\u0441\u0441 -> \u0441\u043e\u0431\u044b\u0442\u0438\u0435 -> \u043f\u043e\u0441\u0442'))).toBeInTheDocument();
+    expect(screen.getAllByText(ru('\\u0418\\u0435\\u0440\\u0430\\u0440\\u0445\\u0438\\u044f \\u043f\\u0440\\u043e\\u0446\\u0435\\u0441\\u0441\\u0430')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(ru('\\u0412\\u044b\\u0431\\u0435\\u0440\\u0438\\u0442\\u0435 \\u043f\\u0440\\u043e\\u0446\\u0435\\u0441\\u0441 \\u0434\\u043b\\u044f \\u043f\\u0440\\u043e\\u0441\\u043c\\u043e\\u0442\\u0440\\u0430 \\u0438\\u0435\\u0440\\u0430\\u0440\\u0445\\u0438\\u0438')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(ru('\\u0412\\u044b\\u0431\\u0435\\u0440\\u0438\\u0442\\u0435 \\u0441\\u0442\\u0440\\u043e\\u043a\\u0443 \\u043f\\u0440\\u043e\\u0446\\u0435\\u0441\\u0441\\u0430, \\u0447\\u0442\\u043e\\u0431\\u044b \\u0441\\u0438\\u043d\\u0445\\u0440\\u043e\\u043d\\u0438\\u0437\\u0438\\u0440\\u043e\\u0432\\u0430\\u0442\\u044c \\u043f\\u0430\\u043d\\u0435\\u043b\\u044c \\u0434\\u0435\\u0442\\u0430\\u043b\\u0435\\u0439 \\u0438 \\u0433\\u0440\\u0430\\u0444 \\u0438\\u0435\\u0440\\u0430\\u0440\\u0445\\u0438\\u0438.')).length).toBeGreaterThan(0);
+    expect(getSpy).not.toHaveBeenCalledWith('/api/dashboard/processes/201/graph');
   });
 
-  it('keeps selection stable and loads the graph for the selected process', async () => {
-    const user = userEvent.setup();
+  it('renders explicit no-selection state first and synchronizes hierarchy and detail after selection', async () => {
     const getSpy = installProcessesApiMock();
 
     renderWorkspace();
 
     await waitFor(() => {
-      expect(screen.getAllByText(/Election coverage spike/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Narrative escalation chain/i).length).toBeGreaterThan(0);
     });
 
-    await user.click(screen.getByRole('button', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c') }));
+    expect(screen.getAllByText(ru('\\u0412\\u044b\\u0431\\u0435\\u0440\\u0438\\u0442\\u0435 \\u043f\\u0440\\u043e\\u0446\\u0435\\u0441\\u0441 \\u0434\\u043b\\u044f \\u043f\\u0440\\u043e\\u0441\\u043c\\u043e\\u0442\\u0440\\u0430 \\u0438\\u0435\\u0440\\u0430\\u0440\\u0445\\u0438\\u0438')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(ru('\\u0412\\u044b\\u0431\\u0435\\u0440\\u0438\\u0442\\u0435 \\u0441\\u0442\\u0440\\u043e\\u043a\\u0443 \\u043f\\u0440\\u043e\\u0446\\u0435\\u0441\\u0441\\u0430, \\u0447\\u0442\\u043e\\u0431\\u044b \\u0441\\u0438\\u043d\\u0445\\u0440\\u043e\\u043d\\u0438\\u0437\\u0438\\u0440\\u043e\\u0432\\u0430\\u0442\\u044c \\u043f\\u0430\\u043d\\u0435\\u043b\\u044c \\u0434\\u0435\\u0442\\u0430\\u043b\\u0435\\u0439 \\u0438 \\u0433\\u0440\\u0430\\u0444 \\u0438\\u0435\\u0440\\u0430\\u0440\\u0445\\u0438\\u0438.')).length).toBeGreaterThan(0);
+    expect(getSpy).not.toHaveBeenCalledWith('/api/dashboard/processes/201/graph');
+
+    await selectProcess(0);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Narrative escalation chain/i).length).toBeGreaterThan(0);
+    });
+
+    expect(screen.getByRole('button', { name: ru('\\u0412\\u044b\\u0431\\u0440\\u0430\\u043d\\u043e') })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getAllByText(ru('\\u0412\\u044b\\u0431\\u0440\\u0430\\u043d\\u043d\\u044b\\u0439 \\u043f\\u0440\\u043e\\u0446\\u0435\\u0441\\u0441')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(ru('\\u0421\\u0432\\u044f\\u0437\\u0430\\u043d\\u043d\\u044b\\u0435 \\u0441\\u043e\\u0431\\u044b\\u0442\\u0438\\u044f'), { exact: false }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('link', { name: ru('\\u041e\\u0442\\u043a\\u0440\\u044b\\u0442\\u044c \\u0441\\u043e\\u0431\\u044b\\u0442\\u0438\\u0435') }).length).toBeGreaterThan(0);
+  });
+
+  it('keeps selection stable and loads the graph for the selected process', async () => {
+    const getSpy = installProcessesApiMock();
+
+    renderWorkspace();
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Narrative escalation chain/i).length).toBeGreaterThan(0);
+    });
+
+    await selectProcess(1);
 
     await waitFor(() => {
       expect(screen.getAllByText(/Cleanup bulletin/i).length).toBeGreaterThan(0);
@@ -193,10 +222,104 @@ describe('Processes dashboard', () => {
     expect(getSpy).toHaveBeenCalledWith('/api/dashboard/processes/202/graph');
   });
 
+  it('preserves the selected process across dashboard refetch when the row still exists', async () => {
+    const user = userEvent.setup();
+    let dashboardVersion = 0;
+
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/dashboard/processes') {
+        dashboardVersion += 1;
+
+        return createProcessesDashboardResponse({
+          items: [
+            createProcessesDashboardResponse().items[0],
+            {
+              ...createProcessesDashboardResponse().items[1],
+              title: dashboardVersion > 1 ? 'Cleanup response cycle' : createProcessesDashboardResponse().items[1].title,
+            },
+          ],
+        });
+      }
+
+      if (path === '/api/dashboard/processes/202/graph') {
+        return createProcessGraphResponse({
+          summary: {
+            ...createProcessGraphResponse().summary,
+            process_id: 202,
+            title: 'Cleanup response cycle',
+          },
+          events: [
+            {
+              event_id: 91,
+              title: 'Cleanup bulletin',
+              status: 'cooling',
+              started_at: '2026-03-09T09:00:00Z',
+              ended_at: '2026-03-09T18:00:00Z',
+              confidence: 0.68,
+              relation_type: 'closure',
+              direction: 'src_to_dst',
+              score: 0.63,
+              post_ids: [5100],
+            },
+          ],
+          nodes: [
+            {
+              post_id: 5100,
+              channel_id: 28,
+              channel_username: 'cleanup_watch',
+              date: '2026-03-09T09:10:00Z',
+              text_preview: 'Cleanup bulletin root post.',
+              comments_count: 120,
+              views: 6700,
+              involvement: 0.29,
+              is_root: true,
+            },
+          ],
+          edges: [],
+          mapping: {
+            process_id: 202,
+            event_to_post_ids: {
+              91: [5100],
+            },
+          },
+        });
+      }
+
+      throw new Error(`Unhandled GET path in selection refetch process test: ${path}`);
+    });
+
+    renderWorkspace();
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Narrative escalation chain/i).length).toBeGreaterThan(0);
+    });
+
+    await selectProcess(1);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Cleanup bulletin/i).length).toBeGreaterThan(0);
+    });
+
+    await user.click(screen.getByRole('button', { name: ru('\\u041f\\u0440\\u0438\\u043c\\u0435\\u043d\\u0438\\u0442\\u044c \\u0444\\u0438\\u043b\\u044c\\u0442\\u0440\\u044b') }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Cleanup response cycle/i).length).toBeGreaterThan(0);
+    });
+
+    expect(screen.getByRole('button', { name: ru('\\u0412\\u044b\\u0431\\u0440\\u0430\\u043d\\u043e') })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getAllByText(/Cleanup bulletin/i).length).toBeGreaterThan(0);
+  });
+
   it('renders related events and confirmed event/post navigation from graph data', async () => {
     installProcessesApiMock();
 
     renderWorkspace();
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Narrative escalation chain/i).length).toBeGreaterThan(0);
+    });
+
+    await selectProcess(0);
 
     await waitFor(() => {
       expect(screen.getAllByRole('link', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u0441\u043e\u0431\u044b\u0442\u0438\u0435') }).length).toBeGreaterThan(0);
@@ -257,6 +380,12 @@ describe('Processes dashboard', () => {
     renderWorkspace();
 
     await waitFor(() => {
+      expect(screen.getAllByText(/Narrative escalation chain/i).length).toBeGreaterThan(0);
+    });
+
+    await selectProcess(0);
+
+    await waitFor(() => {
       expect(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a \u043e\u0442\u0447\u0435\u0442\u0430') })).toBeInTheDocument();
     });
 
@@ -299,12 +428,13 @@ describe('Processes dashboard', () => {
       expect(screen.getByText(/Process hierarchy enrichment is partially unavailable/i)).toBeInTheDocument();
     });
 
+    await selectProcess(0);
+
     expect(screen.getByText(ru('\u042d\u043a\u0440\u0430\u043d \u043e\u0441\u0442\u0430\u0435\u0442\u0441\u044f \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u043c \u043f\u0440\u0438 \u0447\u0430\u0441\u0442\u0438\u0447\u043d\u043e \u043e\u0431\u043e\u0433\u0430\u0449\u0435\u043d\u043d\u044b\u0445 \u0434\u0430\u043d\u043d\u044b\u0445'))).toBeInTheDocument();
     expect(screen.getByText(ru('\u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044f \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0430 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430 \u0447\u0430\u0441\u0442\u0438\u0447\u043d\u043e'))).toBeInTheDocument();
   });
 
   it('renders no-edges and empty graph states without breaking the detail rail', async () => {
-    const user = userEvent.setup();
 
     installProcessesApiMock({
       graph: createProcessGraphResponse({ events: [], nodes: [], edges: [], mapping: { process_id: 201, event_to_post_ids: {} } }),
@@ -362,14 +492,16 @@ describe('Processes dashboard', () => {
     renderWorkspace();
 
     await waitFor(() => {
+      expect(screen.getAllByText(/Narrative escalation chain/i).length).toBeGreaterThan(0);
+    });
+
+    await selectProcess(0);
+
+    await waitFor(() => {
       expect(screen.getByText(ru('\u0418\u0435\u0440\u0430\u0440\u0445\u0438\u044f \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0430 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430'))).toBeInTheDocument();
     });
 
-    await user.click(screen.getByRole('button', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c') }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/\u0433\u0440\u0430\u0444\u0435 \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0430.*\u043f\u043e\u0441\u0442\u0430\u043c/i)).toBeInTheDocument();
-    });
+    await selectProcess(0);
 
     expect(screen.getAllByText(/Cleanup bulletin/i).length).toBeGreaterThan(0);
   });
@@ -388,6 +520,12 @@ describe('Processes dashboard', () => {
     });
 
     renderWorkspace();
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Narrative escalation chain/i).length).toBeGreaterThan(0);
+    });
+
+    await selectProcess(0);
 
     await waitFor(() => {
       expect(screen.getByText(ru('\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u0433\u0440\u0430\u0444 \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0430'))).toBeInTheDocument();
@@ -425,8 +563,10 @@ describe('Processes dashboard', () => {
     renderWorkspace();
 
     await waitFor(() => {
-      expect(screen.getAllByText(/Election coverage spike/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Narrative escalation chain/i).length).toBeGreaterThan(0);
     });
+
+    await selectProcess(0);
 
     await user.click(screen.getByRole('button', { name: ru('\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0433\u0440\u0430\u0444') }));
 
@@ -478,5 +618,4 @@ describe('Processes dashboard', () => {
     });
   });
 });
-
 

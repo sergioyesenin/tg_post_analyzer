@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime
+from unicodedata import normalize
 
 from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.dialects.postgresql import insert
@@ -59,6 +60,42 @@ def _first_post_title(posts: list[Post], facts_map: dict[int, PostFact]) -> str:
     if first_paragraph:
         return first_paragraph[:140]
     return _canonical_title(posts, facts_map)
+
+
+def _normalized_event_title(title: str | None) -> str | None:
+    if not title:
+        return None
+    normalized = normalize("NFKC", title).strip().casefold()
+    return normalized or None
+
+
+def _merge_components_by_title(
+    components: list[list[int]],
+    *,
+    post_by_id: dict[int, Post],
+    facts_map: dict[int, PostFact],
+) -> list[list[int]]:
+    merged_components: list[list[int]] = []
+    component_indexes_by_title: dict[str, int] = {}
+    fallback_components: list[list[int]] = []
+
+    for component in components:
+        component_posts = [post_by_id[pid] for pid in component if pid in post_by_id]
+        if not component_posts:
+            continue
+        title_key = _normalized_event_title(_first_post_title(component_posts, facts_map))
+        if title_key is None:
+            fallback_components.append(component)
+            continue
+        existing_index = component_indexes_by_title.get(title_key)
+        if existing_index is None:
+            component_indexes_by_title[title_key] = len(merged_components)
+            merged_components.append(list(component))
+            continue
+        merged_components[existing_index].extend(component)
+
+    merged_components.extend(fallback_components)
+    return [sorted(set(component)) for component in merged_components]
 
 
 async def rebuild_events(
@@ -140,12 +177,13 @@ async def rebuild_events(
         uf.union(link.src_post_id, link.dst_post_id)
     components = list(uf.components().values())
 
+    facts_stmt = select(PostFact).where(PostFact.post_id.in_(post_ids))
+    facts_map = {f.post_id: f for f in (await session.execute(facts_stmt)).scalars().all()}
+    components = _merge_components_by_title(components, post_by_id=post_by_id, facts_map=facts_map)
+
     if event_ids:
         await session.execute(delete(EventPost).where(EventPost.event_id.in_(event_ids)))
         await session.execute(delete(Event).where(Event.id.in_(event_ids)))
-
-    facts_stmt = select(PostFact).where(PostFact.post_id.in_(post_ids))
-    facts_map = {f.post_id: f for f in (await session.execute(facts_stmt)).scalars().all()}
 
     rebuilt = 0
     for component in components:

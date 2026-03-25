@@ -34,6 +34,18 @@ type ProcessDetailPanelProps = {
   actionSlot?: ReactNode;
 };
 
+function ProcessDetailSelectionHeader({ title }: { title: string | null }) {
+  const { t } = useTranslation();
+
+  return (
+    <section className={`workspace-selection-context ${title ? 'workspace-selection-context--active' : ''}`.trim()}>
+      <span className="state-card__eyebrow">{t('processes.detail.selectedTitle')}</span>
+      <strong>{title ?? t('processes.graph.noSelectionTitle')}</strong>
+      <p>{title ? t('processes.dashboard.sourceDescription') : t('processes.detail.emptyDescription')}</p>
+    </section>
+  );
+}
+
 export function ProcessDetailPanel({ process, graph, relatedEvents, actionSlot }: ProcessDetailPanelProps) {
   const { t } = useTranslation();
 
@@ -46,7 +58,7 @@ export function ProcessDetailPanel({ process, graph, relatedEvents, actionSlot }
             <strong>{t('processes.detail.selectedTitle')}</strong>
           </div>
         </div>
-        <p className="dashboard-panel-copy">{t('processes.detail.emptyDescription')}</p>
+        <ProcessDetailSelectionHeader title={null} />
       </section>
     );
   }
@@ -77,6 +89,8 @@ export function ProcessDetailPanel({ process, graph, relatedEvents, actionSlot }
       </div>
 
       <div className="process-detail-panel">
+        <ProcessDetailSelectionHeader title={process.title} />
+
         <div className="process-detail-panel__summary">
           <div><span>{t('processes.detail.status')}</span><strong>{process.status}</strong></div>
           <div><span>{t('processes.detail.started')}</span><strong>{process.startedAt}</strong></div>

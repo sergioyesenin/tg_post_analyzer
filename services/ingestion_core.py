@@ -91,6 +91,7 @@ class IngestionCore:
         self._tg_client = tg_client
         self._session_factory = session_factory
         self._upsert_post = upsert_post_fn
+        self._hydrated_parent_tg_message_ids: set[int] = set()
 
     @staticmethod
     def _build_peer(channel: Channel) -> Any:
@@ -137,7 +138,7 @@ class IngestionCore:
             if parent_parent_post is not None:
                 parent_parent_post_id = parent_parent_post.id
 
-        return await self._upsert_post(
+        parent_post = await self._upsert_post(
             session,
             channel_id=channel.id,
             tg_message_id=parent_msg.id,
@@ -149,6 +150,8 @@ class IngestionCore:
             comments_count=extract_comments_count(parent_msg),
             involvement=None,
         )
+        self._hydrated_parent_tg_message_ids.add(int(parent_msg.id))
+        return parent_post
 
     async def _pick_album_representative_message(self, entity, message):
         grouped_id = getattr(message, "grouped_id", None)
@@ -193,6 +196,7 @@ class IngestionCore:
         options: IngestionOptions,
         on_post_saved: OnPostSaved | None = None,
     ) -> IngestionResult:
+        self._hydrated_parent_tg_message_ids = set()
         peer = self._build_peer(channel)
         try:
             entity = await self._tg_client.get_entity(peer)
@@ -248,7 +252,11 @@ class IngestionCore:
                         channel_id=channel.id,
                         tg_message_id=msg.id,
                     )
-                    if existing is not None and options.stop_on_existing_post:
+                    if (
+                        existing is not None
+                        and options.stop_on_existing_post
+                        and int(msg.id) not in self._hydrated_parent_tg_message_ids
+                    ):
                         await session.commit()
                         return IngestionResult(channel.id, channel.username, processed, "already_ingested")
 

@@ -31,7 +31,7 @@ export function useSelectedProcessId(items: ProcessesDashboardItemDto[]) {
         return current;
       }
 
-      return items[0]?.process_id ?? null;
+      return null;
     });
   }, [items]);
 
@@ -74,3 +74,4 @@ export function useUpdateProcessReportAction(processId: number | null) {
     },
   });
 }
+

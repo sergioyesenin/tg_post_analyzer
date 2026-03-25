@@ -112,3 +112,50 @@ def test_rebuild_events_preserves_cross_window_memberships_and_root(monkeypatch)
     assert {stmt.payload["post_id"] for stmt in inserts} == {1, 2}
     roles_by_post_id = {stmt.payload["post_id"]: stmt.payload["role"] for stmt in inserts}
     assert roles_by_post_id == {1: "root", 2: "context"}
+
+
+def test_rebuild_events_merges_disconnected_components_with_same_title(monkeypatch) -> None:
+    post_one = SimpleNamespace(
+        id=1,
+        date=datetime(2026, 3, 25, 10, 0, 0),
+        text="❗️ В Беларуси появился новый способ мошенничества",
+        created_at=datetime(2026, 3, 25, 10, 0, 0),
+    )
+    post_two = SimpleNamespace(
+        id=2,
+        date=datetime(2026, 3, 25, 11, 0, 0),
+        text="❗️ В Беларуси появился новый способ мошенничества",
+        created_at=datetime(2026, 3, 25, 11, 0, 0),
+    )
+    session = _FakeSession(
+        execute_results=[
+            _FakeScalarsResult([post_one, post_two]),
+            _FakeScalarsResult([]),
+            _FakeRowsResult([]),
+            _FakeScalarsResult([post_one, post_two]),
+            _FakeScalarsResult([]),
+            _FakeScalarsResult([]),
+        ]
+    )
+    inserts: list[_FakeInsertStatement] = []
+
+    def _fake_insert(_model):
+        stmt = _FakeInsertStatement()
+        inserts.append(stmt)
+        return stmt
+
+    monkeypatch.setattr("services.events.build_events.insert", _fake_insert)
+
+    rebuilt = asyncio.run(
+        rebuild_events(
+            session,
+            date_from=datetime(2026, 3, 25, 0, 0, 0),
+            date_to=datetime(2026, 3, 25, 23, 59, 59),
+        )
+    )
+
+    assert rebuilt == 1
+    assert len(session.added) == 1
+    assert session.added[0].title == "❗️ В Беларуси появился новый способ мошенничества"
+    assert len(inserts) == 2
+    assert {stmt.payload["post_id"] for stmt in inserts} == {1, 2}

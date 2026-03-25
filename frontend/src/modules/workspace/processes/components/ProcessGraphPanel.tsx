@@ -20,6 +20,18 @@ type ProcessGraphPanelProps = {
   onRefresh: () => void;
 };
 
+function ProcessGraphSelectionHeader({ selectedTitle }: { selectedTitle: string | null }) {
+  const { t } = useTranslation();
+
+  return (
+    <section className={`workspace-selection-context ${selectedTitle ? 'workspace-selection-context--active' : ''}`.trim()}>
+      <span className="state-card__eyebrow">{t('processes.graph.selectedProcess')}</span>
+      <strong>{selectedTitle ?? t('processes.graph.noSelectionTitle')}</strong>
+      <p>{selectedTitle ? t('processes.dashboard.sourceDescription') : t('processes.graph.noSelectionDescription')}</p>
+    </section>
+  );
+}
+
 export function ProcessGraphPanel({
   selectedTitle,
   isLoading,
@@ -81,6 +93,7 @@ export function ProcessGraphPanel({
             <strong>{t('processes.graph.title')}</strong>
           </div>
         </div>
+        <ProcessGraphSelectionHeader selectedTitle={null} />
         <EmptyState title={t('processes.graph.noSelectionTitle')} description={t('processes.graph.noSelectionDescription')} />
       </section>
     );
@@ -94,6 +107,8 @@ export function ProcessGraphPanel({
           <strong>{t('processes.graph.title')}</strong>
         </div>
       </div>
+
+      <ProcessGraphSelectionHeader selectedTitle={selectedTitle} />
 
       <ProcessGraphToolbar
         title={selectedTitle ?? t('processes.graph.selectedProcess')}
@@ -238,4 +253,3 @@ export function ProcessGraphPanel({
     </section>
   );
 }
-

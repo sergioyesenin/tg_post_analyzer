@@ -87,8 +87,11 @@ export function mapProcessesRowsToTableRows(
       isSelected,
       cells: {
         process: (
-          <div className="dashboard-table-shell__cell-stack">
-            <strong>{row.title}</strong>
+          <div className="dashboard-table-shell__cell-stack dashboard-table-shell__cell-stack--selection">
+            <div className="dashboard-table-shell__cell-title">
+              <strong>{row.title}</strong>
+              {isSelected ? <span className="dashboard-table-shell__selection-badge">{i18n.t('processes.rows.selected')}</span> : null}
+            </div>
             <span>
               {row.status} | {i18n.t('processes.rows.confidence', { value: row.confidence })}
             </span>
@@ -109,6 +112,7 @@ export function mapProcessesRowsToTableRows(
             <button
               type="button"
               className={`dashboard-button ${isSelected ? 'dashboard-button--ghost' : ''}`.trim()}
+              aria-pressed={isSelected}
               onClick={() => onSelect(row.processId)}
             >
               {isSelected ? i18n.t('processes.rows.selected') : i18n.t('processes.rows.inspect')}

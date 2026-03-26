@@ -35,6 +35,27 @@ class _FakeClient:
             yield msg
 
 
+class _WindowedClient:
+    def __init__(self, responses_by_window):
+        self._responses_by_window = dict(responses_by_window)
+        self.requests: list[tuple[int, ...]] = []
+
+    async def get_entity(self, peer):
+        return SimpleNamespace(peer=peer)
+
+    async def get_messages(self, entity, ids):
+        del entity
+        if isinstance(ids, list):
+            key = tuple(ids)
+            self.requests.append(key)
+            return self._responses_by_window.get(key, [])
+        return self._responses_by_window.get(ids)
+
+    async def iter_messages(self, entity):
+        if False:
+            yield entity
+
+
 def _msg(*, msg_id: int, dt: datetime, replies: int, reply_to_msg_id: int | None = None) -> SimpleNamespace:
     return SimpleNamespace(
         id=msg_id,
@@ -163,3 +184,47 @@ def test_ingestion_core_does_not_stop_on_parent_post_hydrated_in_same_run():
     assert result.processed_posts == 2
     assert result.stopped_reason is None
     assert saved_ids == [101, 105, 101]
+
+
+def test_pick_album_representative_message_keeps_current_working_album_case():
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    head_msg = SimpleNamespace(id=103, date=now, message="m103", grouped_id=555)
+    album_101 = SimpleNamespace(id=101, date=now, message="m101", grouped_id=555)
+    album_102 = SimpleNamespace(id=102, date=now, message="m102", grouped_id=555)
+    album_103 = head_msg
+    responses = {
+        tuple(range(93, 114)): [album_101, album_102, album_103],
+        tuple(range(91, 101)): [],
+        tuple(range(104, 114)): [],
+    }
+    core = IngestionCore(
+        tg_client=_WindowedClient(responses),
+        session_factory=_FakeSession,
+    )
+
+    representative = asyncio.run(core._pick_album_representative_message(SimpleNamespace(id=1), head_msg))
+
+    assert representative.id == 101
+
+
+def test_pick_album_representative_message_recovers_from_partial_nearby_fetch():
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    head_msg = SimpleNamespace(id=103, date=now, message="m103", grouped_id=555)
+    album_101 = SimpleNamespace(id=101, date=now, message="m101", grouped_id=555)
+    album_103 = head_msg
+    responses = {
+        tuple(range(93, 114)): [album_103],
+        tuple(range(93, 103)): [album_101],
+        tuple(range(104, 114)): [],
+        tuple(range(91, 101)): [],
+    }
+    client = _WindowedClient(responses)
+    core = IngestionCore(
+        tg_client=client,
+        session_factory=_FakeSession,
+    )
+
+    representative = asyncio.run(core._pick_album_representative_message(SimpleNamespace(id=1), head_msg))
+
+    assert representative.id == 101
+    assert len(client.requests) >= 2

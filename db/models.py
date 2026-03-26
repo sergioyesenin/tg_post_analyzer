@@ -250,7 +250,7 @@ class Post(Base):
 class Comment(Base):
     __tablename__ = "comments"
     __table_args__ = (
-        UniqueConstraint("channel_id", "tg_message_id", name="uq_comments_channel_msg"),
+        UniqueConstraint("channel_id", "tg_peer_id", "tg_message_id", name="uq_comments_channel_peer_msg"),
         Index("ix_comments_post_date", "post_id", "date"),
     )
 
@@ -259,6 +259,7 @@ class Comment(Base):
     channel_id: Mapped[int] = mapped_column(ForeignKey("channels.id", ondelete="CASCADE"), index=True)
     post_id: Mapped[int] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), index=True)
 
+    tg_peer_id: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     tg_message_id: Mapped[int] = mapped_column(Integer, index=True)
     parent_tg_message_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     parent_comment_id: Mapped[int | None] = mapped_column(ForeignKey("comments.id", ondelete="SET NULL"), nullable=True, index=True)

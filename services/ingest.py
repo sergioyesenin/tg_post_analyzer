@@ -98,6 +98,7 @@ async def upsert_comment(
     *,
     channel_id: int,
     post_id: int,
+    tg_peer_id: Optional[int] = None,
     tg_message_id: int,
     parent_tg_message_id: Optional[int],
     parent_comment_id: Optional[int],
@@ -108,11 +109,13 @@ async def upsert_comment(
     author_username: Optional[str],
     text: Optional[str],
 ) -> Comment:
+    resolved_tg_peer_id = int(tg_peer_id) if isinstance(tg_peer_id, int) else int(channel_id)
     stmt = (
         insert(Comment)
         .values(
             channel_id=channel_id,
             post_id=post_id,
+            tg_peer_id=resolved_tg_peer_id,
             tg_message_id=tg_message_id,
             parent_tg_message_id=parent_tg_message_id,
             parent_comment_id=parent_comment_id,
@@ -125,9 +128,10 @@ async def upsert_comment(
             created_at=datetime.utcnow(),
         )
         .on_conflict_do_update(
-            constraint="uq_comments_channel_msg",
+            constraint="uq_comments_channel_peer_msg",
             set_={
                 "post_id": post_id,
+                "tg_peer_id": resolved_tg_peer_id,
                 "parent_tg_message_id": parent_tg_message_id,
                 "parent_comment_id": parent_comment_id,
                 "thread_root_tg_message_id": thread_root_tg_message_id,

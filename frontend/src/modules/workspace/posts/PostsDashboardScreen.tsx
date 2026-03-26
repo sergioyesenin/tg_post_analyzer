@@ -1,4 +1,4 @@
-п»їimport type { ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ApiError } from '@shared/api/client';
@@ -15,7 +15,7 @@ import {
 import { getPostsDashboardFilterOptions, type DashboardFilterOptionsByMode } from '@shared/dashboard/filter-options';
 import type { PostsDashboardFiltersDto } from '@shared/dashboard/contracts';
 import { useDashboardFilters } from '@shared/dashboard/hooks';
-import { ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
+import { QueryActivityNotice, ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
@@ -36,6 +36,8 @@ function PostsDashboardScaffold({
   channelOptionsState,
   applyFilters,
   resetFilters,
+  applySearch,
+  resetSearch,
   feedback = null,
 }: {
   children: ReactNode;
@@ -44,6 +46,8 @@ function PostsDashboardScaffold({
   channelOptionsState: 'ready' | 'loading' | 'error';
   applyFilters: (filters: PostsDashboardFiltersDto) => void;
   resetFilters: () => void;
+  applySearch: (query: string) => void;
+  resetSearch: () => void;
   feedback?: DashboardFilterFeedback | null;
 }) {
   const { t } = useTranslation();
@@ -66,6 +70,8 @@ function PostsDashboardScaffold({
         headerSlot={null}
         onApply={applyFilters}
         onReset={resetFilters}
+        onApplySearch={applySearch}
+        onResetSearch={resetSearch}
       />
       {children}
     </div>
@@ -74,18 +80,19 @@ function PostsDashboardScaffold({
 
 export function PostsDashboardScreen() {
   const { t } = useTranslation();
-  const { filters, applyFilters, resetFilters } = useDashboardFilters('posts');
+  const { filters, applyFilters, resetFilters, applySearch, resetSearch } = useDashboardFilters('posts');
   const { primaryRole } = useSession();
   const query = usePostsDashboardQuery(filters);
   const channelsQuery = useChannelsQuery();
+  const data = query.data ?? null;
   const filterOptions = getPostsDashboardFilterOptions({
     filters,
-    dashboardData: query.data ?? null,
+    dashboardData: data,
     channels: channelsQuery.data,
   });
   const channelOptionsState = channelsQuery.isLoading ? 'loading' : channelsQuery.isError ? 'error' : 'ready';
 
-  if (query.isLoading) {
+  if (query.isLoading && !data) {
     return (
       <PostsDashboardScaffold
         filters={filters}
@@ -93,13 +100,15 @@ export function PostsDashboardScreen() {
         channelOptionsState={channelOptionsState}
         applyFilters={applyFilters}
         resetFilters={resetFilters}
+        applySearch={applySearch}
+        resetSearch={resetSearch}
       >
         <LoadingState title={t('posts.dashboard.loadingTitle')} description={t('posts.dashboard.loadingDescription')} />
       </PostsDashboardScaffold>
     );
   }
 
-  if (query.isError) {
+  if (query.isError && !data) {
     const error = query.error;
     const isForbidden = error instanceof ApiError && error.status === 403;
 
@@ -110,6 +119,8 @@ export function PostsDashboardScreen() {
         channelOptionsState={channelOptionsState}
         applyFilters={applyFilters}
         resetFilters={resetFilters}
+        applySearch={applySearch}
+        resetSearch={resetSearch}
         feedback={getDashboardErrorFilterFeedback(t)}
       >
         {isForbidden ? (
@@ -121,7 +132,7 @@ export function PostsDashboardScreen() {
     );
   }
 
-  if (!query.data) {
+  if (!data) {
     return (
       <PostsDashboardScaffold
         filters={filters}
@@ -129,6 +140,8 @@ export function PostsDashboardScreen() {
         channelOptionsState={channelOptionsState}
         applyFilters={applyFilters}
         resetFilters={resetFilters}
+        applySearch={applySearch}
+        resetSearch={resetSearch}
         feedback={getDashboardErrorFilterFeedback(t)}
       >
         <ErrorState title={t('posts.dashboard.noDataTitle')} description={t('posts.dashboard.noDataDescription')} />
@@ -136,7 +149,7 @@ export function PostsDashboardScreen() {
     );
   }
 
-  const viewModel = mapPostsDashboardToViewModel(query.data, primaryRole);
+  const viewModel = mapPostsDashboardToViewModel(data, primaryRole);
   const emptyUiState = getDashboardEmptyFeedback('posts', filters, t);
 
   return (
@@ -161,7 +174,26 @@ export function PostsDashboardScreen() {
         headerSlot={<DashboardGeneratedAt generatedAt={viewModel.generatedAt} />}
         onApply={applyFilters}
         onReset={resetFilters}
+        onApplySearch={applySearch}
+        onResetSearch={resetSearch}
       />
+
+      {query.isFetching ? (
+        <QueryActivityNotice
+          eyebrow={t('states.loading')}
+          title={t('posts.dashboard.refreshingTitle', { defaultValue: 'Дашборд обновляется' })}
+          description={t('posts.dashboard.refreshingDescription', { defaultValue: 'Текущий список постов остается видимым, пока подтягивается новый снимок.' })}
+        />
+      ) : null}
+
+      {query.isError ? (
+        <QueryActivityNotice
+          eyebrow={t('states.error')}
+          title={t('posts.dashboard.refreshErrorTitle', { defaultValue: 'Не удалось обновить дашборд' })}
+          description={t('posts.dashboard.refreshErrorDescription', { defaultValue: 'Последний успешный снимок постов сохранен без сброса контента.' })}
+          tone="danger"
+        />
+      ) : null}
 
       {primaryRole === 'viewer' ? (
         <ReadOnlyNotice title={t('posts.dashboard.readOnlyTitle')} description={t('posts.dashboard.readOnlyDescription')} />
@@ -184,3 +216,7 @@ export function PostsDashboardScreen() {
     </div>
   );
 }
+
+
+
+

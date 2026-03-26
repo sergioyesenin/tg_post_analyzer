@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import type { CommentViewModel } from '@modules/workspace/post-detail/mappers';
 import { DetailBlockShell } from '@modules/workspace/post-detail/components/DetailBlockShell';
+import { QueryActivityNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
@@ -10,15 +11,32 @@ import { LoadingState } from '@shared/ui/states/LoadingState';
 type CommentsBlockProps = {
   comments: CommentViewModel[];
   isLoading: boolean;
+  isRefreshing: boolean;
   isError: boolean;
+  showErrorNotice: boolean;
   actionSlot?: ReactNode;
 };
 
-export function CommentsBlock({ comments, isLoading, isError, actionSlot }: CommentsBlockProps) {
+export function CommentsBlock({ comments, isLoading, isRefreshing, isError, showErrorNotice, actionSlot }: CommentsBlockProps) {
   const { t } = useTranslation();
 
   return (
     <DetailBlockShell eyebrow={t('posts.comments.eyebrow')} title={t('posts.comments.title')} actionSlot={actionSlot}>
+      {isRefreshing ? (
+        <QueryActivityNotice
+          eyebrow={t('states.loading')}
+          title={t('posts.comments.refreshingTitle', { defaultValue: 'Комментарии обновляются' })}
+          description={t('posts.comments.refreshingDescription', { defaultValue: 'Текущий список остается на экране, пока загружается новое состояние.' })}
+        />
+      ) : null}
+      {showErrorNotice ? (
+        <QueryActivityNotice
+          eyebrow={t('states.error')}
+          title={t('posts.comments.refreshErrorTitle', { defaultValue: 'Не удалось обновить комментарии' })}
+          description={t('posts.comments.refreshErrorDescription', { defaultValue: 'Показываем последний успешный список комментариев.' })}
+          tone="danger"
+        />
+      ) : null}
       {isLoading ? (
         <LoadingState title={t('posts.comments.loadingTitle')} description={t('posts.comments.loadingDescription')} />
       ) : isError ? (

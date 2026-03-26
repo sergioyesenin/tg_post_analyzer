@@ -18,9 +18,9 @@ export type DashboardEmptyStateCopy = {
 };
 
 const narrowingKeysByMode: Record<DashboardMode, string[]> = {
-  posts: ['date_from', 'date_to', 'channel_ids', 'categories', 'min_comments', 'report_status'],
-  events: ['date_from', 'date_to', 'status', 'channel_ids', 'categories', 'min_comments'],
-  processes: ['date_from', 'date_to', 'status', 'min_comments'],
+  posts: ['query', 'date_from', 'date_to', 'channel_ids', 'categories', 'min_comments', 'report_status'],
+  events: ['query', 'date_from', 'date_to', 'status', 'channel_ids', 'categories', 'min_comments'],
+  processes: ['query', 'date_from', 'date_to', 'status', 'min_comments'],
 };
 
 function valuesEqual(left: unknown, right: unknown) {
@@ -77,3 +77,4 @@ export function getDashboardErrorFilterFeedback(t: TFunction) {
     description: t('dashboard.filters.feedback.requestError.description'),
   } satisfies DashboardFilterFeedback;
 }
+

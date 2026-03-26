@@ -118,6 +118,58 @@ describe('Posts dashboard', () => {
       expect(getSpy).toHaveBeenCalledWith('/api/dashboard/posts');
     });
   });
+
+  it('renders keyword search controls, keeps submit disabled for short input, and applies query only on submit', async () => {
+    const user = userEvent.setup();
+    const getSpy = installPostsApiMock();
+
+    renderPostsDashboard('/dashboard/posts');
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i })).toBeDisabled();
+    });
+    await waitFor(() => {
+      expect(screen.getByText(/Top post preview for posts dashboard rendering/i)).toBeInTheDocument();
+    });
+
+    const searchInput = screen.getByLabelText(ru('\u0417\u0430\u043f\u0440\u043e\u0441'));
+    fireEvent.change(searchInput, { target: { value: 'a' } });
+    expect(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i })).toBeDisabled();
+
+    const callsBeforeTyping = getSpy.mock.calls.length;
+    fireEvent.change(searchInput, { target: { value: 'abc' } });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i })).toBeEnabled();
+    });
+    expect(getSpy).toHaveBeenCalledTimes(callsBeforeTyping);
+
+    await user.click(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i }));
+
+    await waitFor(() => {
+      expect(getSpy).toHaveBeenCalledWith('/api/dashboard/posts?query=abc');
+    });
+  });
+
+  it('restores keyword search query from URL and clears it with reset search', async () => {
+    const user = userEvent.setup();
+    const getSpy = installPostsApiMock();
+
+    renderPostsDashboard('/dashboard/posts?query=policy%20shift');
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('policy shift')).toBeInTheDocument();
+    });
+
+    expect(getSpy).toHaveBeenCalledWith('/api/dashboard/posts?query=policy+shift');
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c \u043f\u043e\u0438\u0441\u043a/i })).toBeEnabled();
+    });
+    await user.click(screen.getByRole('button', { name: /\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c \u043f\u043e\u0438\u0441\u043a/i }));
+
+    await waitFor(() => {
+      expect(getSpy).toHaveBeenCalledWith('/api/dashboard/posts');
+    });
+  });
   it('shows inline validation and blocks apply when the date range is invalid', async () => {
     const user = userEvent.setup();
     const getSpy = installPostsApiMock();
@@ -355,6 +407,8 @@ describe('Posts dashboard', () => {
     expect(screen.queryByRole('link', { name: ru('\u041e\u0442\u0447\u0435\u0442') })).not.toBeInTheDocument();
   });
 });
+
+
 
 
 

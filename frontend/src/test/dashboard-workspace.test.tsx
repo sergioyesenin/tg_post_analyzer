@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { apiClient } from '@shared/api/client';
 import {
+  createChannelsResponse,
   createEventsDashboardResponse,
   createPostsDashboardResponse,
   createProcessesDashboardResponse,
@@ -48,6 +49,10 @@ describe('Dashboard workspace shell', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/channels/') {
+        return createChannelsResponse();
+      }
+
       if (path.startsWith('/api/dashboard/events')) {
         return createEventsDashboardResponse();
       }
@@ -94,7 +99,7 @@ describe('Dashboard workspace shell', () => {
   });
 
   it('computes mode switch links with shared filter preservation only', async () => {
-    renderWorkspace('/dashboard/events?date_from=2026-03-01&channel_ids=7&status=active&sort_by=posts_count&sort_order=asc');
+    renderWorkspace('/dashboard/events?query=policy%20shift&date_from=2026-03-01&channel_ids=7&status=active&sort_by=posts_count&sort_order=asc');
 
     await waitFor(() => {
       expect(screen.getByRole('link', { name: 'Процессы' })).toBeInTheDocument();
@@ -102,7 +107,7 @@ describe('Dashboard workspace shell', () => {
 
     expect(screen.getByRole('link', { name: 'Процессы' })).toHaveAttribute(
       'href',
-      '/dashboard/processes?date_from=2026-03-01&sort_order=asc',
+      '/dashboard/processes?query=policy+shift&date_from=2026-03-01&sort_order=asc',
     );
   });
 
@@ -128,8 +133,8 @@ describe('Dashboard workspace shell', () => {
     expect(screen.queryByText('admin@example.com')).not.toBeInTheDocument();
     expect(screen.getByText('admin')).toBeInTheDocument();
     expect(screen.getByText('admin / analyst')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /ru/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /en/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^ru$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^en$/i })).toBeInTheDocument();
   });
 
   it('applies filter edits back into URL-owned state', async () => {
@@ -145,6 +150,12 @@ describe('Dashboard workspace shell', () => {
     await user.selectOptions(screen.getByLabelText(/Порядок/i), 'asc');
     await user.click(screen.getByRole('button', { name: /Применить фильтры/i }));
 
-    expect(screen.getByText('date_from=2026-03-01&sort_order=asc')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByRole('link').find((link) => link.getAttribute('href') === '/dashboard/posts?date_from=2026-03-01&sort_order=asc')).toBeDefined();
+    });
   });
 });
+
+
+
+

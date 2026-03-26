@@ -28,9 +28,35 @@ export function useDashboardFilters<TMode extends DashboardMode>(mode: TMode) {
     });
   };
 
+  const applySearch = (query: string) => {
+    const search = serializeDashboardFilters(mode, {
+      ...filters,
+      query,
+    });
+
+    navigate({
+      pathname: getDashboardModePath(mode),
+      search: search ? `?${search}` : '',
+    });
+  };
+
+  const resetSearch = () => {
+    const search = serializeDashboardFilters(mode, {
+      ...filters,
+      query: '',
+    });
+
+    navigate({
+      pathname: getDashboardModePath(mode),
+      search: search ? `?${search}` : '',
+    });
+  };
+
   return {
     filters,
     applyFilters,
     resetFilters,
+    applySearch,
+    resetSearch,
   };
 }

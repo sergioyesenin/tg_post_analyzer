@@ -13,7 +13,7 @@ import { ApiError } from '@shared/api/client';
 import { DashboardSummaryCards } from '@shared/dashboard/components/DashboardSummaryCards';
 import { canPerformAction } from '@shared/routing/policy';
 import { AsyncActionIndicator } from '@shared/ui/async/AsyncActionIndicator';
-import { ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
+import { QueryActivityNotice, ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
@@ -34,12 +34,14 @@ export function ProcessDetailsPage() {
 
   const { detailQuery, graphQuery } = useProcessDetailQueries(processId);
   const reportAction = useUpdateProcessDetailReportAction(processId);
+  const hasDetailData = detailQuery.data !== undefined;
+  const hasGraphData = graphQuery.data !== undefined;
 
-  if (detailQuery.isLoading) {
+  if (detailQuery.isLoading && !hasDetailData) {
     return <LoadingState title={t('processes.page.loadingTitle')} description={t('processes.page.loadingDescription')} />;
   }
 
-  if (detailQuery.isError) {
+  if (detailQuery.isError && !hasDetailData) {
     const error = detailQuery.error;
 
     if (error instanceof ApiError && error.status === 403) {
@@ -94,6 +96,23 @@ export function ProcessDetailsPage() {
         </div>
       </header>
 
+      {detailQuery.isFetching ? (
+        <QueryActivityNotice
+          eyebrow={t('states.loading')}
+          title={t('processes.page.refreshingTitle', { defaultValue: 'Детали процесса обновляются' })}
+          description={t('processes.page.refreshingDescription', { defaultValue: 'Текущая карточка процесса остается на экране, пока загружается обновленный payload.' })}
+        />
+      ) : null}
+
+      {detailQuery.isError && hasDetailData ? (
+        <QueryActivityNotice
+          eyebrow={t('states.error')}
+          title={t('processes.page.refreshErrorTitle', { defaultValue: 'Не удалось обновить детали процесса' })}
+          description={t('processes.page.refreshErrorDescription', { defaultValue: 'Показываем последнюю успешную версию деталей процесса.' })}
+          tone="danger"
+        />
+      ) : null}
+
       <DashboardSummaryCards cards={viewModel.summaryCards} />
 
       {primaryRole === 'viewer' ? (
@@ -108,8 +127,10 @@ export function ProcessDetailsPage() {
         <div className="post-detail-grid__main">
           <ProcessGraphPanel
             selectedTitle={viewModel.process.title}
-            isLoading={graphQuery.isLoading || graphQuery.isFetching}
-            isError={graphQuery.isError}
+            isLoading={graphQuery.isLoading && !hasGraphData}
+            isRefreshing={graphQuery.isFetching && hasGraphData}
+            isError={graphQuery.isError && !hasGraphData}
+            showErrorNotice={graphQuery.isError && hasGraphData}
             viewModel={viewModel.graph}
             hasSelection
             partialHint={graphPartialHint}

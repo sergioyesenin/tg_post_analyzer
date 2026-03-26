@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useSession } from '@app/providers/SessionProvider';
 import { ApiError } from '@shared/api/client';
 import { AsyncActionIndicator } from '@shared/ui/async/AsyncActionIndicator';
-import { ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
+import { QueryActivityNotice, ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { canPerformAction } from '@shared/routing/policy';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
@@ -62,12 +62,16 @@ export function PostDetailsPage() {
   const { postQuery, commentsQuery, reportQuery, linksQuery } = usePostDetailQueries(postId);
   const refreshCommentsAction = useRefreshCommentsAction(postId);
   const updateReportAction = useUpdateReportAction(postId);
+  const hasPostData = postQuery.data !== undefined;
+  const hasCommentsData = commentsQuery.data !== undefined;
+  const hasReportData = reportQuery.data !== undefined;
+  const hasLinksData = linksQuery.data !== undefined;
 
-  if (postQuery.isLoading) {
+  if (postQuery.isLoading && !hasPostData) {
     return <LoadingState title={t('posts.detail.loadingTitle')} description={t('posts.detail.loadingDescription')} />;
   }
 
-  if (postQuery.isError) {
+  if (postQuery.isError && !hasPostData) {
     const error = postQuery.error;
 
     if (error instanceof ApiError && error.status === 403) {
@@ -114,6 +118,23 @@ export function PostDetailsPage() {
         </div>
       </header>
 
+      {postQuery.isFetching ? (
+        <QueryActivityNotice
+          eyebrow={t('states.loading')}
+          title={t('posts.detail.refreshingTitle', { defaultValue: 'Детали поста обновляются' })}
+          description={t('posts.detail.refreshingDescription', { defaultValue: 'Текущая карточка поста остается на экране, пока подтягивается обновленный payload.' })}
+        />
+      ) : null}
+
+      {postQuery.isError && hasPostData ? (
+        <QueryActivityNotice
+          eyebrow={t('states.error')}
+          title={t('posts.detail.refreshErrorTitle', { defaultValue: 'Не удалось обновить детали поста' })}
+          description={t('posts.detail.refreshErrorDescription', { defaultValue: 'Показываем последнюю успешную версию карточки поста.' })}
+          tone="danger"
+        />
+      ) : null}
+
       {!canRefreshComments || !canGenerateReport ? (
         <ReadOnlyNotice
           title={t('posts.detail.readOnlyTitle')}
@@ -126,8 +147,10 @@ export function PostDetailsPage() {
         <div className="post-detail-grid__main">
           <CommentsBlock
             comments={viewModel.comments}
-            isLoading={commentsQuery.isLoading}
-            isError={commentsQuery.isError}
+            isLoading={commentsQuery.isLoading && !hasCommentsData}
+            isRefreshing={commentsQuery.isFetching && hasCommentsData}
+            isError={commentsQuery.isError && !hasCommentsData}
+            showErrorNotice={commentsQuery.isError && hasCommentsData}
             actionSlot={
               canRefreshComments ? (
                 <button
@@ -151,14 +174,22 @@ export function PostDetailsPage() {
             isFailure={refreshCommentsAction.terminalState?.status === 'failed'}
           />
 
-          <LinksBlock links={viewModel.links} isLoading={linksQuery.isLoading} isError={linksQuery.isError} />
+          <LinksBlock
+            links={viewModel.links}
+            isLoading={linksQuery.isLoading && !hasLinksData}
+            isRefreshing={linksQuery.isFetching && hasLinksData}
+            isError={linksQuery.isError && !hasLinksData}
+            showErrorNotice={linksQuery.isError && hasLinksData}
+          />
         </div>
 
         <aside className="post-detail-grid__side">
           <ReportBlock
             report={viewModel.report}
-            isLoading={reportQuery.isLoading}
-            isError={reportQuery.isError}
+            isLoading={reportQuery.isLoading && !hasReportData}
+            isRefreshing={reportQuery.isFetching && hasReportData}
+            isError={reportQuery.isError && !hasReportData}
+            showErrorNotice={reportQuery.isError && hasReportData}
             actionSlot={
               canGenerateReport ? (
                 <button

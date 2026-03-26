@@ -10,7 +10,7 @@ from telethon.errors import FloodWaitError, RPCError
 from telethon.errors.rpcerrorlist import MsgIdInvalidError
 from telethon.tl.functions.messages import GetDiscussionMessageRequest
 from telethon.tl.types import PeerChannel, PeerUser, User
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from client import client as default_client
@@ -35,13 +35,75 @@ logger = logging.getLogger(__name__)
 async def polite_sleep(base: float, jitter: float) -> None:
     await asyncio.sleep(base + random.random() * jitter)
 
+
+def _build_commenter_key(author_id: int | None, author_username: str | None) -> str | None:
+    if isinstance(author_id, int):
+        return f"id:{author_id}"
+    if isinstance(author_username, str) and author_username:
+        return f"u:{author_username.lower()}"
+    return None
+
+
+def _build_existing_commenter_keys(rows: list[tuple[int | None, str | None]]) -> set[str]:
+    commenters: set[str] = set()
+    for author_id, author_username in rows:
+        commenter_key = _build_commenter_key(author_id, author_username)
+        if commenter_key is not None:
+            commenters.add(commenter_key)
+    return commenters
+
+
+def _legacy_comment_peer_id(channel_id: int) -> int:
+    return int(channel_id)
+
+
+def _comments_reconciliation_enabled() -> bool:
+    return bool(getattr(settings, "COMMENTS_RECONCILIATION_ENABLED", False))
+
+
+async def _reconcile_confirmed_comment_snapshot(
+    session: AsyncSession,
+    *,
+    post_id: int,
+    tg_peer_ids: set[int],
+    thread_root_tg_message_id: int,
+    live_comment_keys: set[tuple[int, int]],
+) -> int:
+    candidate_peer_ids = sorted({int(value) for value in tg_peer_ids if isinstance(value, int) and value > 0})
+    if not candidate_peer_ids or not isinstance(thread_root_tg_message_id, int) or thread_root_tg_message_id <= 0:
+        return 0
+
+    existing_rows = await session.execute(
+        select(Comment.id, Comment.tg_peer_id, Comment.tg_message_id).where(
+            Comment.post_id == post_id,
+            Comment.tg_peer_id.in_(candidate_peer_ids),
+            Comment.thread_root_tg_message_id == thread_root_tg_message_id,
+        )
+    )
+    stale_comment_row_ids = [
+        int(comment_id)
+        for comment_id, tg_peer_id, tg_message_id in existing_rows.all()
+        if (
+            isinstance(comment_id, int)
+            and (int(tg_peer_id), int(tg_message_id)) not in live_comment_keys
+        )
+    ]
+    if not stale_comment_row_ids:
+        return 0
+
+    await session.execute(delete(Comment).where(Comment.id.in_(stale_comment_row_ids)))
+    return len(stale_comment_row_ids)
+
 async def _resolve_discussion_with_fallback(
     *,
     tg_client,
     entity,
     tg_message_id: int,
+    original_message_id: int,
     original_message_date,
-) -> tuple[object | None, int | None, str | None, int | None]:
+    original_message_text,
+    original_grouped_id,
+) -> tuple[object | None, int | None, str | None, int | None, int | None]:
     fallback_window = max(0, int(settings.DISCUSSION_FALLBACK_ID_WINDOW))
     fallback_max_seconds = max(0, int(settings.DISCUSSION_FALLBACK_MAX_SECONDS))
 
@@ -61,6 +123,34 @@ async def _resolve_discussion_with_fallback(
             if candidate_msg is None:
                 continue
 
+            candidate_real_id = getattr(candidate_msg, "id", None)
+            if not isinstance(candidate_real_id, int) or candidate_real_id <= 0:
+                continue
+
+            candidate_grouped_id = getattr(candidate_msg, "grouped_id", None)
+            if candidate_msg_id != original_message_id:
+                if original_grouped_id:
+                    if candidate_grouped_id != original_grouped_id:
+                        logger.info(
+                            "discussion fallback candidate rejected by album identity requested_msg_id=%s candidate_msg_id=%s original_grouped_id=%s candidate_grouped_id=%s",
+                            original_message_id,
+                            candidate_msg_id,
+                            original_grouped_id,
+                            candidate_grouped_id,
+                        )
+                        continue
+                else:
+                    if (
+                        getattr(candidate_msg, "date", None) != original_message_date
+                        or getattr(candidate_msg, "message", None) != original_message_text
+                    ):
+                        logger.info(
+                            "discussion fallback candidate rejected by non_album identity requested_msg_id=%s candidate_msg_id=%s",
+                            original_message_id,
+                            candidate_msg_id,
+                        )
+                        continue
+
             candidate_date = getattr(candidate_msg, "date", None)
             if (
                 original_message_date is not None
@@ -70,12 +160,23 @@ async def _resolve_discussion_with_fallback(
                 continue
 
             candidate_discussion = await tg_client(GetDiscussionMessageRequest(peer=entity, msg_id=candidate_msg_id))
-            if candidate_discussion and candidate_discussion.chats and candidate_discussion.messages:
-                return candidate_discussion, candidate_msg_id, None, None
+            discussion_messages = getattr(candidate_discussion, "messages", None) if candidate_discussion is not None else None
+            discussion_chats = getattr(candidate_discussion, "chats", None) if candidate_discussion is not None else None
+            discussion_root = discussion_messages[0] if discussion_messages else None
+            discussion_root_id = getattr(discussion_root, "id", None)
+
+            if (
+                candidate_discussion
+                and discussion_chats
+                and discussion_messages
+                and isinstance(discussion_root_id, int)
+                and discussion_root_id > 0
+            ):
+                return candidate_discussion, candidate_msg_id, None, None, candidate_real_id
         except MsgIdInvalidError:
             continue
         except FloodWaitError as exc:
-            return None, None, "flood_wait", int(exc.seconds)
+            return None, None, "flood_wait", int(exc.seconds), None
         except RPCError as exc:
             last_error = repr(exc)
             continue
@@ -96,8 +197,8 @@ async def _resolve_discussion_with_fallback(
             continue
 
     if last_error:
-        return None, None, "rpc_error", None
-    return None, None, "no_discussion", None
+        return None, None, "rpc_error", None, None
+    return None, None, "no_discussion", None, None
 
 async def _load_top_level_thread_comments(
     tg_client,
@@ -112,6 +213,10 @@ async def _load_top_level_thread_comments(
 ):
     discussion_chat_roots: list[int] = []
     source_entity_roots: list[int] = []
+    successful_discussion_scans = 0
+    successful_source_scans = 0
+    scan_errors = 0
+    discussion_chat_invalid_root = False
 
     seen_discussion: set[int] = set()
     seen_source: set[int] = set()
@@ -122,9 +227,8 @@ async def _load_top_level_thread_comments(
         seen_discussion.add(discussion_root_id)
 
     for value in [
-        discussion_msg_id,
         discussion_source_msg_id,
-        getattr(head_msg, "id", None) if head_msg is not None else None,
+        discussion_msg_id,
     ]:
         if isinstance(value, int) and value > 0 and value not in seen_source:
             seen_source.add(value)
@@ -142,9 +246,22 @@ async def _load_top_level_thread_comments(
         try:
             async for c in tg_client.iter_messages(discussion_chat, reply_to=root_id):
                 items.append(c)
+            successful_discussion_scans += 1
         except FloodWaitError:
             raise
+        except MsgIdInvalidError:
+            discussion_chat_invalid_root = True
+            scan_errors += 1
+            logger.warning(
+                "top-level scan invalid discussion root_id=%s chat_id=%s discussion_msg_id=%s discussion_source_msg_id=%s",
+                root_id,
+                getattr(discussion_chat, "id", None),
+                discussion_msg_id,
+                discussion_source_msg_id,
+            )
+            items = []
         except Exception:
+            scan_errors += 1
             logger.exception(
                 "top-level scan failed in discussion chat root_id=%s chat_id=%s",
                 root_id,
@@ -175,43 +292,59 @@ async def _load_top_level_thread_comments(
         if filtered:
             return discussion_chat, root_id, filtered
 
-    # 2) source channel entity: only source ids
-    for root_id in source_entity_roots:
-        items = []
-        try:
-            async for c in tg_client.iter_messages(entity, reply_to=root_id):
-                items.append(c)
-        except FloodWaitError:
-            raise
-        except Exception:
-            logger.exception(
-                "top-level scan failed in source entity root_id=%s",
-                root_id,
-            )
+    source_fallback_confirmed = discussion_chat_invalid_root and bool(source_entity_roots)
+    if source_fallback_confirmed:
+        for root_id in source_entity_roots:
             items = []
+            try:
+                async for c in tg_client.iter_messages(entity, reply_to=root_id):
+                    items.append(c)
+                successful_source_scans += 1
+            except FloodWaitError:
+                raise
+            except Exception:
+                scan_errors += 1
+                logger.exception(
+                    "top-level scan failed in source entity root_id=%s",
+                    root_id,
+                )
+                items = []
 
-        logger.info(
-            "top-level scan source entity root_id=%s found=%s",
-            root_id,
-            len(items),
-        )
+            logger.info(
+                "top-level scan source entity root_id=%s found=%s",
+                root_id,
+                len(items),
+            )
 
-        filtered = [
-            c for c in items
-            if getattr(c, "date", None) is not None
-            and c.date >= post_date - timedelta(days=1)
-            and getattr(c, "id", None) != root_id
-        ]
+            filtered = [
+                c for c in items
+                if getattr(c, "date", None) is not None
+                and c.date >= post_date - timedelta(days=1)
+                and getattr(c, "id", None) != root_id
+            ]
 
-        logger.info(
-            "top-level scan source entity root_id=%s filtered=%s",
-            root_id,
-            len(filtered),
-        )
+            logger.info(
+                "top-level scan source entity root_id=%s filtered=%s",
+                root_id,
+                len(filtered),
+            )
 
-        if filtered:
-            return entity, root_id, filtered
+            if filtered:
+                return entity, root_id, filtered
 
+    if successful_discussion_scans > 0 and discussion_chat_roots:
+        return discussion_chat, discussion_chat_roots[0], []
+
+    if source_fallback_confirmed and not discussion_chat_roots and successful_source_scans > 0 and source_entity_roots:
+        return entity, source_entity_roots[0], []
+
+    logger.warning(
+        "top-level thread comments could not be confirmed discussion_msg_id=%s discussion_source_msg_id=%s discussion_root_id=%s scan_errors=%s",
+        discussion_msg_id,
+        discussion_source_msg_id,
+        discussion_root_id,
+        scan_errors,
+    )
     return None, None, []
 
 
@@ -295,6 +428,16 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         )
         or 0
     )
+    legacy_peer_id = _legacy_comment_peer_id(channel.id)
+    existing_peer_rows = await session.execute(
+        select(Comment.tg_peer_id).where(Comment.post_id == post.id)
+    )
+    existing_peer_ids = {
+        int(tg_peer_id)
+        for (tg_peer_id,) in existing_peer_rows.all()
+        if isinstance(tg_peer_id, int)
+    }
+    has_non_legacy_comment_peers = any(tg_peer_id != legacy_peer_id for tg_peer_id in existing_peer_ids)
 
     telegram_replies_count = None
     head_views = None
@@ -346,9 +489,10 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         telegram_replies_count = None
 
     is_album = bool(getattr(head_msg, "grouped_id", None)) if head_msg is not None else False
+    reconciliation_enabled = _comments_reconciliation_enabled()
 
     if isinstance(telegram_replies_count, int):
-        if telegram_replies_count != existing_comments_count and isinstance(head_views, int):
+        if isinstance(head_views, int) and head_views != getattr(post, "views", None):
             await set_post_views(session, post_id=post.id, views=head_views)
             post.views = head_views
 
@@ -357,13 +501,33 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             not is_album
             and telegram_replies_count > 0
             and telegram_replies_count <= existing_comments_count
+            and not has_non_legacy_comment_peers
+            and (not reconciliation_enabled or telegram_replies_count == existing_comments_count)
         ):
+            await set_post_comments_count(
+                session,
+                post_id=post.id,
+                comments_count=existing_comments_count,
+            )
+
+            existing_commenter_rows = await session.execute(
+                select(Comment.author_id, Comment.author_username).where(Comment.post_id == post.id)
+            )
+            existing_commenters = _build_existing_commenter_keys(existing_commenter_rows.all())
+            involvement = None
+            if isinstance(post.views, int) and post.views > 0:
+                involvement = len(existing_commenters) / post.views
+
+            await set_post_involvement(session, post_id=post.id, involvement=involvement)
             await set_post_last_comments_scan_at(session, post_id=post.id)
             return {
                 "status": "unchanged",
                 "post_id": post.id,
                 "comments_saved": existing_comments_count,
-                "commenters_count": 0,
+                "comments_count": existing_comments_count,
+                "commenters_count": len(existing_commenters),
+                "involvement": involvement,
+                "views": post.views,
                 "telegram_replies_count": telegram_replies_count,
             }
 
@@ -441,19 +605,23 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
     )
 
     existing_rows = await session.execute(
-        select(Comment.tg_message_id, Comment.id, Comment.depth).where(Comment.post_id == post.id)
+        select(Comment.tg_peer_id, Comment.tg_message_id, Comment.id, Comment.depth).where(Comment.post_id == post.id)
     )
-    tg_to_comment_id: dict[int, int] = {}
-    tg_to_depth: dict[int, int] = {}
-    for tg_message_id, comment_id, depth in existing_rows.all():
-        tg_to_comment_id[tg_message_id] = comment_id
-        tg_to_depth[tg_message_id] = depth
+    tg_to_comment_id: dict[tuple[int, int], int] = {}
+    tg_to_depth: dict[tuple[int, int], int] = {}
+    for tg_peer_id, tg_message_id, comment_id, depth in existing_rows.all():
+        if not isinstance(tg_peer_id, int):
+            continue
+        comment_key = (int(tg_peer_id), int(tg_message_id))
+        tg_to_comment_id[comment_key] = comment_id
+        tg_to_depth[comment_key] = depth
 
     commenters: set[str] = set()
     sender_meta_cache: dict[int, tuple[bool, str | None]] = {}
     comments_saved = 0
     k = 0
-    seen_comment_ids: set[int] = set()
+    seen_comment_ids: set[tuple[int, int]] = set()
+    persisted_comment_keys: set[tuple[int, int]] = set()
 
     thread_entity, top_level_root_id, top_level_comments = await _load_top_level_thread_comments(
     tg_client=tg_client,
@@ -474,30 +642,40 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             getattr(discussion_root, "id", None),
             telegram_replies_count,
         )
-        top_level_comments = []
+        return {
+            "status": "discussion_error",
+            "post_id": post.id,
+            "discussion_msg_id": discussion_msg_id,
+            "discussion_source_msg_id": discussion_source_msg_id,
+            "album_grouped_id": getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
+            "comments_saved": comments_saved,
+            "comments_count": existing_comments_count,
+            "commenters_count": len(commenters),
+            "telegram_replies_count": telegram_replies_count,
+            "error": "discussion_resolved_but_top_level_thread_unconfirmed",
+        }
 
     queue: deque[tuple[int, int]] = deque()
+    active_comment_peer_id = legacy_peer_id
 
     try:
         # Сначала сохраняем top-level comments
         for c in top_level_comments:
-            if c.id in seen_comment_ids:
+            comment_key = (active_comment_peer_id, int(c.id))
+            if comment_key in seen_comment_ids:
                 continue
-            seen_comment_ids.add(c.id)
+            seen_comment_ids.add(comment_key)
             k += 1
 
             if c.date is None:
                 continue
 
             author_id = None
-            author_key_id = None
             from_id = getattr(c, "from_id", None)
             if isinstance(from_id, PeerUser):
                 author_id = from_id.user_id
-                author_key_id = f"id:{author_id}"
 
             author_username = None
-            author_key_username = None
             is_bot = False
             sender = getattr(c, "sender", None)
 
@@ -513,21 +691,18 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 is_bot = bool(sender.bot)
                 author_username = getattr(sender, "username", None)
 
-            if author_username:
-                author_key_username = f"u:{author_username.lower()}"
-
             if is_bot:
                 continue
 
-            if author_key_id:
-                commenters.add(author_key_id)
-            if author_key_username:
-                commenters.add(author_key_username)
+            commenter_key = _build_commenter_key(author_id, author_username)
+            if commenter_key is not None:
+                commenters.add(commenter_key)
 
             saved_comment = await upsert_comment(
                 session,
                 channel_id=channel.id,
                 post_id=post.id,
+                tg_peer_id=active_comment_peer_id,
                 tg_message_id=c.id,
                 parent_tg_message_id=top_level_root_id,
                 parent_comment_id=None,
@@ -538,9 +713,10 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 author_username=author_username,
                 text=c.message,
             )
-            tg_to_comment_id[c.id] = saved_comment.id
-            tg_to_depth[c.id] = 0
+            tg_to_comment_id[comment_key] = saved_comment.id
+            tg_to_depth[comment_key] = 0
             comments_saved += 1
+            persisted_comment_keys.add(comment_key)
 
             comment_replies_obj = getattr(c, "replies", None)
             nested_replies_count = getattr(comment_replies_obj, "replies", 0) if comment_replies_obj is not None else 0
@@ -556,23 +732,21 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             parent_tg_message_id, parent_depth = queue.popleft()
 
             async for c in tg_client.iter_messages(thread_entity, reply_to=parent_tg_message_id):
-                if c.id in seen_comment_ids:
+                comment_key = (active_comment_peer_id, int(c.id))
+                if comment_key in seen_comment_ids:
                     continue
-                seen_comment_ids.add(c.id)
+                seen_comment_ids.add(comment_key)
                 k += 1
 
                 if c.date is None:
                     continue
 
                 author_id = None
-                author_key_id = None
                 from_id = getattr(c, "from_id", None)
                 if isinstance(from_id, PeerUser):
                     author_id = from_id.user_id
-                    author_key_id = f"id:{author_id}"
 
                 author_username = None
-                author_key_username = None
                 is_bot = False
                 sender = getattr(c, "sender", None)
                 if isinstance(from_id, PeerUser) and isinstance(author_id, int):
@@ -587,9 +761,6 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                     is_bot = bool(sender.bot)
                     author_username = getattr(sender, "username", None)
 
-                if author_username:
-                    author_key_username = f"u:{author_username.lower()}"
-
                 if is_bot:
                     continue
 
@@ -597,21 +768,22 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 reply_to_msg_id = getattr(reply_to, "reply_to_msg_id", None) if reply_to is not None else None
                 effective_parent_tg = reply_to_msg_id or parent_tg_message_id
 
-                parent_known_depth = tg_to_depth.get(effective_parent_tg, parent_depth)
+                parent_comment_key = (active_comment_peer_id, int(effective_parent_tg))
+                parent_known_depth = tg_to_depth.get(parent_comment_key, parent_depth)
                 depth = max(1, parent_known_depth + 1)
 
-                if author_key_id:
-                    commenters.add(author_key_id)
-                if author_key_username:
-                    commenters.add(author_key_username)
+                commenter_key = _build_commenter_key(author_id, author_username)
+                if commenter_key is not None:
+                    commenters.add(commenter_key)
 
                 saved_comment = await upsert_comment(
                     session,
                     channel_id=channel.id,
                     post_id=post.id,
+                    tg_peer_id=active_comment_peer_id,
                     tg_message_id=c.id,
                     parent_tg_message_id=effective_parent_tg,
-                    parent_comment_id=tg_to_comment_id.get(effective_parent_tg),
+                    parent_comment_id=tg_to_comment_id.get(parent_comment_key),
                     thread_root_tg_message_id=top_level_root_id or getattr(discussion_root, "id", None),
                     depth=depth,
                     date=c.date,
@@ -619,9 +791,10 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                     author_username=author_username,
                     text=c.message,
                 )
-                tg_to_comment_id[c.id] = saved_comment.id
-                tg_to_depth[c.id] = depth
+                tg_to_comment_id[comment_key] = saved_comment.id
+                tg_to_depth[comment_key] = depth
                 comments_saved += 1
+                persisted_comment_keys.add(comment_key)
 
                 comment_replies_obj = getattr(c, "replies", None)
                 nested_replies_count = getattr(comment_replies_obj, "replies", 0) if comment_replies_obj is not None else 0
@@ -675,6 +848,37 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             "commenters_count": len(commenters),
             "error": "unexpected_iter_comments_error",
         }
+
+    if reconciliation_enabled or has_non_legacy_comment_peers:
+        scope_thread_root_id = top_level_root_id or getattr(discussion_root, "id", None)
+        reconciliation_peer_ids = set(existing_peer_ids) | {active_comment_peer_id}
+        try:
+            await _reconcile_confirmed_comment_snapshot(
+                session,
+                post_id=post.id,
+                tg_peer_ids=reconciliation_peer_ids,
+                thread_root_tg_message_id=scope_thread_root_id,
+                live_comment_keys=persisted_comment_keys,
+            )
+        except FloodWaitError:
+            raise
+        except Exception:
+            logger.exception(
+                "comment reconciliation failed marker=comments_reconciliation op=reconcile_comments post_id=%s thread_root_tg_message_id=%s",
+                post.id,
+                scope_thread_root_id,
+            )
+            return {
+                "status": "discussion_error",
+                "post_id": post.id,
+                "discussion_msg_id": discussion_msg_id,
+                "discussion_source_msg_id": discussion_source_msg_id,
+                "album_grouped_id": getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
+                "comments_saved": comments_saved,
+                "commenters_count": len(commenters),
+                "telegram_replies_count": telegram_replies_count,
+                "error": "comment_reconciliation_incomplete",
+            }
 
     actual_comments_count = int(
         await session.scalar(
@@ -784,21 +988,24 @@ async def _resolve_discussion_for_post_or_album(
     last_wait_seconds = 0
 
     for candidate_msg_id in candidate_ids:
-        discussion, discussion_msg_id, status, wait_seconds = await _resolve_discussion_with_fallback(
+        discussion, discussion_msg_id, status, wait_seconds, resolved_source_msg_id = await _resolve_discussion_with_fallback(
             tg_client=tg_client,
             entity=entity,
             tg_message_id=candidate_msg_id,
+            original_message_id=head_msg_id,
             original_message_date=getattr(head_msg, "date", None),
+            original_message_text=getattr(head_msg, "message", None),
+            original_grouped_id=grouped_id,
         )
 
         if discussion is not None:
             logger.info(
                 "album discussion resolved source_msg_id=%s discussion_msg_id=%s grouped_id=%s",
-                candidate_msg_id,
+                resolved_source_msg_id,
                 discussion_msg_id,
                 grouped_id,
             )
-            return discussion, discussion_msg_id, status, wait_seconds, candidate_msg_id
+            return discussion, discussion_msg_id, status, wait_seconds, resolved_source_msg_id
 
         if status == "flood_wait":
             logger.warning(
@@ -807,7 +1014,7 @@ async def _resolve_discussion_for_post_or_album(
                 grouped_id,
                 int(wait_seconds or 0),
             )
-            return None, None, status, wait_seconds, candidate_msg_id
+            return None, None, status, wait_seconds, resolved_source_msg_id
 
         logger.info(
             "album discussion miss source_msg_id=%s grouped_id=%s status=%s",
@@ -832,41 +1039,62 @@ async def _collect_album_message_ids(
     if not grouped_id:
         return [int(head_msg.id)]
 
+    head_id = int(head_msg.id)
     result: list[int] = []
     seen: set[int] = set()
+    expansion_steps = max(2, int(getattr(settings, "ALBUM_DISCUSSION_EXPANSION_STEPS", 6)))
 
-    candidate_ids = list(
-        range(
-            max(1, int(head_msg.id) - int(window_before)),
-            int(head_msg.id) + int(window_after) + 1,
-        )
-    )
+    async def _fetch_into(candidate_ids: list[int]) -> bool:
+        if not candidate_ids:
+            return False
 
-    try:
-        msgs = await tg_client.get_messages(entity, ids=candidate_ids)
-    except FloodWaitError:
-        raise
-    except Exception:
-        logger.exception(
-            "album candidate fetch failed op=collect_album_message_ids head_msg_id=%s grouped_id=%s",
-            getattr(head_msg, "id", None),
-            grouped_id,
-        )
-        return [int(head_msg.id)]
+        new_candidate_ids = [msg_id for msg_id in candidate_ids if msg_id > 0]
+        if not new_candidate_ids:
+            return False
 
-    if not isinstance(msgs, list):
-        msgs = [msgs] if msgs is not None else []
+        try:
+            msgs = await tg_client.get_messages(entity, ids=new_candidate_ids)
+        except FloodWaitError:
+            raise
+        except Exception:
+            logger.exception(
+                "album candidate fetch failed op=collect_album_message_ids head_msg_id=%s grouped_id=%s candidate_span=%s..%s",
+                getattr(head_msg, "id", None),
+                grouped_id,
+                min(new_candidate_ids),
+                max(new_candidate_ids),
+            )
+            return False
 
-    for m in msgs:
-        if not m:
-            continue
-        if getattr(m, "grouped_id", None) == grouped_id:
+        if not isinstance(msgs, list):
+            msgs = [msgs] if msgs is not None else []
+
+        found_new = False
+        for m in msgs:
+            if not m:
+                continue
+            if getattr(m, "grouped_id", None) != grouped_id:
+                continue
             mid = int(m.id)
             if mid not in seen:
                 seen.add(mid)
                 result.append(mid)
+                found_new = True
+        return found_new
 
-    head_id = int(head_msg.id)
+    initial_ids = list(range(max(1, head_id - int(window_before)), head_id + int(window_after) + 1))
+    found_new = await _fetch_into(initial_ids)
+
+    for step in range(1, expansion_steps + 1):
+        left_end = head_id - int(window_before) * (step - 1)
+        left_start = max(1, head_id - int(window_before) * step)
+        right_start = head_id + int(window_after) * (step - 1) + 1
+        right_end = head_id + int(window_after) * step
+        found_left = await _fetch_into(list(range(left_start, left_end)))
+        found_right = await _fetch_into(list(range(right_start, right_end + 1)))
+        if not found_new and not found_left and not found_right:
+            break
+        found_new = found_left or found_right
     if head_id not in seen:
         result.append(head_id)
 

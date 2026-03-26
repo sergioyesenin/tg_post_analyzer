@@ -1,4 +1,4 @@
-﻿import { useTranslation } from 'react-i18next';
+import { useTranslation } from 'react-i18next';
 
 import type { DashboardMode } from '@shared/dashboard/contracts';
 import { DashboardFilterBar } from '@shared/dashboard/components/DashboardFilterBar';
@@ -21,7 +21,7 @@ export function DashboardModePage({ mode }: DashboardModePageProps) {
   const { t } = useTranslation();
 
   if (mode === 'posts') {
-    const { filters, applyFilters, resetFilters } = useDashboardFilters('posts');
+    const { filters, applyFilters, resetFilters, applySearch, resetSearch } = useDashboardFilters('posts');
     const transport = buildDashboardPlaceholderResponse('posts', filters);
     const viewModel = mapDashboardTransportToScreenViewModel(transport);
     const filterOptions = getPostsDashboardFilterOptions({
@@ -52,6 +52,8 @@ export function DashboardModePage({ mode }: DashboardModePageProps) {
           headerSlot={<DashboardGeneratedAt generatedAt={viewModel.generatedAt} />}
           onApply={applyFilters}
           onReset={resetFilters}
+          onApplySearch={applySearch}
+          onResetSearch={resetSearch}
         />
 
         <section className="dashboard-page__content">
@@ -77,7 +79,7 @@ export function DashboardModePage({ mode }: DashboardModePageProps) {
   }
 
   if (mode === 'events') {
-    const { filters, applyFilters, resetFilters } = useDashboardFilters('events');
+    const { filters, applyFilters, resetFilters, applySearch, resetSearch } = useDashboardFilters('events');
     const transport = buildDashboardPlaceholderResponse('events', filters);
     const viewModel = mapDashboardTransportToScreenViewModel(transport);
     const filterOptions = getEventsDashboardFilterOptions({
@@ -108,6 +110,8 @@ export function DashboardModePage({ mode }: DashboardModePageProps) {
           headerSlot={<DashboardGeneratedAt generatedAt={viewModel.generatedAt} />}
           onApply={applyFilters}
           onReset={resetFilters}
+          onApplySearch={applySearch}
+          onResetSearch={resetSearch}
         />
 
         <section className="dashboard-page__content">
@@ -132,7 +136,7 @@ export function DashboardModePage({ mode }: DashboardModePageProps) {
     );
   }
 
-  const { filters, applyFilters, resetFilters } = useDashboardFilters('processes');
+  const { filters, applyFilters, resetFilters, applySearch, resetSearch } = useDashboardFilters('processes');
   const transport = buildDashboardPlaceholderResponse('processes', filters);
   const viewModel = mapDashboardTransportToScreenViewModel(transport);
   const filterOptions = getProcessesDashboardFilterOptions({
@@ -163,6 +167,8 @@ export function DashboardModePage({ mode }: DashboardModePageProps) {
         headerSlot={<DashboardGeneratedAt generatedAt={viewModel.generatedAt} />}
         onApply={applyFilters}
         onReset={resetFilters}
+          onApplySearch={applySearch}
+          onResetSearch={resetSearch}
       />
 
       <section className="dashboard-page__content">
@@ -186,3 +192,9 @@ export function DashboardModePage({ mode }: DashboardModePageProps) {
     </div>
   );
 }
+
+
+
+
+
+

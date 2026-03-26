@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { SharedFlowCanvas, type GraphCanvasEdge, type GraphCanvasNode } from '@shared/ui/graph/SharedFlowCanvas';
+import { QueryActivityNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
@@ -13,7 +14,9 @@ import { ProcessGraphToolbar } from '@modules/workspace/processes/components/Pro
 type ProcessGraphPanelProps = {
   selectedTitle: string | null;
   isLoading: boolean;
+  isRefreshing: boolean;
   isError: boolean;
+  showErrorNotice: boolean;
   viewModel: ProcessGraphPanelViewModel | null;
   hasSelection: boolean;
   partialHint: string | null;
@@ -35,7 +38,9 @@ function ProcessGraphSelectionHeader({ selectedTitle }: { selectedTitle: string 
 export function ProcessGraphPanel({
   selectedTitle,
   isLoading,
+  isRefreshing,
   isError,
+  showErrorNotice,
   viewModel,
   hasSelection,
   partialHint,
@@ -114,7 +119,7 @@ export function ProcessGraphPanel({
         title={selectedTitle ?? t('processes.graph.selectedProcess')}
         eventCount={viewModel?.events.length ?? 0}
         postCount={viewModel?.nodes.length ?? 0}
-        isLoading={isLoading}
+        isLoading={isLoading || isRefreshing}
         onRefresh={onRefresh}
         onResetView={() => setResetSignal((value) => value + 1)}
       />
@@ -129,6 +134,23 @@ export function ProcessGraphPanel({
           </div>
           <p className="dashboard-banner__text">{partialHint}</p>
         </section>
+      ) : null}
+
+      {isRefreshing ? (
+        <QueryActivityNotice
+          eyebrow={t('states.loading')}
+          title={t('processes.graph.refreshingTitle', { defaultValue: 'Граф обновляется' })}
+          description={t('processes.graph.refreshingDescription', { defaultValue: 'Текущая иерархия процесса остается видимой, пока загружаются новые связи.' })}
+        />
+      ) : null}
+
+      {showErrorNotice ? (
+        <QueryActivityNotice
+          eyebrow={t('states.error')}
+          title={t('processes.graph.refreshErrorTitle', { defaultValue: 'Не удалось обновить граф' })}
+          description={t('processes.graph.refreshErrorDescription', { defaultValue: 'Последняя успешная иерархия сохранена без сброса выбранного процесса.' })}
+          tone="danger"
+        />
       ) : null}
 
       {isLoading ? <LoadingState title={t('processes.graph.loadingTitle')} description={t('processes.graph.loadingDescription')} /> : null}

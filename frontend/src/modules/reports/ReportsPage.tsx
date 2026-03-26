@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useSession } from '@app/providers/SessionProvider';
 import { ApiError } from '@shared/api/client';
 import { canPerformAction } from '@shared/routing/policy';
-import { ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
+import { QueryActivityNotice, ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
@@ -40,12 +40,13 @@ export function ReportsPage() {
       : { channel_ids: [], categories: [], date_from: '', date_to: '', min_comments: null, limit: 100, offset: 0 };
   const postBatchAction = useGeneratePostReportsByFilterAction(postBatchFilters);
   const batchAction = type === 'posts' ? postBatchAction : null;
+  const hasListData = listQuery.data !== undefined;
 
-  if (listQuery.isLoading) {
+  if (listQuery.isLoading && !hasListData) {
     return <LoadingState title={t('reports.loadingTitle', { defaultValue: 'Загрузка каталога отчетов' })} description={t('reports.loadingDescription', { defaultValue: 'Получаем выбранный каталог отчетов.' })} />;
   }
 
-  if (listQuery.isError) {
+  if (listQuery.isError && !hasListData) {
     const error = listQuery.error;
 
     if (error instanceof ApiError && error.status === 403) {
@@ -86,6 +87,23 @@ export function ReportsPage() {
       </section>
 
       <ReportsFilterBar type={type} filters={filters} onApply={applyFilters} onReset={resetFilters} />
+
+      {listQuery.isFetching && hasListData ? (
+        <QueryActivityNotice
+          eyebrow={t('states.loading')}
+          title={t('reports.refreshingTitle', { defaultValue: 'Каталог обновляется' })}
+          description={t('reports.refreshingDescription', { defaultValue: 'Показываем текущий список, пока загружается новый снимок.' })}
+        />
+      ) : null}
+
+      {listQuery.isError && hasListData ? (
+        <QueryActivityNotice
+          eyebrow={t('states.error')}
+          title={t('reports.refreshErrorTitle', { defaultValue: 'Не удалось обновить каталог' })}
+          description={t('reports.refreshErrorDescription', { defaultValue: 'Последний успешный список сохранен на экране. Проверьте фильтры или повторите запрос позже.' })}
+          tone="danger"
+        />
+      ) : null}
 
       {primaryRole === 'viewer' ? (
         <ReadOnlyNotice

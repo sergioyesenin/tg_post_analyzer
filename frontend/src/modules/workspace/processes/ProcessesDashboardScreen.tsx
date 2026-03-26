@@ -1,4 +1,4 @@
-п»їimport { useMemo } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ApiError } from '@shared/api/client';
@@ -12,7 +12,7 @@ import { getProcessesDashboardFilterOptions } from '@shared/dashboard/filter-opt
 import { useDashboardFilters } from '@shared/dashboard/hooks';
 import { canPerformAction } from '@shared/routing/policy';
 import { AsyncActionIndicator } from '@shared/ui/async/AsyncActionIndicator';
-import { ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
+import { QueryActivityNotice, ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
@@ -35,7 +35,7 @@ import {
 
 export function ProcessesDashboardScreen() {
   const { t } = useTranslation();
-  const { filters, applyFilters, resetFilters } = useDashboardFilters('processes');
+  const { filters, applyFilters, resetFilters, applySearch, resetSearch } = useDashboardFilters('processes');
   const { user, primaryRole } = useSession();
   const roles = user?.roles ?? [];
   const dashboardQuery = useProcessesDashboardQuery(filters);
@@ -48,6 +48,7 @@ export function ProcessesDashboardScreen() {
   const { selectedProcessId, selectProcess } = useSelectedProcessId(dashboardData?.items ?? []);
   const selectedProcess = viewModel?.rows.find((row) => row.processId === selectedProcessId) ?? null;
   const graphQuery = useProcessGraphQuery(selectedProcessId);
+  const hasGraphData = graphQuery.data !== undefined;
   const graphViewModel = graphQuery.data ? mapProcessGraphToViewModel(graphQuery.data) : null;
   const canMutate = canPerformAction('reports.generate', roles);
   const reportAction = useUpdateProcessReportAction(selectedProcessId);
@@ -56,7 +57,7 @@ export function ProcessesDashboardScreen() {
     [viewModel, selectedProcessId, selectProcess, primaryRole],
   );
 
-  if (dashboardQuery.isLoading) {
+  if (dashboardQuery.isLoading && !dashboardData) {
     return (
       <div className="dashboard-page dashboard-page--analytics">
         <section className="dashboard-page__hero dashboard-page__hero--analytics">
@@ -65,13 +66,21 @@ export function ProcessesDashboardScreen() {
             <p>{t('processes.dashboard.sourceDescription')}</p>
           </div>
         </section>
-        <DashboardFilterBar mode="processes" filters={filters} options={filterOptions} onApply={applyFilters} onReset={resetFilters} />
+        <DashboardFilterBar
+          mode="processes"
+          filters={filters}
+          options={filterOptions}
+          onApply={applyFilters}
+          onReset={resetFilters}
+          onApplySearch={applySearch}
+          onResetSearch={resetSearch}
+        />
         <LoadingState title={t('processes.dashboard.loadingTitle')} description={t('processes.dashboard.loadingDescription')} />
       </div>
     );
   }
 
-  if (dashboardQuery.isError) {
+  if (dashboardQuery.isError && !dashboardData) {
     const error = dashboardQuery.error;
     const isForbidden = error instanceof ApiError && error.status === 403;
 
@@ -90,6 +99,8 @@ export function ProcessesDashboardScreen() {
           feedback={getDashboardErrorFilterFeedback(t)}
           onApply={applyFilters}
           onReset={resetFilters}
+          onApplySearch={applySearch}
+          onResetSearch={resetSearch}
         />
         {isForbidden ? (
           <ForbiddenState title={t('processes.dashboard.forbiddenTitle')} description={t('processes.dashboard.forbiddenDescription')} />
@@ -100,7 +111,7 @@ export function ProcessesDashboardScreen() {
     );
   }
 
-  if (!dashboardQuery.data) {
+  if (!dashboardData) {
     return (
       <div className="dashboard-page dashboard-page--analytics">
         <section className="dashboard-page__hero dashboard-page__hero--analytics">
@@ -116,6 +127,8 @@ export function ProcessesDashboardScreen() {
           feedback={getDashboardErrorFilterFeedback(t)}
           onApply={applyFilters}
           onReset={resetFilters}
+          onApplySearch={applySearch}
+          onResetSearch={resetSearch}
         />
         <ErrorState title={t('processes.dashboard.noDataTitle')} description={t('processes.dashboard.noDataDescription')} />
       </div>
@@ -158,7 +171,26 @@ export function ProcessesDashboardScreen() {
         headerSlot={<DashboardGeneratedAt generatedAt={processesViewModel.generatedAt} />}
         onApply={applyFilters}
         onReset={resetFilters}
+        onApplySearch={applySearch}
+        onResetSearch={resetSearch}
       />
+
+      {dashboardQuery.isFetching ? (
+        <QueryActivityNotice
+          eyebrow={t('states.loading')}
+          title={t('processes.dashboard.refreshingTitle', { defaultValue: 'Дашборд обновляется' })}
+          description={t('processes.dashboard.refreshingDescription', { defaultValue: 'Текущий снимок процессов остается на экране до завершения refetch.' })}
+        />
+      ) : null}
+
+      {dashboardQuery.isError ? (
+        <QueryActivityNotice
+          eyebrow={t('states.error')}
+          title={t('processes.dashboard.refreshErrorTitle', { defaultValue: 'Не удалось обновить дашборд' })}
+          description={t('processes.dashboard.refreshErrorDescription', { defaultValue: 'Последний успешный снимок процессов сохранен, чтобы не сбрасывать контекст.' })}
+          tone="danger"
+        />
+      ) : null}
 
       {primaryRole === 'viewer' ? (
         <ReadOnlyNotice title={t('processes.dashboard.readOnlyTitle')} description={t('processes.dashboard.readOnlyDescription')} />
@@ -180,8 +212,10 @@ export function ProcessesDashboardScreen() {
           <div className="dashboard-page__secondary">
             <ProcessGraphPanel
               selectedTitle={selectedProcess?.title ?? null}
-              isLoading={graphQuery.isLoading || graphQuery.isFetching}
-              isError={graphQuery.isError}
+              isLoading={graphQuery.isLoading && !hasGraphData}
+              isRefreshing={graphQuery.isFetching && hasGraphData}
+              isError={graphQuery.isError && !hasGraphData}
+              showErrorNotice={graphQuery.isError && hasGraphData}
               viewModel={graphViewModel}
               hasSelection={selectedProcess !== null}
               partialHint={graphPartialHint}
@@ -223,3 +257,9 @@ export function ProcessesDashboardScreen() {
     </div>
   );
 }
+
+
+
+
+
+

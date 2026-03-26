@@ -1,4 +1,4 @@
-ï»¿import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import type { DashboardMode } from '@shared/dashboard/contracts';
@@ -19,6 +19,8 @@ type DashboardFilterBarProps<TMode extends DashboardMode> = {
   options: DashboardFilterOptionsByMode[TMode];
   onApply: (filters: DashboardFiltersByMode[TMode]) => void;
   onReset: () => void;
+  onApplySearch: (query: string) => void;
+  onResetSearch: () => void;
   channelOptionsState?: ChannelOptionsState;
   feedback?: DashboardFilterFeedback | null;
   headerSlot?: ReactNode;
@@ -206,7 +208,7 @@ function FilterSelector({
         >
           <span className="dashboard-filter-selector__summary">{summary}</span>
           <span className="dashboard-filter-selector__icon" aria-hidden="true">
-            â–¾
+            v
           </span>
         </button>
 
@@ -291,6 +293,8 @@ export function DashboardFilterBar<TMode extends DashboardMode>({
   options,
   onApply,
   onReset,
+  onApplySearch,
+  onResetSearch,
   channelOptionsState = 'ready',
   feedback = null,
   headerSlot = null,
@@ -299,6 +303,7 @@ export function DashboardFilterBar<TMode extends DashboardMode>({
   const config = getDashboardFilterConfig(mode);
   const selectorIdBase = useId();
   const [formState, setFormState] = useState(() => buildFormState(filters));
+  const [searchDraft, setSearchDraft] = useState(() => filters.query);
   const [openSelector, setOpenSelector] = useState<CompactSelectorKey | null>(null);
 
   const validationErrors = useMemo(() => validateFormState(formState, t), [formState, t]);
@@ -311,11 +316,16 @@ export function DashboardFilterBar<TMode extends DashboardMode>({
   const isApplyDisabled = hasValidationErrors || !isDirty;
   const isResetDisabled = !isDirty;
   const allSelectedText = t('dashboard.filters.summary.all', { defaultValue: 'All' });
+  const normalizedSearchDraft = searchDraft.trim();
+  const appliedSearchQuery = filters.query.trim();
+  const isSearchSubmitDisabled = normalizedSearchDraft.length < 2;
+  const isSearchResetDisabled = normalizedSearchDraft.length === 0 && appliedSearchQuery.length === 0;
 
   useEffect(() => {
     setFormState(buildFormState(filters));
+    setSearchDraft(filters.query);
     setOpenSelector(null);
-  }, [appliedQuery]);
+  }, [appliedQuery, filters.query]);
 
   const updateField = (name: keyof FilterFormState, value: string) => {
     setFormState((current) => ({
@@ -355,6 +365,26 @@ export function DashboardFilterBar<TMode extends DashboardMode>({
     setOpenSelector(null);
     setFormState(buildFormState(getDashboardFilterConfig(mode).defaults));
     onReset();
+  };
+
+  const handleSearchSubmit = () => {
+    if (isSearchSubmitDisabled) {
+      return;
+    }
+
+    onApplySearch(normalizedSearchDraft);
+  };
+
+  const handleSearchReset = () => {
+    if (isSearchResetDisabled) {
+      return;
+    }
+
+    setSearchDraft('');
+
+    if (appliedSearchQuery.length > 0) {
+      onResetSearch();
+    }
   };
 
   const translateStatusOption = (option: { value: string; label: string }) =>
@@ -409,6 +439,43 @@ export function DashboardFilterBar<TMode extends DashboardMode>({
         </div>
         {headerSlot ? <div className="dashboard-filter-bar__header-slot">{headerSlot}</div> : null}
       </div>
+
+      <section className="dashboard-search-block" aria-label={t('dashboard.search.ariaLabel', { defaultValue: 'Keyword search' })}>
+        <div className="dashboard-search-block__header">
+          <div className="dashboard-search-block__title">
+            <span className="state-card__eyebrow">{t('states.search')}</span>
+            <strong>{t('dashboard.search.title', { defaultValue: 'Keyword search' })}</strong>
+          </div>
+          <p>{t('dashboard.search.description', { defaultValue: 'The query is stored in the URL and applies only after explicit submit.' })}</p>
+        </div>
+
+        <div className="dashboard-search-block__form">
+          <label className="dashboard-search-block__field" htmlFor={`${selectorIdBase}-query`}>
+            <span>{t('fields.query')}</span>
+            <input
+              id={`${selectorIdBase}-query`}
+              type="search"
+              value={searchDraft}
+              placeholder={t('dashboard.search.placeholder', { defaultValue: 'Enter a topic or keyword phrase' })}
+              onChange={(event) => setSearchDraft(event.target.value)}
+            />
+          </label>
+
+          <div className="dashboard-search-block__actions">
+            <button
+              type="button"
+              className="dashboard-button dashboard-button--ghost"
+              onClick={handleSearchReset}
+              disabled={isSearchResetDisabled}
+            >
+              {t('actions.resetSearch', { defaultValue: 'Ñáðîñèòü ïîèñê' })}
+            </button>
+            <button type="button" className="dashboard-button" onClick={handleSearchSubmit} disabled={isSearchSubmitDisabled}>
+              {t('dashboard.search.submit', { defaultValue: '\u041d\u0430\u0439\u0442\u0438' })}
+            </button>
+          </div>
+        </div>
+      </section>
 
       <div className="dashboard-filter-grid dashboard-filter-grid--foundation">
         <label className={validationErrors.date_from ? 'dashboard-filter-grid__field--invalid' : ''}>
@@ -568,3 +635,24 @@ export function DashboardFilterBar<TMode extends DashboardMode>({
     </section>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

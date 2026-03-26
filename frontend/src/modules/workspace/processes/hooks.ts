@@ -5,6 +5,7 @@ import type { ProcessesDashboardFiltersDto, ProcessesDashboardItemDto } from '@s
 import { serializeDashboardFilters } from '@shared/dashboard/filters';
 import { dashboardQueryKeys } from '@shared/dashboard/query-keys';
 import { useAsyncJobAction } from '@shared/jobs/hooks';
+import { keepPreviousData } from '@shared/query/placeholder-data';
 import { getProcessGraph, getProcessesDashboard, updateProcessReport } from '@modules/workspace/processes/api';
 
 export function useProcessesDashboardQuery(filters: ProcessesDashboardFiltersDto) {
@@ -13,6 +14,7 @@ export function useProcessesDashboardQuery(filters: ProcessesDashboardFiltersDto
   return useQuery({
     queryKey: dashboardQueryKeys.list('processes', query || 'default'),
     queryFn: () => getProcessesDashboard(filters),
+    placeholderData: keepPreviousData,
     retry: false,
   });
 }
@@ -74,4 +76,3 @@ export function useUpdateProcessReportAction(processId: number | null) {
     },
   });
 }
-

@@ -785,6 +785,11 @@ async def _run_comment_job(
                 result = await update_post_comments(session, post_id, tg_client=tg_client)
             status = str(result.get("status") or "unknown")
             logger.info("Job %s post_id=%s status=%s worker_id=%s", db_job.type, post_id, status, worker_id)
+            if status == "discussion_error" and result.get("error") == "comment_reconciliation_incomplete":
+                await session.rollback()
+                db_job = await session.get(Job, job.id)
+                if db_job is None:
+                    return executed, collect_comments_processed, collect_comments_global_cooldown_until, collect_comments_flood_streak, should_break
 
             if status in {"ok", "unchanged"}:
                 collect_comments_flood_streak = 0
@@ -815,13 +820,7 @@ async def _run_comment_job(
                 executed += 1
             elif status == "flood_wait":
                 wait_seconds = int(result.get("wait_seconds") or 30)
-                if source == "api":
-                    collect_comments_flood_streak = 0
-                    set_job_result(db_job, result)
-                    await mark_job_done(session, job=db_job)
-                    await session.commit()
-                    executed += 1
-                    return executed, collect_comments_processed, collect_comments_global_cooldown_until, collect_comments_flood_streak, should_break
+                set_job_result(db_job, result)
                 now_utc = datetime.now(timezone.utc)
                 retry_at = now_utc + timedelta(seconds=max(60, wait_seconds * 4))
                 collect_comments_flood_streak += 1
@@ -857,12 +856,7 @@ async def _run_comment_job(
                 should_break = True
             elif status in {"entity_error", "rpc_error", "discussion_error"}:
                 collect_comments_flood_streak = 0
-                if source == "api":
-                    set_job_result(db_job, result)
-                    await mark_job_done(session, job=db_job)
-                    await session.commit()
-                    executed += 1
-                    return executed, collect_comments_processed, collect_comments_global_cooldown_until, collect_comments_flood_streak, should_break
+                set_job_result(db_job, result)
                 await mark_job_failed(
                     session,
                     job=db_job,
@@ -879,12 +873,7 @@ async def _run_comment_job(
                 executed += 1
             else:
                 collect_comments_flood_streak = 0
-                if source == "api":
-                    set_job_result(db_job, result)
-                    await mark_job_done(session, job=db_job)
-                    await session.commit()
-                    executed += 1
-                    return executed, collect_comments_processed, collect_comments_global_cooldown_until, collect_comments_flood_streak, should_break
+                set_job_result(db_job, result)
                 await mark_job_failed(
                     session,
                     job=db_job,

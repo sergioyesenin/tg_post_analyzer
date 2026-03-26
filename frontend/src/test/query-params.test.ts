@@ -35,9 +35,10 @@ describe('Dashboard filter parsing and serialization', () => {
     expect(
       parseDashboardFilters(
         'posts',
-        '?date_from=2026-03-01&date_to=2026-03-10&channel_ids=3,9&categories=media&report_status=ready&min_comments=12&sort_by=views&sort_order=asc',
+        '?query=policy%20shift&date_from=2026-03-01&date_to=2026-03-10&channel_ids=3,9&categories=media&report_status=ready&min_comments=12&sort_by=views&sort_order=asc',
       ),
     ).toEqual({
+      query: 'policy shift',
       date_from: '2026-03-01',
       date_to: '2026-03-10',
       limit: 25,
@@ -53,7 +54,8 @@ describe('Dashboard filter parsing and serialization', () => {
   it('serializes only non-default dashboard filters into URL', () => {
     expect(
       serializeDashboardFilters('events', {
-        date_from: '2026-03-01',
+        query: 'policy shift',
+      date_from: '2026-03-01',
         date_to: null,
         limit: 25,
         status: ['active', 'cooling'],
@@ -63,7 +65,7 @@ describe('Dashboard filter parsing and serialization', () => {
         sort_by: 'started_at',
         sort_order: 'asc',
       }),
-    ).toBe('date_from=2026-03-01&status=active%2Ccooling&channel_ids=7%2C9&categories=media&sort_order=asc');
+    ).toBe('query=policy+shift&date_from=2026-03-01&status=active%2Ccooling&channel_ids=7%2C9&categories=media&sort_order=asc');
   });
 
   it('keeps only target-supported shared filters when switching dashboard modes', () => {
@@ -71,8 +73,10 @@ describe('Dashboard filter parsing and serialization', () => {
       getModeSwitchSearch(
         'events',
         'processes',
-        '?date_from=2026-03-01&channel_ids=7&status=active&sort_by=posts_count&sort_order=asc',
+        '?query=policy%20shift&date_from=2026-03-01&channel_ids=7&status=active&sort_by=posts_count&sort_order=asc',
       ),
-    ).toBe('?date_from=2026-03-01&sort_order=asc');
+    ).toBe('?query=policy+shift&date_from=2026-03-01&sort_order=asc');
   });
 });
+
+

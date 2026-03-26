@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { DetailBlockShell } from '@modules/workspace/post-detail/components/DetailBlockShell';
 import type { LinkViewModel } from '@modules/workspace/post-detail/mappers';
+import { QueryActivityNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
@@ -10,14 +11,31 @@ import { LoadingState } from '@shared/ui/states/LoadingState';
 type LinksBlockProps = {
   links: LinkViewModel[];
   isLoading: boolean;
+  isRefreshing: boolean;
   isError: boolean;
+  showErrorNotice: boolean;
 };
 
-export function LinksBlock({ links, isLoading, isError }: LinksBlockProps) {
+export function LinksBlock({ links, isLoading, isRefreshing, isError, showErrorNotice }: LinksBlockProps) {
   const { t } = useTranslation();
 
   return (
     <DetailBlockShell eyebrow={t('posts.links.eyebrow')} title={t('posts.links.title')}>
+      {isRefreshing ? (
+        <QueryActivityNotice
+          eyebrow={t('states.loading')}
+          title={t('posts.links.refreshingTitle', { defaultValue: 'Связи обновляются' })}
+          description={t('posts.links.refreshingDescription', { defaultValue: 'Текущие связи остаются видимыми до завершения запроса.' })}
+        />
+      ) : null}
+      {showErrorNotice ? (
+        <QueryActivityNotice
+          eyebrow={t('states.error')}
+          title={t('posts.links.refreshErrorTitle', { defaultValue: 'Не удалось обновить связи' })}
+          description={t('posts.links.refreshErrorDescription', { defaultValue: 'Последний успешный список связей сохранен на экране.' })}
+          tone="danger"
+        />
+      ) : null}
       {isLoading ? (
         <LoadingState title={t('posts.links.loadingTitle')} description={t('posts.links.loadingDescription')} />
       ) : isError ? (

@@ -1,8 +1,9 @@
-п»їimport { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Position } from 'reactflow';
 
 import { SharedFlowCanvas, type GraphCanvasEdge, type GraphCanvasNode } from '@shared/ui/graph/SharedFlowCanvas';
+import { QueryActivityNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
@@ -13,7 +14,9 @@ import { EventGraphToolbar } from '@modules/workspace/events/components/EventGra
 type EventGraphPanelProps = {
   selectedTitle: string | null;
   isLoading: boolean;
+  isRefreshing: boolean;
   isError: boolean;
+  showErrorNotice: boolean;
   viewModel: EventGraphPanelViewModel | null;
   hasSelection: boolean;
   partialHint: string | null;
@@ -52,7 +55,7 @@ function EventGraphSelectionHeader({ selectedTitle }: { selectedTitle: string | 
   );
 }
 
-export function EventGraphPanel({ selectedTitle, isLoading, isError, viewModel, hasSelection, partialHint, onRefresh }: EventGraphPanelProps) {
+export function EventGraphPanel({ selectedTitle, isLoading, isRefreshing, isError, showErrorNotice, viewModel, hasSelection, partialHint, onRefresh }: EventGraphPanelProps) {
   const [resetSignal, setResetSignal] = useState(0);
   const { t } = useTranslation();
 
@@ -88,7 +91,7 @@ export function EventGraphPanel({ selectedTitle, isLoading, isError, viewModel, 
     <section className="detail-block">
       <div className="detail-block__header"><div><span className="state-card__eyebrow">{t('events.graph.eyebrow')}</span><strong>{t('events.graph.title')}</strong></div></div>
       <EventGraphSelectionHeader selectedTitle={selectedTitle} />
-      <EventGraphToolbar title={selectedTitle ?? t('events.graph.selectedEvent')} nodeCount={viewModel?.nodes.length ?? 0} edgeCount={viewModel?.edges.length ?? 0} isLoading={isLoading} onRefresh={onRefresh} onResetView={() => setResetSignal((value) => value + 1)} />
+      <EventGraphToolbar title={selectedTitle ?? t('events.graph.selectedEvent')} nodeCount={viewModel?.nodes.length ?? 0} edgeCount={viewModel?.edges.length ?? 0} isLoading={isLoading || isRefreshing} onRefresh={onRefresh} onResetView={() => setResetSignal((value) => value + 1)} />
       <EventGraphLegend />
 
       {partialHint ? (
@@ -98,6 +101,21 @@ export function EventGraphPanel({ selectedTitle, isLoading, isError, viewModel, 
         </section>
       ) : null}
 
+      {isRefreshing ? (
+        <QueryActivityNotice
+          eyebrow={t('states.loading')}
+          title={t('events.graph.refreshingTitle', { defaultValue: 'Граф обновляется' })}
+          description={t('events.graph.refreshingDescription', { defaultValue: 'Текущая версия графа остается на экране, пока подтягиваются новые связи.' })}
+        />
+      ) : null}
+      {showErrorNotice ? (
+        <QueryActivityNotice
+          eyebrow={t('states.error')}
+          title={t('events.graph.refreshErrorTitle', { defaultValue: 'Не удалось обновить граф' })}
+          description={t('events.graph.refreshErrorDescription', { defaultValue: 'Показываем последний успешный граф без сброса выбранного события.' })}
+          tone="danger"
+        />
+      ) : null}
       {isLoading ? <LoadingState title={t('events.graph.loadingTitle')} description={t('events.graph.loadingDescription')} /> : null}
       {!isLoading && isError ? <ErrorState title={t('events.graph.errorTitle')} description={t('events.graph.errorDescription')} /> : null}
       {!isLoading && !isError && viewModel && viewModel.nodes.length === 0 ? <EmptyState title={t('events.graph.noNodesTitle')} description={t('events.graph.noNodesDescription')} /> : null}

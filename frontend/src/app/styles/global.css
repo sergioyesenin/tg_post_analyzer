@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   color-scheme: light;
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
   background:
@@ -265,6 +265,20 @@ textarea {
 
 .dashboard-banner--partial {
   border-style: dashed;
+}
+
+.query-activity-notice {
+  gap: 8px;
+  padding: 14px 16px;
+}
+
+.query-activity-notice--default {
+  border-style: dashed;
+}
+
+.query-activity-notice--danger {
+  border-color: rgba(180, 35, 24, 0.24);
+  background: rgba(255, 250, 245, 0.92);
 }
 
 .dashboard-banner__list {
@@ -1584,6 +1598,18 @@ textarea {
     margin-top: 8px;
   }
 
+  .dashboard-search-block__form {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-search-block__actions {
+    justify-content: stretch;
+  }
+
+  .dashboard-search-block__actions .dashboard-button {
+    flex: 1 1 100%;
+  }
+
   .dashboard-filter-bar__actions {
     align-items: stretch;
   }
@@ -1746,9 +1772,15 @@ textarea {
 
 .dashboard-page--analytics .dashboard-filter-grid input,
 .dashboard-page--analytics .dashboard-filter-grid select,
-.dashboard-page--analytics .dashboard-filter-selector__trigger {
+.dashboard-page--analytics .dashboard-filter-selector__trigger,
+.dashboard-page--analytics .dashboard-search-block__field input {
   padding: 10px 12px;
   border-radius: 12px;
+}
+
+.dashboard-page--analytics .dashboard-search-block {
+  padding: 12px;
+  border-radius: 14px;
 }
 
 .dashboard-page--analytics .dashboard-chip-fieldset {
@@ -2219,3 +2251,64 @@ textarea {
 
 
 
+
+
+
+
+.dashboard-search-block {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid rgba(16, 32, 51, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.dashboard-search-block__header {
+  display: grid;
+  gap: 6px;
+}
+
+.dashboard-search-block__title {
+  display: grid;
+  gap: 2px;
+}
+
+.dashboard-search-block__title .state-card__eyebrow,
+.dashboard-search-block__header p {
+  margin: 0;
+}
+
+.dashboard-search-block__header p {
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.dashboard-search-block__form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.dashboard-search-block__field {
+  display: grid;
+  gap: 8px;
+  color: var(--color-text-muted);
+}
+
+.dashboard-search-block__field input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--color-text);
+}
+
+.dashboard-search-block__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}

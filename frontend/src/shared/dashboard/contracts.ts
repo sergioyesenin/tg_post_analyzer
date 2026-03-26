@@ -256,3 +256,4 @@ export type DashboardTransportResponse =
   | PostsDashboardResponse
   | EventsDashboardResponse
   | ProcessesDashboardResponse;
+

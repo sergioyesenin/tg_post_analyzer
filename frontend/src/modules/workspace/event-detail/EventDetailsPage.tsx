@@ -1,4 +1,4 @@
-п»їimport { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { useSession } from '@app/providers/SessionProvider';
@@ -6,7 +6,7 @@ import { ApiError } from '@shared/api/client';
 import { DashboardSummaryCards } from '@shared/dashboard/components/DashboardSummaryCards';
 import { canPerformAction } from '@shared/routing/policy';
 import { AsyncActionIndicator } from '@shared/ui/async/AsyncActionIndicator';
-import { ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
+import { QueryActivityNotice, ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
@@ -31,12 +31,14 @@ export function EventDetailsPage() {
 
   const { detailQuery, graphQuery } = useEventDetailQueries(eventId);
   const reportAction = useUpdateEventDetailReportAction(eventId);
+  const hasDetailData = detailQuery.data !== undefined;
+  const hasGraphData = graphQuery.data !== undefined;
 
-  if (detailQuery.isLoading) {
+  if (detailQuery.isLoading && !hasDetailData) {
     return <LoadingState title={t('events.page.loadingTitle')} description={t('events.page.loadingDescription')} />;
   }
 
-  if (detailQuery.isError) {
+  if (detailQuery.isError && !hasDetailData) {
     const error = detailQuery.error;
     if (error instanceof ApiError && error.status === 403) {
       return <ForbiddenState title={t('events.page.forbiddenTitle')} description={t('events.page.forbiddenDescription')} />;
@@ -81,6 +83,23 @@ export function EventDetailsPage() {
         </div>
       </header>
 
+      {detailQuery.isFetching ? (
+        <QueryActivityNotice
+          eyebrow={t('states.loading')}
+          title={t('events.page.refreshingTitle', { defaultValue: 'Детали события обновляются' })}
+          description={t('events.page.refreshingDescription', { defaultValue: 'Текущая карточка события остается на экране, пока загружается обновленный payload.' })}
+        />
+      ) : null}
+
+      {detailQuery.isError && hasDetailData ? (
+        <QueryActivityNotice
+          eyebrow={t('states.error')}
+          title={t('events.page.refreshErrorTitle', { defaultValue: 'Не удалось обновить детали события' })}
+          description={t('events.page.refreshErrorDescription', { defaultValue: 'Показываем последнюю успешную версию деталей события.' })}
+          tone="danger"
+        />
+      ) : null}
+
       <DashboardSummaryCards cards={viewModel.summaryCards} />
 
       {primaryRole === 'viewer' ? (
@@ -91,8 +110,10 @@ export function EventDetailsPage() {
         <div className="post-detail-grid__main">
           <EventGraphPanel
             selectedTitle={viewModel.event.title}
-            isLoading={graphQuery.isLoading || graphQuery.isFetching}
-            isError={graphQuery.isError}
+            isLoading={graphQuery.isLoading && !hasGraphData}
+            isRefreshing={graphQuery.isFetching && hasGraphData}
+            isError={graphQuery.isError && !hasGraphData}
+            showErrorNotice={graphQuery.isError && hasGraphData}
             viewModel={viewModel.graph}
             hasSelection
             partialHint={graphPartialHint}

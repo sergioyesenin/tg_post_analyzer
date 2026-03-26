@@ -1,10 +1,11 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type { EventsDashboardFiltersDto, EventsDashboardItemDto } from '@shared/dashboard/contracts';
 import { serializeDashboardFilters } from '@shared/dashboard/filters';
 import { dashboardQueryKeys } from '@shared/dashboard/query-keys';
 import { useAsyncJobAction } from '@shared/jobs/hooks';
+import { keepPreviousData } from '@shared/query/placeholder-data';
 import { getEventGraph, getEventsDashboard, updateEventReport } from '@modules/workspace/events/api';
 
 export function useEventsDashboardQuery(filters: EventsDashboardFiltersDto) {
@@ -13,6 +14,7 @@ export function useEventsDashboardQuery(filters: EventsDashboardFiltersDto) {
   return useQuery({
     queryKey: dashboardQueryKeys.list('events', query || 'default'),
     queryFn: () => getEventsDashboard(filters),
+    placeholderData: keepPreviousData,
     retry: false,
   });
 }

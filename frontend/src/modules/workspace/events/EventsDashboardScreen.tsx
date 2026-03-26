@@ -1,4 +1,4 @@
-п»їimport { useMemo } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { ApiError } from '@shared/api/client';
@@ -12,7 +12,7 @@ import { getEventsDashboardFilterOptions } from '@shared/dashboard/filter-option
 import { useDashboardFilters } from '@shared/dashboard/hooks';
 import { canPerformAction } from '@shared/routing/policy';
 import { AsyncActionIndicator } from '@shared/ui/async/AsyncActionIndicator';
-import { ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
+import { QueryActivityNotice, ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
 import { EmptyState } from '@shared/ui/states/EmptyState';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
@@ -36,7 +36,7 @@ import {
 
 export function EventsDashboardScreen() {
   const { t } = useTranslation();
-  const { filters, applyFilters, resetFilters } = useDashboardFilters('events');
+  const { filters, applyFilters, resetFilters, applySearch, resetSearch } = useDashboardFilters('events');
   const { user, primaryRole } = useSession();
   const roles = user?.roles ?? [];
   const dashboardQuery = useEventsDashboardQuery(filters);
@@ -52,6 +52,7 @@ export function EventsDashboardScreen() {
   const { selectedEventId, selectEvent } = useSelectedEventId(dashboardData?.items ?? []);
   const selectedEvent = viewModel?.rows.find((row) => row.eventId === selectedEventId) ?? null;
   const graphQuery = useEventGraphQuery(selectedEventId);
+  const hasGraphData = graphQuery.data !== undefined;
   const graphViewModel = graphQuery.data ? mapEventGraphToViewModel(graphQuery.data) : null;
   const canMutate = canPerformAction('reports.generate', roles);
   const reportAction = useUpdateEventReportAction(selectedEventId);
@@ -60,7 +61,7 @@ export function EventsDashboardScreen() {
     [viewModel, selectedEventId, selectEvent, primaryRole],
   );
 
-  if (dashboardQuery.isLoading) {
+  if (dashboardQuery.isLoading && !dashboardData) {
     return (
       <div className="dashboard-page dashboard-page--analytics">
         <section className="dashboard-page__hero dashboard-page__hero--analytics">
@@ -76,13 +77,15 @@ export function EventsDashboardScreen() {
           channelOptionsState={channelOptionsState}
           onApply={applyFilters}
           onReset={resetFilters}
+          onApplySearch={applySearch}
+          onResetSearch={resetSearch}
         />
         <LoadingState title={t('events.dashboard.loadingTitle')} description={t('events.dashboard.loadingDescription')} />
       </div>
     );
   }
 
-  if (dashboardQuery.isError) {
+  if (dashboardQuery.isError && !dashboardData) {
     const error = dashboardQuery.error;
     const isForbidden = error instanceof ApiError && error.status === 403;
 
@@ -102,6 +105,8 @@ export function EventsDashboardScreen() {
           feedback={getDashboardErrorFilterFeedback(t)}
           onApply={applyFilters}
           onReset={resetFilters}
+          onApplySearch={applySearch}
+          onResetSearch={resetSearch}
         />
         {isForbidden ? (
           <ForbiddenState title={t('events.dashboard.forbiddenTitle')} description={t('events.dashboard.forbiddenDescription')} />
@@ -112,7 +117,7 @@ export function EventsDashboardScreen() {
     );
   }
 
-  if (!dashboardQuery.data) {
+  if (!dashboardData) {
     return (
       <div className="dashboard-page dashboard-page--analytics">
         <section className="dashboard-page__hero dashboard-page__hero--analytics">
@@ -129,6 +134,8 @@ export function EventsDashboardScreen() {
           feedback={getDashboardErrorFilterFeedback(t)}
           onApply={applyFilters}
           onReset={resetFilters}
+          onApplySearch={applySearch}
+          onResetSearch={resetSearch}
         />
         <ErrorState title={t('events.dashboard.noDataTitle')} description={t('events.dashboard.noDataDescription')} />
       </div>
@@ -169,7 +176,26 @@ export function EventsDashboardScreen() {
         headerSlot={<DashboardGeneratedAt generatedAt={viewModel.generatedAt} />}
         onApply={applyFilters}
         onReset={resetFilters}
+          onApplySearch={applySearch}
+          onResetSearch={resetSearch}
       />
+
+      {dashboardQuery.isFetching ? (
+        <QueryActivityNotice
+          eyebrow={t('states.loading')}
+          title={t('events.dashboard.refreshingTitle', { defaultValue: 'Дашборд обновляется' })}
+          description={t('events.dashboard.refreshingDescription', { defaultValue: 'Текущий снимок остается на экране, пока загружаются обновленные данные.' })}
+        />
+      ) : null}
+
+      {dashboardQuery.isError ? (
+        <QueryActivityNotice
+          eyebrow={t('states.error')}
+          title={t('events.dashboard.refreshErrorTitle', { defaultValue: 'Не удалось обновить дашборд' })}
+          description={t('events.dashboard.refreshErrorDescription', { defaultValue: 'Последний успешный снимок сохранен, чтобы не прерывать анализ.' })}
+          tone="danger"
+        />
+      ) : null}
 
       {primaryRole === 'viewer' ? (
         <ReadOnlyNotice title={t('events.dashboard.readOnlyTitle')} description={t('events.dashboard.readOnlyDescription')} />
@@ -191,8 +217,10 @@ export function EventsDashboardScreen() {
           <div className="dashboard-page__secondary">
             <EventGraphPanel
               selectedTitle={selectedEvent?.title ?? null}
-              isLoading={graphQuery.isLoading || graphQuery.isFetching}
-              isError={graphQuery.isError}
+              isLoading={graphQuery.isLoading && !hasGraphData}
+              isRefreshing={graphQuery.isFetching && hasGraphData}
+              isError={graphQuery.isError && !hasGraphData}
+              showErrorNotice={graphQuery.isError && hasGraphData}
               viewModel={graphViewModel}
               hasSelection={selectedEvent !== null}
               partialHint={graphPartialHint}
@@ -234,3 +262,8 @@ export function EventsDashboardScreen() {
     </div>
   );
 }
+
+
+
+
+

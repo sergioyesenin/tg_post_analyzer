@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { useAsyncJobAction } from '@shared/jobs/hooks';
+import { keepPreviousData } from '@shared/query/placeholder-data';
 import type { ReportType, ReportsFiltersByType } from '@modules/reports/contracts';
 import { generatePostReportsByFilter, getReportsList } from '@modules/reports/api';
 import { getDefaultReportsFilters, parseReportsFilters, serializeReportsFilters } from '@modules/reports/filters';
@@ -50,6 +51,7 @@ export function useReportsListQuery<TType extends ReportType>(type: TType, filte
   return useQuery({
     queryKey: reportsQueryKeys.list(type, query),
     queryFn: () => getReportsList(type, filters),
+    placeholderData: keepPreviousData,
     retry: false,
   });
 }

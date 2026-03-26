@@ -158,28 +158,53 @@ class IngestionCore:
         if not isinstance(grouped_id, int):
             return message
 
-        radius = 10
-        candidate_ids = [msg_id for msg_id in range(message.id - radius, message.id + radius + 1) if msg_id > 0]
-        if not candidate_ids:
-            return message
-
-        try:
-            nearby = await self._tg_client.get_messages(entity, ids=candidate_ids)
-        except Exception:
-            return message
-
-        if not isinstance(nearby, list):
-            nearby = [nearby] if nearby is not None else []
-
         grouped_messages: list[Any] = []
-        for item in nearby:
-            if item is None:
-                continue
-            if getattr(item, "grouped_id", None) != grouped_id:
-                continue
-            if getattr(item, "date", None) is None:
-                continue
-            grouped_messages.append(item)
+        seen_ids: set[int] = set()
+        radius = 10
+        expansion_steps = 6
+        head_id = int(message.id)
+
+        async def _fetch_into(candidate_ids: list[int]) -> bool:
+            new_candidate_ids = [msg_id for msg_id in candidate_ids if msg_id > 0]
+            if not new_candidate_ids:
+                return False
+
+            try:
+                nearby = await self._tg_client.get_messages(entity, ids=new_candidate_ids)
+            except Exception:
+                return False
+
+            if not isinstance(nearby, list):
+                nearby = [nearby] if nearby is not None else []
+
+            found_new = False
+            for item in nearby:
+                if item is None:
+                    continue
+                if getattr(item, "grouped_id", None) != grouped_id:
+                    continue
+                if getattr(item, "date", None) is None:
+                    continue
+                item_id = getattr(item, "id", None)
+                if not isinstance(item_id, int) or item_id <= 0 or item_id in seen_ids:
+                    continue
+                seen_ids.add(item_id)
+                grouped_messages.append(item)
+                found_new = True
+            return found_new
+
+        found_new = await _fetch_into([msg_id for msg_id in range(head_id - radius, head_id + radius + 1) if msg_id > 0])
+
+        for step in range(1, expansion_steps + 1):
+            left_end = head_id - radius * (step - 1)
+            left_start = max(1, head_id - radius * step)
+            right_start = head_id + radius * (step - 1) + 1
+            right_end = head_id + radius * step
+            found_left = await _fetch_into([msg_id for msg_id in range(left_start, left_end)])
+            found_right = await _fetch_into([msg_id for msg_id in range(right_start, right_end + 1)])
+            if not found_new and not found_left and not found_right:
+                break
+            found_new = found_left or found_right
 
         if not grouped_messages:
             return message

@@ -23,11 +23,12 @@ type FilterConfig<TMode extends DashboardMode> = {
   sortOptions: readonly string[];
 };
 
-const commonPreservedKeys = ['date_from', 'date_to', 'limit', 'min_comments', 'sort_order'] as const;
+const commonPreservedKeys = ['query', 'date_from', 'date_to', 'limit', 'min_comments', 'sort_order'] as const;
 
 const filterConfigs: { [TMode in DashboardMode]: FilterConfig<TMode> } = {
   posts: {
     defaults: {
+      query: '',
       date_from: '',
       date_to: '',
       limit: 25,
@@ -39,6 +40,7 @@ const filterConfigs: { [TMode in DashboardMode]: FilterConfig<TMode> } = {
       sort_order: 'desc',
     },
     allowedKeys: [
+      'query',
       'date_from',
       'date_to',
       'limit',
@@ -54,6 +56,7 @@ const filterConfigs: { [TMode in DashboardMode]: FilterConfig<TMode> } = {
   },
   events: {
     defaults: {
+      query: '',
       date_from: null,
       date_to: null,
       limit: 25,
@@ -65,6 +68,7 @@ const filterConfigs: { [TMode in DashboardMode]: FilterConfig<TMode> } = {
       sort_order: 'desc',
     },
     allowedKeys: [
+      'query',
       'date_from',
       'date_to',
       'limit',
@@ -80,6 +84,7 @@ const filterConfigs: { [TMode in DashboardMode]: FilterConfig<TMode> } = {
   },
   processes: {
     defaults: {
+      query: '',
       date_from: null,
       date_to: null,
       limit: 25,
@@ -88,7 +93,7 @@ const filterConfigs: { [TMode in DashboardMode]: FilterConfig<TMode> } = {
       sort_by: 'started_at',
       sort_order: 'desc',
     },
-    allowedKeys: ['date_from', 'date_to', 'limit', 'status', 'min_comments', 'sort_by', 'sort_order'],
+    allowedKeys: ['query', 'date_from', 'date_to', 'limit', 'status', 'min_comments', 'sort_by', 'sort_order'],
     modeSwitchPreservedKeys: commonPreservedKeys,
     sortOptions: ['started_at', 'comments_count', 'involvement', 'events_count'],
   },
@@ -128,6 +133,11 @@ function parseNullableDate(params: URLSearchParams, key: 'date_from' | 'date_to'
   return rawValue && rawValue.trim() ? rawValue : fallback;
 }
 
+function parseQueryValue(params: URLSearchParams) {
+  const rawValue = params.get('query');
+  return rawValue?.trim() ?? '';
+}
+
 export function getDashboardFilterConfig<TMode extends DashboardMode>(mode: TMode) {
   return filterConfigs[mode];
 }
@@ -142,6 +152,7 @@ export function parseDashboardFilters<TMode extends DashboardMode>(
   if (mode === 'posts') {
     return {
       ...config.defaults,
+      query: parseQueryValue(params),
       date_from: parseNullableDate(params, 'date_from', config.defaults.date_from) ?? '',
       date_to: parseNullableDate(params, 'date_to', config.defaults.date_to) ?? '',
       limit: parseNumber(params, 'limit', config.defaults.limit) ?? config.defaults.limit,
@@ -157,6 +168,7 @@ export function parseDashboardFilters<TMode extends DashboardMode>(
   if (mode === 'events') {
     return {
       ...config.defaults,
+      query: parseQueryValue(params),
       date_from: parseNullableDate(params, 'date_from', config.defaults.date_from),
       date_to: parseNullableDate(params, 'date_to', config.defaults.date_to),
       limit: parseNumber(params, 'limit', config.defaults.limit) ?? config.defaults.limit,
@@ -171,6 +183,7 @@ export function parseDashboardFilters<TMode extends DashboardMode>(
 
   return {
     ...config.defaults,
+    query: parseQueryValue(params),
     date_from: parseNullableDate(params, 'date_from', config.defaults.date_from),
     date_to: parseNullableDate(params, 'date_to', config.defaults.date_to),
     limit: parseNumber(params, 'limit', config.defaults.limit) ?? config.defaults.limit,

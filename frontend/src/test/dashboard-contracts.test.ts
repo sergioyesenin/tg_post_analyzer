@@ -101,3 +101,4 @@ describe('Dashboard contracts foundation', () => {
     expect(viewModel.warnings).toHaveLength(1);
   });
 });
+

@@ -92,6 +92,7 @@ def test_get_comments_keeps_success_response_shape_for_existing_post_with_commen
     comment = SimpleNamespace(
         id=7,
         post_id=42,
+        tg_peer_id=777001,
         tg_message_id=701,
         parent_tg_message_id=None,
         parent_comment_id=None,
@@ -109,6 +110,7 @@ def test_get_comments_keeps_success_response_shape_for_existing_post_with_commen
         {
             "id": 7,
             "post_id": 42,
+            "tg_peer_id": 777001,
             "tg_message_id": 701,
             "parent_tg_message_id": None,
             "parent_comment_id": None,

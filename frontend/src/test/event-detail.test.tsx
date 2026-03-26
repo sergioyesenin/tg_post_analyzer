@@ -203,3 +203,4 @@ describe('Event detail', () => {
     });
   });
 });
+

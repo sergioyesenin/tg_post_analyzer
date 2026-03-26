@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -158,6 +158,57 @@ describe('Processes dashboard', () => {
 
     await waitFor(() => {
       expect(getSpy).toHaveBeenCalledWith('/api/dashboard/processes?status=active');
+    });
+  });
+
+  it('renders keyword search controls for processes and applies query only after submit', async () => {
+    const user = userEvent.setup();
+    const getSpy = installProcessesApiMock();
+
+    renderWorkspace('/dashboard/processes');
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i })).toBeDisabled();
+    });
+    await waitFor(() => {
+      expect(screen.getAllByText(/Narrative escalation chain/i).length).toBeGreaterThan(0);
+    });
+
+    const searchInput = screen.getByLabelText(ru('\u0417\u0430\u043f\u0440\u043e\u0441'));
+    fireEvent.change(searchInput, { target: { value: 'pr' } });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i })).toBeEnabled();
+    });
+
+    const callsBeforeSubmit = getSpy.mock.calls.length;
+    expect(getSpy).toHaveBeenCalledTimes(callsBeforeSubmit);
+
+    await user.click(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i }));
+
+    await waitFor(() => {
+      expect(getSpy).toHaveBeenCalledWith('/api/dashboard/processes?query=pr');
+    });
+  });
+
+  it('restores process keyword query from URL and clears it with reset search', async () => {
+    const user = userEvent.setup();
+    const getSpy = installProcessesApiMock();
+
+    renderWorkspace('/dashboard/processes?query=policy%20shift');
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('policy shift')).toBeInTheDocument();
+    });
+
+    expect(getSpy).toHaveBeenCalledWith('/api/dashboard/processes?query=policy+shift');
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c \u043f\u043e\u0438\u0441\u043a/i })).toBeEnabled();
+    });
+    await user.click(screen.getByRole('button', { name: /\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c \u043f\u043e\u0438\u0441\u043a/i }));
+
+    await waitFor(() => {
+      expect(getSpy).toHaveBeenCalledWith('/api/dashboard/processes');
     });
   });
   beforeEach(() => {
@@ -571,7 +622,8 @@ describe('Processes dashboard', () => {
     await user.click(screen.getByRole('button', { name: ru('\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0433\u0440\u0430\u0444') }));
 
     await waitFor(() => {
-      expect(screen.getByText(ru('\u0417\u0430\u0433\u0440\u0443\u0437\u043a\u0430 \u0433\u0440\u0430\u0444\u0430 \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u0430'))).toBeInTheDocument();
+      expect(screen.getAllByText(/Narrative escalation chain/i).length).toBeGreaterThan(0);
+      expect(screen.getByRole('button', { name: ru('\\u041e\\u0431\\u043d\\u043e\\u0432\\u0438\\u0442\\u044c \\u0433\\u0440\\u0430\\u0444') })).toBeDisabled();
     });
 
     resolveRefresh?.(
@@ -618,4 +670,8 @@ describe('Processes dashboard', () => {
     });
   });
 });
+
+
+
+
 

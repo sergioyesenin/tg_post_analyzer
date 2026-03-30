@@ -6,6 +6,7 @@ import { ApiError, apiClient } from '@shared/api/client';
 import {
   createChannelsResponse,
   createCommentsResponse,
+  createKeywordSearchResponse,
   createLinksResponse,
   createPostDetailResponse,
   createPostsDashboardResponse,
@@ -45,6 +46,24 @@ function renderPostsDashboard(initialEntry = '/dashboard/posts', roles: string[]
   });
 }
 
+function installPostsKeywordSearchApiMock(response = createKeywordSearchResponse()) {
+  return vi.spyOn(apiClient, 'post').mockImplementation(async (path: string, body?: unknown) => {
+    if (path === '/api/keyword/search/posts') {
+      return response;
+    }
+
+    throw new Error(`Unhandled POST path in posts test: ${path} body=${JSON.stringify(body)}`);
+  });
+}
+function installPostsKeywordSearchApiErrorMock(status: number) {
+  return vi.spyOn(apiClient, 'post').mockImplementation(async (path: string) => {
+    if (path === '/api/keyword/search/posts') {
+      throw new ApiError(`Keyword search failed with status ${status}`, status);
+    }
+
+    throw new Error(`Unhandled POST path in posts test: ${path}`);
+  });
+}
 function installPostsApiMock(options?: {
   dashboard?: ReturnType<typeof createPostsDashboardResponse>;
   onPath?: (path: string) => unknown | Promise<unknown>;
@@ -119,11 +138,12 @@ describe('Posts dashboard', () => {
     });
   });
 
-  it('renders keyword search controls, keeps submit disabled for short input, and applies query only on submit', async () => {
+  it('renders keyword search controls, keeps submit disabled for short input, and applies keyword search payload on submit', async () => {
     const user = userEvent.setup();
     const getSpy = installPostsApiMock();
+    const postSpy = installPostsKeywordSearchApiMock(createKeywordSearchResponse({ total: 1, items: [createKeywordSearchResponse().items[0]] }));
 
-    renderPostsDashboard('/dashboard/posts');
+    renderPostsDashboard('/dashboard/posts?date_from=2026-03-01&date_to=2026-03-10&channel_ids=7');
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i })).toBeDisabled();
@@ -136,23 +156,36 @@ describe('Posts dashboard', () => {
     fireEvent.change(searchInput, { target: { value: 'a' } });
     expect(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i })).toBeDisabled();
 
-    const callsBeforeTyping = getSpy.mock.calls.length;
-    fireEvent.change(searchInput, { target: { value: 'abc' } });
+    const snapshotCallsBeforeSubmit = getSpy.mock.calls.length;
+    fireEvent.change(searchInput, { target: { value: 'policy shift' } });
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i })).toBeEnabled();
     });
-    expect(getSpy).toHaveBeenCalledTimes(callsBeforeTyping);
+    expect(getSpy).toHaveBeenCalledTimes(snapshotCallsBeforeSubmit);
 
     await user.click(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i }));
 
     await waitFor(() => {
-      expect(getSpy).toHaveBeenCalledWith('/api/dashboard/posts?query=abc');
+      expect(postSpy).toHaveBeenCalledWith('/api/keyword/search/posts', {
+        query: 'policy shift',
+        limit: 25,
+        date_from: '2026-03-01T00:00:00Z',
+        date_to: '2026-03-10T23:59:59Z',
+        channel_ids: [7],
+      });
+    });
+
+    expect(getSpy).toHaveBeenCalledTimes(snapshotCallsBeforeSubmit);
+    await waitFor(() => {
+      expect(screen.getByText(/Top post preview for posts dashboard rendering/i)).toBeInTheDocument();
+      expect(screen.queryByText(/Secondary row validates dense table layout/i)).not.toBeInTheDocument();
     });
   });
 
   it('restores keyword search query from URL and clears it with reset search', async () => {
     const user = userEvent.setup();
     const getSpy = installPostsApiMock();
+    const postSpy = installPostsKeywordSearchApiMock(createKeywordSearchResponse({ total: 1, items: [createKeywordSearchResponse().items[0]] }));
 
     renderPostsDashboard('/dashboard/posts?query=policy%20shift');
 
@@ -160,15 +193,124 @@ describe('Posts dashboard', () => {
       expect(screen.getByDisplayValue('policy shift')).toBeInTheDocument();
     });
 
-    expect(getSpy).toHaveBeenCalledWith('/api/dashboard/posts?query=policy+shift');
+    expect(getSpy).toHaveBeenCalledWith('/api/dashboard/posts');
     await waitFor(() => {
+      expect(postSpy).toHaveBeenCalledWith('/api/keyword/search/posts', {
+        query: 'policy shift',
+        limit: 25,
+        date_from: null,
+        date_to: null,
+        channel_ids: [],
+      });
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(/Secondary row validates dense table layout/i)).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: /\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c \u043f\u043e\u0438\u0441\u043a/i })).toBeEnabled();
     });
+
     await user.click(screen.getByRole('button', { name: /\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c \u043f\u043e\u0438\u0441\u043a/i }));
 
     await waitFor(() => {
-      expect(getSpy).toHaveBeenCalledWith('/api/dashboard/posts');
+      expect((screen.getByLabelText(ru('\u0417\u0430\u043f\u0440\u043e\u0441')) as HTMLInputElement).value).toBe('');
+      expect(screen.getByText(/Secondary row validates dense table layout/i)).toBeInTheDocument();
     });
+  });
+
+
+  it('shows unavailable search message when backend returns 404 for keyword search', async () => {
+    installPostsApiMock();
+    installPostsKeywordSearchApiErrorMock(404);
+
+    renderPostsDashboard('/dashboard/posts?query=policy');
+
+    await waitFor(() => {
+      expect(document.querySelector('.dashboard-filter-feedback--warning')).not.toBeNull();
+      expect(screen.getByText(/Top post preview for posts dashboard rendering/i)).toBeInTheDocument();
+    });
+  });
+
+  it('shows keyword-search loading notice while keeping the current snapshot visible', async () => {
+    let resolveKeywordSearch: ((value: ReturnType<typeof createKeywordSearchResponse>) => void) | undefined;
+    const user = userEvent.setup();
+
+    installPostsApiMock();
+    vi.spyOn(apiClient, 'post').mockImplementation(async (path: string) => {
+      if (path === '/api/keyword/search/posts') {
+        return await new Promise<ReturnType<typeof createKeywordSearchResponse>>((resolve) => {
+          resolveKeywordSearch = resolve;
+        });
+      }
+
+      throw new Error('Unhandled POST path in posts loading test: ${path}');
+    });
+
+    renderPostsDashboard('/dashboard/posts');
+
+    await waitFor(() => {
+      expect(screen.getByText(/Top post preview for posts dashboard rendering/i)).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByLabelText(ru('\u0417\u0430\u043f\u0440\u043e\u0441')), { target: { value: 'policy shift' } });
+    await user.click(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/���� ���������� �� �������� ������/i)).toBeInTheDocument();
+      expect(screen.getByText(/Top post preview for posts dashboard rendering/i)).toBeInTheDocument();
+    });
+
+    resolveKeywordSearch?.(createKeywordSearchResponse({ total: 1, items: [createKeywordSearchResponse().items[0]] }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/���� ���������� �� �������� ������/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows empty-search state when keyword search returns zero posts', async () => {
+    installPostsApiMock();
+    installPostsKeywordSearchApiMock(createKeywordSearchResponse({ total: 0, items: [] }));
+
+    renderPostsDashboard('/dashboard/posts?query=policy');
+
+    await waitFor(() => {
+      expect(document.querySelector('.state-card--empty')).not.toBeNull();
+    });
+
+    expect(screen.getByText('537')).toBeInTheDocument();
+    expect(screen.queryByText(/Top post preview for posts dashboard rendering/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Secondary row validates dense table layout/i)).not.toBeInTheDocument();
+  });
+
+  it('shows keyword-search empty state when matched post ids do not intersect the current snapshot and keeps summary cards from snapshot', async () => {
+    installPostsApiMock();
+    installPostsKeywordSearchApiMock(
+      createKeywordSearchResponse({
+        total: 1,
+        items: [
+          {
+            post_id: 999999,
+            channel_id: 77,
+            channel_username: 'signal_watch',
+            date: '2026-03-12T10:10:00Z',
+            text_preview: 'No overlap row',
+            comments_count: 5,
+            views: 100,
+            involvement: 0.05,
+            rank: 0.99,
+            matched_lemmas: ['policy'],
+          },
+        ],
+      }),
+    );
+
+    renderPostsDashboard('/dashboard/posts?query=policy');
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/�� �������� ������� ����� �� ������� � ���� �������/i).length).toBeGreaterThan(0);
+    });
+
+    expect(screen.getByText('537')).toBeInTheDocument();
+    expect(screen.queryByText(/Top post preview for posts dashboard rendering/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Secondary row validates dense table layout/i)).not.toBeInTheDocument();
   });
   it('shows inline validation and blocks apply when the date range is invalid', async () => {
     const user = userEvent.setup();
@@ -197,8 +339,6 @@ describe('Posts dashboard', () => {
   });
 
   it('keeps reset disabled until local filter state changes and explains reset scope', async () => {
-    const user = userEvent.setup();
-
     installPostsApiMock();
     renderPostsDashboard();
 
@@ -407,6 +547,17 @@ describe('Posts dashboard', () => {
     expect(screen.queryByRole('link', { name: ru('\u041e\u0442\u0447\u0435\u0442') })).not.toBeInTheDocument();
   });
 });
+
+
+
+
+
+
+
+
+
+
+
 
 
 

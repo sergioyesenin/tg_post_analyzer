@@ -10,6 +10,11 @@ import { AnalyticsTable } from '@shared/dashboard/components/DashboardTableShell
 import { getDashboardEmptyFeedback, getDashboardErrorFilterFeedback } from '@shared/dashboard/filter-feedback';
 import { getEventsDashboardFilterOptions } from '@shared/dashboard/filter-options';
 import { useDashboardFilters } from '@shared/dashboard/hooks';
+import {
+  getDashboardSearchAvailabilityFeedback,
+  getDashboardSearchDisabledReason,
+  isDashboardSearchAllowedForRole,
+} from '@shared/dashboard/search-availability';
 import { canPerformAction } from '@shared/routing/policy';
 import { AsyncActionIndicator } from '@shared/ui/async/AsyncActionIndicator';
 import { QueryActivityNotice, ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
@@ -24,6 +29,7 @@ import { EventGraphPanel } from '@modules/workspace/events/components/EventGraph
 import {
   useEventGraphQuery,
   useEventsDashboardQuery,
+  useEventsKeywordSearchQuery,
   useSelectedEventId,
   useUpdateEventReportAction,
 } from '@modules/workspace/events/hooks';
@@ -39,7 +45,10 @@ export function EventsDashboardScreen() {
   const { filters, applyFilters, resetFilters, applySearch, resetSearch } = useDashboardFilters('events');
   const { user, primaryRole } = useSession();
   const roles = user?.roles ?? [];
+  const isSearchAllowed = isDashboardSearchAllowedForRole(primaryRole);
+  const searchDisabledReason = getDashboardSearchDisabledReason(primaryRole, t);
   const dashboardQuery = useEventsDashboardQuery(filters);
+  const keywordSearchQuery = useEventsKeywordSearchQuery(filters, { enabled: isSearchAllowed });
   const channelsQuery = useChannelsQuery();
   const dashboardData = dashboardQuery.data ?? null;
   const filterOptions = getEventsDashboardFilterOptions({
@@ -47,18 +56,57 @@ export function EventsDashboardScreen() {
     dashboardData,
     channels: channelsQuery.data,
   });
+  const normalizedSearchQuery = filters.query.trim();
   const channelOptionsState = channelsQuery.isLoading ? 'loading' : channelsQuery.isError ? 'error' : 'ready';
   const viewModel = dashboardData ? mapEventsDashboardToViewModel(dashboardData) : null;
-  const { selectedEventId, selectEvent } = useSelectedEventId(dashboardData?.items ?? []);
-  const selectedEvent = viewModel?.rows.find((row) => row.eventId === selectedEventId) ?? null;
+  const isKeywordSearchActive = normalizedSearchQuery.length >= 2;
+  const matchedPostIds = useMemo(() => {
+    if (!keywordSearchQuery.data || normalizedSearchQuery.length < 2) {
+      return null;
+    }
+
+    if (keywordSearchQuery.data.query.trim() !== normalizedSearchQuery) {
+      return null;
+    }
+
+    return new Set(keywordSearchQuery.data.items.map((item) => item.post_id));
+  }, [keywordSearchQuery.data, normalizedSearchQuery]);
+  const filteredDashboardItems = useMemo(() => {
+    if (!dashboardData) {
+      return [];
+    }
+
+    if (!matchedPostIds) {
+      return dashboardData.items;
+    }
+
+    return dashboardData.items.filter((item) => item.post_ids.some((postId) => matchedPostIds.has(postId)));
+  }, [dashboardData, matchedPostIds]);
+  const filteredRows = useMemo(() => {
+    if (!viewModel) {
+      return [];
+    }
+
+    if (!matchedPostIds) {
+      return viewModel.rows;
+    }
+
+    return viewModel.rows.filter((row) => row.postIds.some((postId) => matchedPostIds.has(postId)));
+  }, [viewModel, matchedPostIds]);
+  const hasKeywordFilteredRows = isKeywordSearchActive && matchedPostIds !== null;
+  const visibleRows = hasKeywordFilteredRows ? filteredRows : viewModel?.rows ?? [];
+  const visibleDashboardItems = hasKeywordFilteredRows ? filteredDashboardItems : dashboardData?.items ?? [];
+  const { selectedEventId, selectEvent } = useSelectedEventId(visibleDashboardItems);
+  const selectedEvent = visibleRows.find((row) => row.eventId === selectedEventId) ?? null;
   const graphQuery = useEventGraphQuery(selectedEventId);
   const hasGraphData = graphQuery.data !== undefined;
   const graphViewModel = graphQuery.data ? mapEventGraphToViewModel(graphQuery.data) : null;
   const canMutate = canPerformAction('reports.generate', roles);
+  const keywordSearchAvailabilityFeedback = getDashboardSearchAvailabilityFeedback(keywordSearchQuery.error, t);
   const reportAction = useUpdateEventReportAction(selectedEventId);
   const tableRows = useMemo(
-    () => (viewModel ? mapEventsRowsToTableRows(viewModel.rows, selectedEventId, selectEvent, primaryRole) : []),
-    [viewModel, selectedEventId, selectEvent, primaryRole],
+    () => mapEventsRowsToTableRows(visibleRows, selectedEventId, selectEvent, primaryRole),
+    [visibleRows, selectedEventId, selectEvent, primaryRole],
   );
 
   if (dashboardQuery.isLoading && !dashboardData) {
@@ -79,6 +127,9 @@ export function EventsDashboardScreen() {
           onReset={resetFilters}
           onApplySearch={applySearch}
           onResetSearch={resetSearch}
+          searchDisabled={!isSearchAllowed}
+          searchDisabledReason={searchDisabledReason}
+          searchFeedback={keywordSearchAvailabilityFeedback}
         />
         <LoadingState title={t('events.dashboard.loadingTitle')} description={t('events.dashboard.loadingDescription')} />
       </div>
@@ -107,6 +158,9 @@ export function EventsDashboardScreen() {
           onReset={resetFilters}
           onApplySearch={applySearch}
           onResetSearch={resetSearch}
+          searchDisabled={!isSearchAllowed}
+          searchDisabledReason={searchDisabledReason}
+          searchFeedback={keywordSearchAvailabilityFeedback}
         />
         {isForbidden ? (
           <ForbiddenState title={t('events.dashboard.forbiddenTitle')} description={t('events.dashboard.forbiddenDescription')} />
@@ -136,6 +190,9 @@ export function EventsDashboardScreen() {
           onReset={resetFilters}
           onApplySearch={applySearch}
           onResetSearch={resetSearch}
+          searchDisabled={!isSearchAllowed}
+          searchDisabledReason={searchDisabledReason}
+          searchFeedback={keywordSearchAvailabilityFeedback}
         />
         <ErrorState title={t('events.dashboard.noDataTitle')} description={t('events.dashboard.noDataDescription')} />
       </div>
@@ -153,6 +210,26 @@ export function EventsDashboardScreen() {
   const eventsViewModel = viewModel;
   const graphPartialHint = selectedEvent && (!selectedEvent.graphReady || eventsViewModel.isPartial) ? t('events.dashboard.partialHint') : null;
   const emptyUiState = getDashboardEmptyFeedback('events', filters, t);
+  const keywordMappedEmptyState = {
+    filterBar: {
+      tone: 'warning' as const,
+      title: t('events.dashboard.keywordSearch.emptyFeedbackTitle', {
+        defaultValue: 'По этому запросу событий в текущей выборке нет',
+      }),
+      description: t('events.dashboard.keywordSearch.emptyFeedbackDescription', {
+        defaultValue: 'Поиск нашел связанные материалы, но среди текущих событий совпадений нет. Уточните запрос или расширьте фильтры.',
+      }),
+    },
+    stateCard: {
+      title: t('events.dashboard.keywordSearch.emptyStateTitle', {
+        defaultValue: 'По этому запросу событий в текущей выборке нет',
+      }),
+      description: t('events.dashboard.keywordSearch.emptyStateDescription', {
+        defaultValue: 'Совпадения по запросу есть, но среди текущих событий они не отобразились. Попробуйте другой запрос или более широкий диапазон фильтров.',
+      }),
+    },
+  };
+  const emptyFeedback = hasKeywordFilteredRows && eventsViewModel.rows.length > 0 ? keywordMappedEmptyState : emptyUiState;
 
   return (
     <div className="dashboard-page dashboard-page--analytics">
@@ -172,27 +249,47 @@ export function EventsDashboardScreen() {
         filters={filters}
         options={filterOptions}
         channelOptionsState={channelOptionsState}
-        feedback={eventsViewModel.rows.length === 0 ? emptyUiState.filterBar : null}
+        feedback={visibleRows.length === 0 ? emptyFeedback.filterBar : null}
         headerSlot={<DashboardGeneratedAt generatedAt={viewModel.generatedAt} />}
         onApply={applyFilters}
         onReset={resetFilters}
-          onApplySearch={applySearch}
-          onResetSearch={resetSearch}
+        onApplySearch={applySearch}
+        onResetSearch={resetSearch}
+        searchDisabled={!isSearchAllowed}
+        searchDisabledReason={searchDisabledReason}
+        searchFeedback={keywordSearchAvailabilityFeedback}
       />
 
       {dashboardQuery.isFetching ? (
         <QueryActivityNotice
           eyebrow={t('states.loading')}
-          title={t('events.dashboard.refreshingTitle', { defaultValue: '������� �����������' })}
-          description={t('events.dashboard.refreshingDescription', { defaultValue: '������� ������ �������� �� ������, ���� ����������� ����������� ������.' })}
+          title={t('events.dashboard.refreshingTitle', { defaultValue: 'Дашборд обновляется' })}
+          description={t('events.dashboard.refreshingDescription', { defaultValue: 'Текущий снимок остается на экране, пока загружаются обновленные данные.' })}
+        />
+      ) : null}
+
+      {isKeywordSearchActive && keywordSearchQuery.isFetching ? (
+        <QueryActivityNotice
+          eyebrow={t('states.loading')}
+          title={t('events.dashboard.keywordSearch.loadingTitle', { defaultValue: 'Ищем события по найденным материалам' })}
+          description={t('events.dashboard.keywordSearch.loadingDescription', { defaultValue: 'Текущая таблица и выбранный контекст остаются на экране, пока обновляются результаты поиска.' })}
         />
       ) : null}
 
       {dashboardQuery.isError ? (
         <QueryActivityNotice
           eyebrow={t('states.error')}
-          title={t('events.dashboard.refreshErrorTitle', { defaultValue: '�� ������� �������� �������' })}
-          description={t('events.dashboard.refreshErrorDescription', { defaultValue: '��������� �������� ������ ��������, ����� �� ��������� ������.' })}
+          title={t('events.dashboard.refreshErrorTitle', { defaultValue: 'Не удалось обновить данные' })}
+          description={t('events.dashboard.refreshErrorDescription', { defaultValue: 'Показываем последнюю доступную версию экрана, чтобы вы могли продолжить анализ.' })}
+          tone="danger"
+        />
+      ) : null}
+
+      {isKeywordSearchActive && keywordSearchQuery.isError && !keywordSearchAvailabilityFeedback ? (
+        <QueryActivityNotice
+          eyebrow={t('states.error')}
+          title={t('events.dashboard.keywordSearch.errorTitle', { defaultValue: 'Не удалось применить поиск к событиям' })}
+          description={t('events.dashboard.keywordSearch.errorDescription', { defaultValue: 'Показываем текущую выборку и выбранное событие без изменений. Повторите попытку или скорректируйте запрос.' })}
           tone="danger"
         />
       ) : null}
@@ -201,8 +298,8 @@ export function EventsDashboardScreen() {
         <ReadOnlyNotice title={t('events.dashboard.readOnlyTitle')} description={t('events.dashboard.readOnlyDescription')} />
       ) : null}
 
-      {eventsViewModel.rows.length === 0 ? (
-        <EmptyState title={emptyUiState.stateCard.title} description={emptyUiState.stateCard.description} />
+      {visibleRows.length === 0 ? (
+        <EmptyState title={emptyFeedback.stateCard.title} description={emptyFeedback.stateCard.description} />
       ) : (
         <section className="dashboard-page__content dashboard-page__content--workspace">
           <div className="dashboard-page__primary">
@@ -262,8 +359,6 @@ export function EventsDashboardScreen() {
     </div>
   );
 }
-
-
 
 
 

@@ -10,6 +10,11 @@ import { AnalyticsTable } from '@shared/dashboard/components/DashboardTableShell
 import { getDashboardEmptyFeedback, getDashboardErrorFilterFeedback } from '@shared/dashboard/filter-feedback';
 import { getProcessesDashboardFilterOptions } from '@shared/dashboard/filter-options';
 import { useDashboardFilters } from '@shared/dashboard/hooks';
+import {
+  getDashboardSearchAvailabilityFeedback,
+  getDashboardSearchDisabledReason,
+  isDashboardSearchAllowedForRole,
+} from '@shared/dashboard/search-availability';
 import { canPerformAction } from '@shared/routing/policy';
 import { AsyncActionIndicator } from '@shared/ui/async/AsyncActionIndicator';
 import { QueryActivityNotice, ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
@@ -23,6 +28,7 @@ import { ProcessGraphPanel } from '@modules/workspace/processes/components/Proce
 import {
   useProcessGraphQuery,
   useProcessesDashboardQuery,
+  useProcessesKeywordSearchQuery,
   useSelectedProcessId,
   useUpdateProcessReportAction,
 } from '@modules/workspace/processes/hooks';
@@ -38,23 +44,60 @@ export function ProcessesDashboardScreen() {
   const { filters, applyFilters, resetFilters, applySearch, resetSearch } = useDashboardFilters('processes');
   const { user, primaryRole } = useSession();
   const roles = user?.roles ?? [];
+  const isSearchAllowed = isDashboardSearchAllowedForRole(primaryRole);
+  const searchDisabledReason = getDashboardSearchDisabledReason(primaryRole, t);
   const dashboardQuery = useProcessesDashboardQuery(filters);
+  const keywordSearchQuery = useProcessesKeywordSearchQuery(filters, { enabled: isSearchAllowed });
+  const keywordSearchAvailabilityFeedback = getDashboardSearchAvailabilityFeedback(keywordSearchQuery.error, t);
   const dashboardData = dashboardQuery.data ?? null;
   const filterOptions = getProcessesDashboardFilterOptions({
     filters,
     dashboardData,
   });
   const viewModel = dashboardData ? mapProcessesDashboardToViewModel(dashboardData) : null;
-  const { selectedProcessId, selectProcess } = useSelectedProcessId(dashboardData?.items ?? []);
-  const selectedProcess = viewModel?.rows.find((row) => row.processId === selectedProcessId) ?? null;
+  const isKeywordSearchActive = filters.query.trim().length >= 2;
+  const matchedPostIds = useMemo(() => {
+    if (!keywordSearchQuery.data) {
+      return null;
+    }
+
+    return new Set(keywordSearchQuery.data.items.map((item) => item.post_id));
+  }, [keywordSearchQuery.data]);
+  const filteredDashboardItems = useMemo(() => {
+    if (!dashboardData) {
+      return [];
+    }
+
+    if (!matchedPostIds) {
+      return dashboardData.items;
+    }
+
+    return dashboardData.items.filter((item) => (item.post_ids ?? []).some((postId) => matchedPostIds.has(postId)));
+  }, [dashboardData, matchedPostIds]);
+  const filteredRows = useMemo(() => {
+    if (!viewModel) {
+      return [];
+    }
+
+    if (!matchedPostIds) {
+      return viewModel.rows;
+    }
+
+    return viewModel.rows.filter((row) => row.postIds.some((postId) => matchedPostIds.has(postId)));
+  }, [viewModel, matchedPostIds]);
+  const hasKeywordFilteredRows = isKeywordSearchActive && matchedPostIds !== null;
+  const visibleRows = hasKeywordFilteredRows ? filteredRows : viewModel?.rows ?? [];
+  const visibleDashboardItems = hasKeywordFilteredRows ? filteredDashboardItems : dashboardData?.items ?? [];
+  const { selectedProcessId, selectProcess } = useSelectedProcessId(visibleDashboardItems);
+  const selectedProcess = visibleRows.find((row) => row.processId === selectedProcessId) ?? null;
   const graphQuery = useProcessGraphQuery(selectedProcessId);
   const hasGraphData = graphQuery.data !== undefined;
   const graphViewModel = graphQuery.data ? mapProcessGraphToViewModel(graphQuery.data) : null;
   const canMutate = canPerformAction('reports.generate', roles);
   const reportAction = useUpdateProcessReportAction(selectedProcessId);
   const tableRows = useMemo(
-    () => (viewModel ? mapProcessesRowsToTableRows(viewModel.rows, selectedProcessId, selectProcess, primaryRole) : []),
-    [viewModel, selectedProcessId, selectProcess, primaryRole],
+    () => mapProcessesRowsToTableRows(visibleRows, selectedProcessId, selectProcess, primaryRole),
+    [visibleRows, selectedProcessId, selectProcess, primaryRole],
   );
 
   if (dashboardQuery.isLoading && !dashboardData) {
@@ -74,6 +117,9 @@ export function ProcessesDashboardScreen() {
           onReset={resetFilters}
           onApplySearch={applySearch}
           onResetSearch={resetSearch}
+          searchDisabled={!isSearchAllowed}
+          searchDisabledReason={searchDisabledReason}
+          searchFeedback={keywordSearchAvailabilityFeedback}
         />
         <LoadingState title={t('processes.dashboard.loadingTitle')} description={t('processes.dashboard.loadingDescription')} />
       </div>
@@ -101,6 +147,9 @@ export function ProcessesDashboardScreen() {
           onReset={resetFilters}
           onApplySearch={applySearch}
           onResetSearch={resetSearch}
+          searchDisabled={!isSearchAllowed}
+          searchDisabledReason={searchDisabledReason}
+          searchFeedback={keywordSearchAvailabilityFeedback}
         />
         {isForbidden ? (
           <ForbiddenState title={t('processes.dashboard.forbiddenTitle')} description={t('processes.dashboard.forbiddenDescription')} />
@@ -129,6 +178,9 @@ export function ProcessesDashboardScreen() {
           onReset={resetFilters}
           onApplySearch={applySearch}
           onResetSearch={resetSearch}
+          searchDisabled={!isSearchAllowed}
+          searchDisabledReason={searchDisabledReason}
+          searchFeedback={keywordSearchAvailabilityFeedback}
         />
         <ErrorState title={t('processes.dashboard.noDataTitle')} description={t('processes.dashboard.noDataDescription')} />
       </div>
@@ -149,6 +201,36 @@ export function ProcessesDashboardScreen() {
       ? t('processes.dashboard.partialHint')
       : null;
   const emptyUiState = getDashboardEmptyFeedback('processes', filters, t);
+  const keywordSearchResultCount = keywordSearchQuery.data?.items.length ?? null;
+  const isKeywordSearchEmpty = isKeywordSearchActive && keywordSearchQuery.isSuccess && keywordSearchResultCount === 0;
+  const isKeywordMappedEmpty =
+    isKeywordSearchActive && keywordSearchQuery.isSuccess && (keywordSearchResultCount ?? 0) > 0 && visibleRows.length === 0;
+  const keywordSearchEmptyState = {
+    stateCard: {
+      title: t('processes.dashboard.keywordSearch.emptySearchTitle', {
+        defaultValue: 'По этому запросу процессы не найдены',
+      }),
+      description: t('processes.dashboard.keywordSearch.emptySearchDescription', {
+        defaultValue: 'Поиск не нашел материалов по этому запросу. Уточните формулировку или расширьте диапазон фильтров.',
+      }),
+    },
+  };
+  const keywordMappedEmptyState = {
+    stateCard: {
+      title: t('processes.dashboard.keywordSearch.emptyStateTitle', {
+        defaultValue: 'По этому запросу процессов в текущей выборке нет',
+      }),
+      description: t('processes.dashboard.keywordSearch.emptyStateDescription', {
+        defaultValue: 'Совпадения по запросу есть, но среди текущих процессов они не отобразились. Попробуйте другой запрос или более широкий диапазон фильтров.',
+      }),
+    },
+  };
+  const emptyFeedback = isKeywordSearchEmpty
+    ? keywordSearchEmptyState
+    : isKeywordMappedEmpty
+      ? keywordMappedEmptyState
+      : emptyUiState;
+  const filterFeedback = visibleRows.length === 0 && !isKeywordSearchActive ? emptyUiState.filterBar : null;
 
   return (
     <div className="dashboard-page dashboard-page--analytics dashboard-page--processes">
@@ -167,27 +249,47 @@ export function ProcessesDashboardScreen() {
         mode="processes"
         filters={filters}
         options={filterOptions}
-        feedback={processesViewModel.rows.length === 0 ? emptyUiState.filterBar : null}
+        feedback={filterFeedback}
         headerSlot={<DashboardGeneratedAt generatedAt={processesViewModel.generatedAt} />}
         onApply={applyFilters}
         onReset={resetFilters}
         onApplySearch={applySearch}
         onResetSearch={resetSearch}
+        searchDisabled={!isSearchAllowed}
+        searchDisabledReason={searchDisabledReason}
+        searchFeedback={keywordSearchAvailabilityFeedback}
       />
 
       {dashboardQuery.isFetching ? (
         <QueryActivityNotice
           eyebrow={t('states.loading')}
-          title={t('processes.dashboard.refreshingTitle', { defaultValue: '������� �����������' })}
-          description={t('processes.dashboard.refreshingDescription', { defaultValue: '������� ������ ��������� �������� �� ������ �� ���������� refetch.' })}
+          title={t('processes.dashboard.refreshingTitle', { defaultValue: 'Данные обновляются' })}
+          description={t('processes.dashboard.refreshingDescription', { defaultValue: 'Текущая выборка процессов остается на экране, пока загружаются обновленные данные.' })}
+        />
+      ) : null}
+
+      {isKeywordSearchActive && keywordSearchQuery.isFetching ? (
+        <QueryActivityNotice
+          eyebrow={t('states.loading')}
+          title={t('processes.dashboard.keywordSearch.loadingTitle', { defaultValue: 'Ищем процессы по найденным материалам' })}
+          description={t('processes.dashboard.keywordSearch.loadingDescription', { defaultValue: 'Текущая таблица и выбранный контекст остаются на экране, пока обновляются результаты поиска.' })}
         />
       ) : null}
 
       {dashboardQuery.isError ? (
         <QueryActivityNotice
           eyebrow={t('states.error')}
-          title={t('processes.dashboard.refreshErrorTitle', { defaultValue: '�� ������� �������� �������' })}
-          description={t('processes.dashboard.refreshErrorDescription', { defaultValue: '��������� �������� ������ ��������� ��������, ����� �� ���������� ��������.' })}
+          title={t('processes.dashboard.refreshErrorTitle', { defaultValue: 'Не удалось обновить данные' })}
+          description={t('processes.dashboard.refreshErrorDescription', { defaultValue: 'Показываем последнюю доступную версию экрана, чтобы вы могли продолжить анализ.' })}
+          tone="danger"
+        />
+      ) : null}
+
+      {isKeywordSearchActive && keywordSearchQuery.isError && !keywordSearchAvailabilityFeedback ? (
+        <QueryActivityNotice
+          eyebrow={t('states.error')}
+          title={t('processes.dashboard.keywordSearch.errorTitle', { defaultValue: 'Не удалось применить поиск к процессам' })}
+          description={t('processes.dashboard.keywordSearch.errorDescription', { defaultValue: 'Показываем текущую выборку и выбранный процесс без изменений. Повторите попытку или скорректируйте запрос.' })}
           tone="danger"
         />
       ) : null}
@@ -196,8 +298,8 @@ export function ProcessesDashboardScreen() {
         <ReadOnlyNotice title={t('processes.dashboard.readOnlyTitle')} description={t('processes.dashboard.readOnlyDescription')} />
       ) : null}
 
-      {processesViewModel.rows.length === 0 ? (
-        <EmptyState title={emptyUiState.stateCard.title} description={emptyUiState.stateCard.description} />
+      {visibleRows.length === 0 ? (
+        <EmptyState title={emptyFeedback.stateCard.title} description={emptyFeedback.stateCard.description} />
       ) : (
         <section className="dashboard-page__content dashboard-page__content--workspace">
           <div className="dashboard-page__primary">
@@ -257,9 +359,6 @@ export function ProcessesDashboardScreen() {
     </div>
   );
 }
-
-
-
 
 
 

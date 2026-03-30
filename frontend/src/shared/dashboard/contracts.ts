@@ -33,6 +33,7 @@ export type DashboardEnvelope<TMode extends DashboardMode, TSummary, TItem, TFil
   };
 
 export type PostsDashboardFiltersDto = {
+  query: string;
   date_from: string;
   date_to: string;
   limit: number;
@@ -80,6 +81,7 @@ export type PostsDashboardResponse = DashboardEnvelope<
 >;
 
 export type EventsDashboardFiltersDto = {
+  query: string;
   date_from: string | null;
   date_to: string | null;
   limit: number;
@@ -131,6 +133,7 @@ export type EventsDashboardResponse = DashboardEnvelope<
 >;
 
 export type ProcessesDashboardFiltersDto = {
+  query: string;
   date_from: string | null;
   date_to: string | null;
   limit: number;
@@ -160,6 +163,7 @@ export type ProcessesDashboardItemDto = {
   involvement: number | null;
   events_count: number;
   event_ids: number[];
+  post_ids: number[];
   report_status: string;
   graph_ready: boolean;
 };
@@ -256,4 +260,7 @@ export type DashboardTransportResponse =
   | PostsDashboardResponse
   | EventsDashboardResponse
   | ProcessesDashboardResponse;
+
+
+
 

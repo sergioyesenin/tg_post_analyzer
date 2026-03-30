@@ -1254,9 +1254,9 @@ async def run_ai_cycle(*, worker_id: str, job_batch_size_arg: int, job_worker_co
             cli_value=job_worker_concurrency_arg,
             fallback=get_default_setting("jobs", "job_worker_concurrency"),
         ),
-        default=2,
+        default=1,
         minimum=1,
-        maximum=16,
+        maximum=1,
     )
     post_report_age_hours = int(_resolve_setting_value(
         settings_value=reports_settings.get("post_report_delay_hours"),

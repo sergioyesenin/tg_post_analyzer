@@ -33,6 +33,7 @@ export function createPostsDashboardResponse(
     partial: false,
     warnings: [],
     filters_applied: {
+      query: '',
       date_from: '',
       date_to: '',
       limit: 25,
@@ -104,6 +105,7 @@ export function createEventsDashboardResponse(
     partial: false,
     warnings: [],
     filters_applied: {
+      query: '',
       date_from: null,
       date_to: null,
       limit: 25,
@@ -252,6 +254,7 @@ export function createProcessesDashboardResponse(
     partial: false,
     warnings: [],
     filters_applied: {
+      query: '',
       date_from: null,
       date_to: null,
       limit: 25,
@@ -280,6 +283,7 @@ export function createProcessesDashboardResponse(
         involvement: 0.51,
         events_count: 3,
         event_ids: [81, 82, 83],
+        post_ids: [4012, 3975, 4100, 4105],
         report_status: 'draft',
         graph_ready: true,
       },
@@ -294,6 +298,7 @@ export function createProcessesDashboardResponse(
         involvement: 0.32,
         events_count: 2,
         event_ids: [91, 92],
+        post_ids: [5100, 5200],
         report_status: 'ready',
         graph_ready: true,
       },
@@ -1088,5 +1093,8 @@ export function createJobResultResponse(
 ): JobResultResponse {
   return overrides;
 }
+
+
+
 
 

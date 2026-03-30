@@ -8,6 +8,7 @@ import {
   createChannelsResponse,
   createEventGraphResponse,
   createEventsDashboardResponse,
+  createKeywordSearchResponse,
   createJobResultResponse,
   createJobStatusResponse,
 } from '@test/dashboard-fixtures';
@@ -55,6 +56,24 @@ async function selectEvent(index = 0) {
   return user;
 }
 
+function installEventsKeywordSearchApiMock(response = createKeywordSearchResponse()) {
+  return vi.spyOn(apiClient, 'post').mockImplementation(async (path: string, body?: unknown) => {
+    if (path === '/api/keyword/search/posts') {
+      return response;
+    }
+
+    throw new Error(`Unhandled POST path in events test: ${path} body=${JSON.stringify(body)}`);
+  });
+}
+function installEventsKeywordSearchApiErrorMock(status: number) {
+  return vi.spyOn(apiClient, 'post').mockImplementation(async (path: string) => {
+    if (path === '/api/keyword/search/posts') {
+      throw new ApiError(`Keyword search failed with status ${status}`, status);
+    }
+
+    throw new Error(`Unhandled POST path in events test: ${path}`);
+  });
+}
 function installEventsApiMock(options?: {
   dashboard?: ReturnType<typeof createEventsDashboardResponse>;
   graph?: ReturnType<typeof createEventGraphResponse>;
@@ -133,8 +152,8 @@ describe('Events dashboard', () => {
       expect(screen.getAllByText(/Election coverage spike/i).length).toBeGreaterThan(0);
     });
 
-    expect(screen.getAllByText(ru('\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u043e\u0431\u044b\u0442\u0438\u0435 \u0434\u043b\u044f \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0430 \u0433\u0440\u0430\u0444\u0430')).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(ru('\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0442\u0440\u043e\u043a\u0443 \u0441\u043e\u0431\u044b\u0442\u0438\u044f, \u0447\u0442\u043e\u0431\u044b \u0441\u0438\u043d\u0445\u0440\u043e\u043d\u0438\u0437\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043f\u0430\u043d\u0435\u043b\u044c \u0434\u0435\u0442\u0430\u043b\u0435\u0439 \u0438 \u0433\u0440\u0430\u0444.')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(ru('\\u0421\\u043e\\u0431\\u044b\\u0442\\u0438\\u0435 \\u043d\\u0435 \\u0432\\u044b\\u0431\\u0440\\u0430\\u043d\\u043e')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(ru('\\u0412\\u044b\\u0431\\u0435\\u0440\\u0438\\u0442\\u0435 \\u0441\\u043e\\u0431\\u044b\\u0442\\u0438\\u0435 \\u0432 \\u0442\\u0430\\u0431\\u043b\\u0438\\u0446\\u0435, \\u0447\\u0442\\u043e\\u0431\\u044b \\u043e\\u0442\\u043a\\u0440\\u044b\\u0442\\u044c \\u0435\\u0434\\u0438\\u043d\\u043e\\u0435 \\u0440\\u0430\\u0431\\u043e\\u0447\\u0435\\u0435 \\u043f\\u0440\\u043e\\u0441\\u0442\\u0440\\u0430\\u043d\\u0441\\u0442\\u0432\\u043e \\u0441\\u043f\\u0438\\u0441\\u043a\\u0430, \\u0433\\u0440\\u0430\\u0444\\u0430 \\u0438 \\u043f\\u0430\\u043d\\u0435\\u043b\\u0438 \\u0434\\u0435\\u0442\\u0430\\u043b\\u0435\\u0439.')).length).toBeGreaterThan(0);
     expect(getSpy).not.toHaveBeenCalledWith('/api/dashboard/events/81/graph');
 
     await selectEvent(0);
@@ -144,8 +163,10 @@ describe('Events dashboard', () => {
     });
 
     expect(screen.getAllByText(/Election coverage spike/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(ru('\\u0422\\u0430\\u0431\\u043b\\u0438\\u0446\\u0430, \\u0433\\u0440\\u0430\\u0444 \\u0438 \\u043f\\u0440\\u0430\\u0432\\u0430\\u044f \\u043f\\u0430\\u043d\\u0435\\u043b\\u044c \\u0441\\u0435\\u0439\\u0447\\u0430\\u0441 \\u0441\\u0438\\u043d\\u0445\\u0440\\u043e\\u043d\\u0438\\u0437\\u0438\\u0440\\u043e\\u0432\\u0430\\u043d\\u044b \\u0432\\u043e\\u043a\\u0440\\u0443\\u0433 \\u044d\\u0442\\u043e\\u0433\\u043e \\u0441\\u043e\\u0431\\u044b\\u0442\\u0438\\u044f.')).length).toBeGreaterThan(0);
     expect(screen.getAllByText(ru('\u0441\u0432\u044f\u0437\u0430\u043d\u043d\u044b\u0435 \u043f\u043e\u0441\u0442\u044b'), { exact: false }).length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: ru('\u0412\u044b\u0431\u0440\u0430\u043d\u043e') })).toHaveAttribute('aria-pressed', 'true');
+    expect(document.querySelector('.dashboard-table-shell__row--selected')).not.toBeNull();
     expect(screen.getByText(ru('\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u0441 \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a\u043e\u043c \u0432\u044b\u043f\u043e\u043b\u043d\u044f\u0435\u0442\u0441\u044f \u0430\u0441\u0438\u043d\u0445\u0440\u043e\u043d\u043d\u043e'), { exact: false })).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c \u043f\u043e\u0441\u0442') }).length).toBeGreaterThan(0);
   });
@@ -172,11 +193,12 @@ describe('Events dashboard', () => {
   });
 
 
-  it('renders keyword search controls for events and applies query only after submit', async () => {
+  it('renders keyword search controls for events, calls search endpoint, and filters rows by matched post ids', async () => {
     const user = userEvent.setup();
     const getSpy = installEventsApiMock();
+    const postSpy = installEventsKeywordSearchApiMock(createKeywordSearchResponse({ total: 1, items: [createKeywordSearchResponse().items[0]] }));
 
-    renderWorkspace('/dashboard/events');
+    renderWorkspace('/dashboard/events?date_from=2026-03-01&date_to=2026-03-10&channel_ids=7');
 
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i })).toBeDisabled();
@@ -186,22 +208,92 @@ describe('Events dashboard', () => {
     });
 
     const searchInput = screen.getByLabelText(ru('\u0417\u0430\u043f\u0440\u043e\u0441'));
-    fireEvent.change(searchInput, { target: { value: 'ev' } });
-    expect(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i })).toBeEnabled();
+    fireEvent.change(searchInput, { target: { value: 'a' } });
+    expect(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i })).toBeDisabled();
 
-    const callsBeforeSubmit = getSpy.mock.calls.length;
-    expect(getSpy).toHaveBeenCalledTimes(callsBeforeSubmit);
+    const snapshotCallsBeforeSubmit = getSpy.mock.calls.length;
+    fireEvent.change(searchInput, { target: { value: 'policy shift' } });
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i })).toBeEnabled();
+    });
 
     await user.click(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i }));
 
     await waitFor(() => {
-      expect(getSpy).toHaveBeenCalledWith('/api/dashboard/events?query=ev');
+      expect(postSpy).toHaveBeenCalledWith('/api/keyword/search/posts', {
+        query: 'policy shift',
+        limit: 25,
+        date_from: '2026-03-01T00:00:00Z',
+        date_to: '2026-03-10T23:59:59Z',
+        channel_ids: [7],
+      });
+    });
+
+    expect(getSpy).toHaveBeenCalledTimes(snapshotCallsBeforeSubmit);
+    await waitFor(() => {
+      expect(screen.getAllByText(/Election coverage spike/i).length).toBeGreaterThan(0);
+      expect(screen.queryByText(/Official response cascade/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it('shows mapped empty state when keyword search finds posts but no events intersect the current snapshot', async () => {
+    installEventsApiMock();
+    installEventsKeywordSearchApiMock(
+      createKeywordSearchResponse({
+        query: 'policy',
+        normalized_query: 'policy',
+        lemmas: ['policy'],
+        total: 1,
+        items: [
+          {
+            post_id: 999999,
+            channel_id: 77,
+            channel_username: 'signal_watch',
+            date: '2026-03-12T10:10:00Z',
+            text_preview: 'No mapped event row',
+            comments_count: 5,
+            views: 100,
+            involvement: 0.05,
+            rank: 0.99,
+            matched_lemmas: ['policy'],
+          },
+        ],
+      }),
+    );
+
+    renderWorkspace('/dashboard/events?query=policy');
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Загрузка дашборда событий/i)).not.toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Election coverage spike/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Official response cascade/i)).not.toBeInTheDocument();
+      expect(screen.getAllByText(/По текущему запросу события не найдены в этой выборке/i).length).toBeGreaterThan(0);
+      expect(
+        screen.getByText(
+          /Поиск по постам вернул совпадения, но они не сматчились ни с одним событием в текущем snapshot/i,
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('shows forbidden search message when backend returns 403 for keyword search', async () => {
+    installEventsApiMock();
+    installEventsKeywordSearchApiErrorMock(403);
+
+    renderWorkspace('/dashboard/events?query=policy');
+
+    await waitFor(() => {
+      expect(screen.getByText(/Поиск недоступен для вашей роли/i)).toBeInTheDocument();
     });
   });
 
   it('restores event keyword query from URL and clears it with reset search', async () => {
     const user = userEvent.setup();
     const getSpy = installEventsApiMock();
+    const postSpy = installEventsKeywordSearchApiMock(createKeywordSearchResponse({ total: 1, items: [createKeywordSearchResponse().items[0]] }));
 
     renderWorkspace('/dashboard/events?query=policy%20shift');
     await waitFor(() => {
@@ -210,16 +302,56 @@ describe('Events dashboard', () => {
 
     await waitFor(() => {
       expect(screen.getByDisplayValue('policy shift')).toBeInTheDocument();
+      expect(screen.queryByText(/Official response cascade/i)).not.toBeInTheDocument();
     });
 
-    expect(getSpy).toHaveBeenCalledWith('/api/dashboard/events?query=policy+shift');
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c \u043f\u043e\u0438\u0441\u043a/i })).toBeEnabled();
+    expect(getSpy).toHaveBeenCalledWith('/api/dashboard/events');
+    expect(postSpy).toHaveBeenCalledWith('/api/keyword/search/posts', {
+      query: 'policy shift',
+      limit: 25,
+      date_from: null,
+      date_to: null,
+      channel_ids: [],
     });
+
     await user.click(screen.getByRole('button', { name: /\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c \u043f\u043e\u0438\u0441\u043a/i }));
     await waitFor(() => {
-      expect(getSpy).toHaveBeenCalledWith('/api/dashboard/events');
+      expect((screen.getByLabelText(ru('\u0417\u0430\u043f\u0440\u043e\u0441')) as HTMLInputElement).value).toBe('');
+      expect(screen.getAllByText(/Official response cascade/i).length).toBeGreaterThan(0);
+    });
+  });
+
+  it('keeps selection and right rail scoped to the filtered event rows', async () => {
+    const user = userEvent.setup();
+    installEventsApiMock();
+    installEventsKeywordSearchApiMock(createKeywordSearchResponse({ total: 1, items: [createKeywordSearchResponse().items[0]] }));
+
+    renderWorkspace('/dashboard/events');
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Election coverage spike/i).length).toBeGreaterThan(0);
+    });
+
+    await user.click(screen.getAllByRole('button', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c') })[1]);
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Official statement root post/i).length).toBeGreaterThan(0);
+    });
+
+    fireEvent.change(screen.getByLabelText(ru('\u0417\u0430\u043f\u0440\u043e\u0441')), { target: { value: 'policy shift' } });
+    await user.click(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i }));
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Official response cascade/i)).not.toBeInTheDocument();
+      expect(screen.getAllByText(ru('\u0412\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u043e\u0431\u044b\u0442\u0438\u0435 \u0434\u043b\u044f \u043f\u0440\u043e\u0441\u043c\u043e\u0442\u0440\u0430 \u0433\u0440\u0430\u0444\u0430')).length).toBeGreaterThan(0);
+      expect(screen.queryByText(/Official statement root post/i)).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c') }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Root post drives the event graph/i).length).toBeGreaterThan(0);
+      expect(screen.queryByText(/Official response cascade/i)).not.toBeInTheDocument();
     });
   });
   it('keeps selection stable and loads the graph for the selected event', async () => {
@@ -650,6 +782,9 @@ describe('Events dashboard', () => {
 
     expect(screen.queryByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a \u043e\u0442\u0447\u0435\u0442\u0430') })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: ru('\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c \u0447\u0435\u0440\u043d\u043e\u0432\u0438\u043a \u043e\u0442\u0447\u0435\u0442\u0430') })).not.toBeInTheDocument();
+    expect(screen.getByLabelText(ru('\u0417\u0430\u043f\u0440\u043e\u0441'))).toBeDisabled();
+    expect(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i })).toBeDisabled();
+    expect(screen.getByText(/\u041f\u043e\u0438\u0441\u043a \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d \u0434\u043b\u044f \u0432\u0430\u0448\u0435\u0439 \u0440\u043e\u043b\u0438/i)).toBeInTheDocument();
 
     await user.click(screen.getAllByRole('button', { name: ru('\u041e\u0442\u043a\u0440\u044b\u0442\u044c') })[0]);
 
@@ -658,6 +793,17 @@ describe('Events dashboard', () => {
     });
   });
 });
+
+
+
+
+
+
+
+
+
+
+
 
 
 

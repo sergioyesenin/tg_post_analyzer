@@ -12,6 +12,10 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+# Disable external telemetry noise for local daemon runs before CrewAI/LiteLLM import.
+os.environ.setdefault("OTEL_SDK_DISABLED", "true")
+os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
+
 from services.pipeline_runtime import (
     AI_JOB_TYPES,
     build_worker_id,

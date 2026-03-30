@@ -104,11 +104,15 @@ export function BaseDataTable({
               backgroundColor: 'rgba(182, 73, 38, 0.05)',
             },
             '& .dashboard-table-shell__row--selected': {
-              backgroundColor: 'rgba(182, 73, 38, 0.12)',
+              backgroundColor: 'rgba(182, 73, 38, 0.16)',
+              boxShadow: 'inset 4px 0 0 var(--color-accent)',
             },
             '& .dashboard-table-shell__row--selected .MuiDataGrid-cell': {
-              borderTop: '1px solid rgba(182, 73, 38, 0.18)',
-              borderBottom: '1px solid rgba(182, 73, 38, 0.18)',
+              borderTop: '1px solid rgba(182, 73, 38, 0.24)',
+              borderBottom: '1px solid rgba(182, 73, 38, 0.24)',
+            },
+            '& .dashboard-table-shell__row--selected:hover': {
+              backgroundColor: 'rgba(182, 73, 38, 0.18)',
             },
           }}
         />
@@ -116,3 +120,7 @@ export function BaseDataTable({
     </section>
   );
 }
+
+
+
+

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+ï»¿import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Position } from 'reactflow';
 
@@ -10,6 +10,7 @@ import { LoadingState } from '@shared/ui/states/LoadingState';
 import type { EventGraphPanelViewModel } from '@modules/workspace/events/mappers';
 import { EventGraphLegend } from '@modules/workspace/events/components/EventGraphLegend';
 import { EventGraphToolbar } from '@modules/workspace/events/components/EventGraphToolbar';
+import { EventWorkspaceSelectionContext } from '@modules/workspace/events/components/EventWorkspaceSelectionContext';
 
 type EventGraphPanelProps = {
   selectedTitle: string | null;
@@ -43,18 +44,6 @@ function buildOrderedNodes(viewModel: EventGraphPanelViewModel) {
   return rootNode ? [rootNode, ...otherNodes] : [...viewModel.nodes].sort((left, right) => left.date.localeCompare(right.date));
 }
 
-function EventGraphSelectionHeader({ selectedTitle }: { selectedTitle: string | null }) {
-  const { t } = useTranslation();
-
-  return (
-    <section className={`workspace-selection-context ${selectedTitle ? 'workspace-selection-context--active' : ''}`.trim()}>
-      <span className="state-card__eyebrow">{t('events.graph.selectedEvent')}</span>
-      <strong>{selectedTitle ?? t('events.graph.noSelectionTitle')}</strong>
-      <p>{selectedTitle ? t('events.dashboard.sourceDescription') : t('events.graph.noSelectionDescription')}</p>
-    </section>
-  );
-}
-
 export function EventGraphPanel({ selectedTitle, isLoading, isRefreshing, isError, showErrorNotice, viewModel, hasSelection, partialHint, onRefresh }: EventGraphPanelProps) {
   const [resetSignal, setResetSignal] = useState(0);
   const { t } = useTranslation();
@@ -81,7 +70,7 @@ export function EventGraphPanel({ selectedTitle, isLoading, isRefreshing, isErro
     return (
       <section className="detail-block">
         <div className="detail-block__header"><div><span className="state-card__eyebrow">{t('events.graph.eyebrow')}</span><strong>{t('events.graph.title')}</strong></div></div>
-        <EventGraphSelectionHeader selectedTitle={null} />
+        <EventWorkspaceSelectionContext title={null} />
         <EmptyState title={t('events.graph.noSelectionTitle')} description={t('events.graph.noSelectionDescription')} />
       </section>
     );
@@ -90,7 +79,7 @@ export function EventGraphPanel({ selectedTitle, isLoading, isRefreshing, isErro
   return (
     <section className="detail-block">
       <div className="detail-block__header"><div><span className="state-card__eyebrow">{t('events.graph.eyebrow')}</span><strong>{t('events.graph.title')}</strong></div></div>
-      <EventGraphSelectionHeader selectedTitle={selectedTitle} />
+      <EventWorkspaceSelectionContext title={selectedTitle} />
       <EventGraphToolbar title={selectedTitle ?? t('events.graph.selectedEvent')} nodeCount={viewModel?.nodes.length ?? 0} edgeCount={viewModel?.edges.length ?? 0} isLoading={isLoading || isRefreshing} onRefresh={onRefresh} onResetView={() => setResetSignal((value) => value + 1)} />
       <EventGraphLegend />
 
@@ -104,15 +93,15 @@ export function EventGraphPanel({ selectedTitle, isLoading, isRefreshing, isErro
       {isRefreshing ? (
         <QueryActivityNotice
           eyebrow={t('states.loading')}
-          title={t('events.graph.refreshingTitle', { defaultValue: 'Ãðàô îáíîâëÿåòñÿ' })}
-          description={t('events.graph.refreshingDescription', { defaultValue: 'Òåêóùàÿ âåðñèÿ ãðàôà îñòàåòñÿ íà ýêðàíå, ïîêà ïîäòÿãèâàþòñÿ íîâûå ñâÿçè.' })}
+          title={t('events.graph.refreshingTitle', { defaultValue: 'Ð“Ñ€Ð°Ñ„ Ð¾Ð±Ð½Ð¾Ð²Ð»ÑÐµÑ‚ÑÑ' })}
+          description={t('events.graph.refreshingDescription', { defaultValue: 'Ð¢ÐµÐºÑƒÑ‰Ð°Ñ Ð²ÐµÑ€ÑÐ¸Ñ Ð³Ñ€Ð°Ñ„Ð° Ð¾ÑÑ‚Ð°ÐµÑ‚ÑÑ Ð½Ð° ÑÐºÑ€Ð°Ð½Ðµ, Ð¿Ð¾ÐºÐ° Ð¿Ð¾Ð´Ñ‚ÑÐ³Ð¸Ð²Ð°ÑŽÑ‚ÑÑ Ð½Ð¾Ð²Ñ‹Ðµ ÑÐ²ÑÐ·Ð¸.' })}
         />
       ) : null}
       {showErrorNotice ? (
         <QueryActivityNotice
           eyebrow={t('states.error')}
-          title={t('events.graph.refreshErrorTitle', { defaultValue: 'Íå óäàëîñü îáíîâèòü ãðàô' })}
-          description={t('events.graph.refreshErrorDescription', { defaultValue: 'Ïîêàçûâàåì ïîñëåäíèé óñïåøíûé ãðàô áåç ñáðîñà âûáðàííîãî ñîáûòèÿ.' })}
+          title={t('events.graph.refreshErrorTitle', { defaultValue: 'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð¾Ð±Ð½Ð¾Ð²Ð¸Ñ‚ÑŒ Ð³Ñ€Ð°Ñ„' })}
+          description={t('events.graph.refreshErrorDescription', { defaultValue: 'ÐŸÐ¾ÐºÐ°Ð·Ñ‹Ð²Ð°ÐµÐ¼ Ð¿Ð¾ÑÐ»ÐµÐ´Ð½Ð¸Ð¹ ÑƒÑÐ¿ÐµÑˆÐ½Ñ‹Ð¹ Ð³Ñ€Ð°Ñ„ Ð±ÐµÐ· ÑÐ±Ñ€Ð¾ÑÐ° Ð²Ñ‹Ð±Ñ€Ð°Ð½Ð½Ð¾Ð³Ð¾ ÑÐ¾Ð±Ñ‹Ñ‚Ð¸Ñ.' })}
           tone="danger"
         />
       ) : null}
@@ -225,3 +214,5 @@ export function EventGraphPanel({ selectedTitle, isLoading, isRefreshing, isErro
     </section>
   );
 }
+
+

@@ -1,4 +1,4 @@
-﻿# Frontend Production Backlog
+# Frontend Production Backlog
 
 Единый production-ready backlog для текущего фронтенда `tg_post_analyzer`.
 
@@ -49,6 +49,10 @@
 | UXF-002 | Добавить inline validation и понятные empty/error подсказки в dashboard filters | P1 | UX flow fixes | `/dashboard/*` | Форма фильтров не помогает понять допустимые значения и причины пустой выдачи; feedback выглядит техническим, а не продуктовым; empty/error copy может конфликтовать с основным экранным state и выглядеть как локальная заплатка | Пользователь без объяснений понимает, что делать дальше: какие значения некорректны, почему выдача пуста, чем отличается пустой snapshot от слишком узкого фильтра, и что именно сбросит Reset; copy и visual feedback выглядят как часть единого продукта и согласованы с локалью интерфейса | 1. Некорректные значения показывают inline validation рядом с конкретным полем. 2. Validation, empty и error copy локализованы и согласованы по тону с остальным dashboard UI. 3. Error feedback не утверждает неверную причину сбоя и не вводит пользователя в заблуждение, если сломан запрос или backend. 4. Пустая выдача различает нет данных и слишком узкий фильтр и в каждом случае предлагает понятный следующий шаг. 5. Primary и secondary actions в filter bar не конфликтуют: Apply, Reset и passive feedback читаются по приоритету. 6. Reset очищает именно фильтры текущего режима и не оставляет stale local form state. 7. Empty/error/filter feedback не дублируют друг друга так, чтобы экран выглядел перегруженным или сырым. 8. Визуально validation и feedback используют системный state pattern, а не выглядят как ad-hoc баннеры. | UXF-001 | M |
 | UXF-003 | Сделать selection-driven workspace явным для событий | P1 | UX flow fixes | `/dashboard/events` | Таблица, граф и detail rail слабо связаны визуально | Выбранное событие явно фиксируется как текущий контекст анализа | 1. Выбранная строка визуально заметна. 2. В graph/detail есть header с названием выбранного события. 3. При refetch выбранный элемент сохраняется, если он есть в данных. 4. No-selection state объясняет следующий шаг. | — | M |
 | UXF-004 | Сделать selection-driven workspace явным для процессов | P1 | UX flow fixes | `/dashboard/processes` | Таблица, граф и detail rail слабо связаны визуально | Пользователь воспринимает экран как единое пространство вокруг выбранного процесса | 1. Выбранный процесс визуально закреплен в rail. 2. Граф и detail обновляются согласованно. 3. Refetch не сбрасывает selection без причины. 4. Placeholder без выбора объясняет следующий шаг. | — | M |
+| UXF-007 | Переписать dashboard analytical copy в продуктовый язык и добавить next-step guidance | P0 | UX flow fixes | `/dashboard/posts`, `/dashboard/events`, `/dashboard/processes` | Search, empty/error notices и read-only messages все еще содержат инженерный язык (`snapshot`, `post_id`, `backend`, `RBAC`) и не всегда подсказывают следующий шаг | Пользователь читает экран как часть продуктового аналитического интерфейса, а не как thin client для API: copy объясняет состояние, ограничение и следующий шаг без внутренних терминов команды | 1. В primary user-facing copy на dashboard analytical flows нет инженерных терминов, не нужных пользователю, таких как `post_id`, `snapshot`, `frontend`, `backend`, `RBAC`, `/api/...`, если это не относится к explicit technical details block. 2. Empty, error, loading, read-only и unavailable states объясняют, что произошло и что можно сделать дальше. 3. Search block copy объясняет relationship между search и filters без технических деталей. 4. RU и EN copy согласованы по смыслу, а не просто дословно переведены. 5. Hero, notices и empty states не повторяют один и тот же смысл разными словами. | UXF-002, KG-001, KG-006 | M |
+| UXF-008 | Развести иерархию действий между keyword search и dashboard filters | P0 | UX flow fixes | `/dashboard/posts`, `/dashboard/events`, `/dashboard/processes` | В filter bar одновременно живут `Найти`, `Применить фильтры`, `Сбросить поиск` и `Сбросить фильтры`, из-за чего порядок действий и главный CTA неочевидны | Search и filters работают как один понятный flow с ясной приоритизацией, а primary и secondary actions не спорят друг с другом | 1. Пользователь без объяснений понимает, в каком порядке использовать search и filters. 2. В каждый момент времени в блоке читается один главный CTA текущего шага. 3. `Reset search` и `Reset filters` не конкурируют по визуальному весу с primary action. 4. Passive feedback не выглядит как еще одна competing action zone. 5. На desktop и tablet action hierarchy остается стабильной и не разваливается при переносе. | UXF-002, UIF-004, KG-001 | M |
+| UXF-009 | Унифицировать semantic behavior keyword search между posts, events и processes | P1 | UX flow fixes | `/dashboard/posts`, `/dashboard/events`, `/dashboard/processes` | Сейчас search-driven states и feedback ведут себя по-разному: где-то дублируются empty blocks, где-то `empty-search` и `empty-mapped` различаются, а где-то нет | Все три dashboard используют один понятный semantic pattern для search states, selection reset rules и user-facing feedback | 1. Для всех трех dashboards явно определены и реализованы состояния `loading search`, `empty-search`, `empty-mapped or empty-intersection`, `search unavailable`, `search forbidden` и `search error`, когда они действительно применимы по семантике. 2. Один и тот же semantic state не использует разные UX-паттерны без причины на разных dashboard routes. 3. Empty/filter/search feedback не дублируют друг друга на одном экране. 4. Clearing query возвращает экран в baseline snapshot-consistent state на всех dashboards консистентно. 5. Selection, right rail и table scope ведут себя предсказуемо при активном search. | KG-002, KG-003, KG-005, UXF-003, UXF-004 | M |
+| BFX-007 | Устранить mojibake и ненадежные fallback-строки в dashboard analytical flows | P0 | bugfix | `/dashboard/*`, shared i18n resources, fallback copy in route modules | Пока часть пользовательских текстов можно сломать через fallback path, экран не выглядит production-ready, даже если основной словарь корректен | На dashboard analytical flows нет битых строк ни в обычной локали, ни во fallback-сценариях, а regression-проверки предотвращают возврат проблемы | 1. В route-level `defaultValue` и shared locale resources отсутствуют битые строки и mojibake. 2. Fallback copy для dashboard analytical flows читаем и согласован с продуктовым тоном. 3. Проверен сценарий частичного отсутствия словаря без появления corrupted text. 4. Добавлена автоматическая защита от возврата mojibake в dashboard analytical flows: тест, lint-rule, snapshot guard или другой deterministic check. | UXF-007, KG-007 | S |
 | BFX-001 | Заменить `window.confirm` на системный confirm dialog в channels | P1 | bugfix | `/channels` | Удаление и деактивация канала подтверждаются браузерным confirm без контекста и pending-state | Подтверждение действия безопасно, информативно и не выглядит как заглушка | 1. У delete/deactivate есть модалка с названием канала и текстом действия. 2. Во время submit действие блокируется. 3. После success или error пользователь получает наблюдаемый результат. | UIF-004 | M |
 | BFX-002 | Заменить `window.confirm` на системный confirm dialog в jobs retry | P1 | bugfix | `/jobs` | Retry critical operations выполняется через browser confirm и не дает post-action feedback | Retry оформлен как осознанное действие с результатом | 1. Retry открывает confirm dialog с ID job или dead-letter. 2. После confirm виден row-level pending state. 3. После завершения виден success или error результат без ручного refresh. | UIF-004 | M |
 | BFX-003 | Добавить observable mutation feedback в admin forms | P1 | bugfix | `/channels`, `/users`, `/settings` | После create/update не всегда ясно, что произошло | Пользователь видит progress, success и error после мутации | 1. У create/update/delete есть pending state. 2. После успеха показывается success feedback. 3. После ошибки пользователь видит error feedback без потери формы. | BFX-001 | M |
@@ -138,44 +142,50 @@
 14. `KG-005`
 15. `KG-007`
 
+### Wave 2B: Dashboard product hardening
+
+16. `BFX-007`
+17. `UXF-007`
+18. `UIF-004`
+19. `UXF-008`
+20. `UXF-009`
+21. `CRF-005`
+22. `POL-002`
+23. `POL-006`
+24. `POL-007`
+25. `POL-008`
+26. `CRF-006`
+27. `POL-003`
+28. `POL-004`
+29. `POL-005`
+
 ### Wave 3: Settings redesign
 
-16. `STG-001`
-17. `STG-002`
-18. `STG-003`
-19. `STG-004`
-20. `STG-006`
-21. `STG-007`
-22. `STG-005`
-23. `STG-008`
-24. `STG-009`
+30. `STG-001`
+31. `STG-002`
+32. `STG-003`
+33. `STG-004`
+34. `STG-006`
+35. `STG-007`
+36. `STG-005`
+37. `STG-008`
+38. `STG-009`
 
 ### Wave 4: Admin and operations quality
 
-25. `UIF-002`
-26. `UIF-003`
-27. `UIF-004`
-28. `UIF-005`
-29. `BFX-001`
-30. `BFX-003`
-31. `BFX-002`
-32. `BFX-004`
-33. `BFX-005`
-34. `CRF-003`
-35. `CRF-004`
-36. `CRF-005`
+39. `UIF-002`
+40. `UIF-003`
+41. `UIF-005`
+42. `BFX-001`
+43. `BFX-003`
+44. `BFX-002`
+45. `BFX-004`
+46. `BFX-005`
+47. `CRF-003`
+48. `CRF-004`
 
-### Wave 5: Specialized workflow and polish
+### Wave 5: Specialized workflow and remaining polish
 
-37. `UXF-005`
-38. `POL-001`
-39. `POL-002`
-40. `UXF-006`
-41. `POL-006`
-42. `POL-007`
-43. `POL-008`
-44. `CRF-006`
-45. `POL-003`
-46. `POL-004`
-47. `POL-005`
-
+49. `UXF-005`
+50. `POL-001`
+51. `UXF-006`

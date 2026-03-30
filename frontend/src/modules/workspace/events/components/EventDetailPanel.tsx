@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 
 import { ReportStatusBadge } from '@shared/ui/status/ReportStatusBadge';
 import type { EventGraphPanelViewModel } from '@modules/workspace/events/mappers';
+import { EventWorkspaceSelectionContext } from '@modules/workspace/events/components/EventWorkspaceSelectionContext';
 
 type EventDetailPanelProps = {
   event: {
@@ -27,18 +28,6 @@ type EventDetailPanelProps = {
   actionSlot?: ReactNode;
 };
 
-function EventDetailSelectionHeader({ title }: { title: string | null }) {
-  const { t } = useTranslation();
-
-  return (
-    <section className={`workspace-selection-context ${title ? 'workspace-selection-context--active' : ''}`.trim()}>
-      <span className="state-card__eyebrow">{t('events.detail.selectedTitle')}</span>
-      <strong>{title ?? t('events.graph.noSelectionTitle')}</strong>
-      <p>{title ? t('events.dashboard.sourceDescription') : t('events.detail.emptyDescription')}</p>
-    </section>
-  );
-}
-
 export function EventDetailPanel({ event, graph, actionSlot }: EventDetailPanelProps) {
   const { t } = useTranslation();
 
@@ -51,7 +40,7 @@ export function EventDetailPanel({ event, graph, actionSlot }: EventDetailPanelP
             <strong>{t('events.detail.selectedTitle')}</strong>
           </div>
         </div>
-        <EventDetailSelectionHeader title={null} />
+        <EventWorkspaceSelectionContext title={null} />
  
       </section>
     );
@@ -80,7 +69,7 @@ export function EventDetailPanel({ event, graph, actionSlot }: EventDetailPanelP
       </div>
 
       <div className="event-detail-panel">
-        <EventDetailSelectionHeader title={event.title} />
+        <EventWorkspaceSelectionContext title={event.title} />
 
         <div className="event-detail-panel__summary">
           <div><span>{t('events.detail.status')}</span><strong>{event.status}</strong></div>
@@ -139,3 +128,5 @@ export function EventDetailPanel({ event, graph, actionSlot }: EventDetailPanelP
     </section>
   );
 }
+
+

@@ -161,6 +161,7 @@ export function buildDashboardPlaceholderResponse<TMode extends DashboardMode>(
         involvement: 0.42,
         events_count: 6,
         event_ids: [510, 511],
+        post_ids: [4012, 3975],
         report_status: 'draft',
         graph_ready: false,
       },
@@ -173,3 +174,4 @@ export function buildDashboardPlaceholderResponse<TMode extends DashboardMode>(
 
   return response as Extract<DashboardTransportResponse, { mode: TMode }>;
 }
+

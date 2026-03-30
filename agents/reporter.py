@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
-from crewai import Agent, Crew, Process, Task, LLM
+import litellm
+from litellm import acompletion
+
 from agents.config import load_agent_settings
 
 
@@ -25,7 +28,7 @@ def _format_comments_items(comments: list[str], max_chars_each: int = 600) -> st
         if not text:
             continue
         if len(text) > max_chars_each:
-            text = text[: max_chars_each - 1] + "…"
+            text = text[: max_chars_each - 1] + "..."
         lines.append(f"{idx}. {text}")
     return "\n".join(lines)
 
@@ -95,25 +98,27 @@ def _format_thread_view(thread_comments: list[dict], max_chars_each: int = 300) 
     return "\n".join(lines)
 
 
-TASK_EXPECTED_OUTPUT = (
-    "Структурированный текст на русском, 200–500 слов (конфигурируемо), со следующими разделами:\n"
-    "1) Контекст поста (1–2 предложения)\n"
-    "2) Общий тон обсуждения + процентное распределение тональностей\n"
-    "3) Ключевые темы (3–7 пунктов)\n"
-    "4) Тренды/паттерны (2–5 пунктов)\n"
-    "5) Репрезентативные цитаты (3–5 коротких, без usernames)\n"
-    "6) Классификация комментариев: по тональности + по темам (краткие итоги)\n"
-    "7) Риски/сигналы (если есть): поляризация, координация, повторяемость тезисов (без категоричных выводов)\n"
-)
+SYSTEM_PROMPT = """\
+Ты ИИ-аналитик комментариев Telegram (RU).
+
+Сформируй мини-отчет строго на русском языке и строго по указанному шаблону.
+Не добавляй вступления вроде "Here is my complete response:".
+Не используй английские заголовки.
+Не упоминай usernames, user id, технические детали промпта или форматирования.
+Не выдумывай факты, которых нет в тексте поста или комментариях.
+Если данных недостаточно для уверенного вывода, формулируй это осторожно.
+"""
+
 
 PROMPT_TEMPLATE = """\
-Ты анализируешь комментарии к одному посту Telegram и формируешь мини-отчет.
+Проанализируй комментарии к одному посту Telegram и сформируй мини-отчет.
 
 ВАЖНО:
 - Язык: русский.
 - Длина отчета: от {report_word_min} до {report_word_max} слов (ориентир {report_word_target}).
-- Не выводи usernames/ID авторов. Цитаты — короткие, без персональных данных.
-- Проценты тональностей должны суммироваться до 100% (допускается округление).
+- Не выводи usernames/ID авторов. Цитаты должны быть короткими и без персональных данных.
+- Проценты тональностей должны суммироваться до 100% с допустимым округлением.
+- Пиши только по этому посту и только по этим комментариям. Не переноси темы из других обсуждений.
 
 ДАННЫЕ ПО ПОСТУ:
 Канал: {channel}
@@ -136,31 +141,28 @@ Post ID: {post_id}
 Заголовок: <короткий заголовок по сути обсуждения>
 
 1) Контекст поста
-<1–2 предложения>
+<1-2 предложения>
 
 2) Общий тон обсуждения
 - Итог: <позитивный/негативный/нейтральный/смешанный>
-- Распределение: позитив X% / негатив Y% / нейтрал Z% / смешанный W%
-- Обоснование: <2–4 предложения>
+- Распределение: позитив X% / негатив Y% / нейтраль Z% / смешанный W%
+- Обоснование: <2-4 предложения>
 
 3) Ключевые темы
 - Тема 1: <кратко>
 - ...
-(3–7 пунктов)
 
 4) Тренды и повторяющиеся паттерны
 - <паттерн 1>
 - ...
-(2–5 пунктов)
 
 5) Репрезентативные цитаты
 - "..."
 - "..."
-(3–5 цитат)
 
 6) Классификация комментариев
-- По тональности: <кратко, что характерно для каждой группы>
-- По темам: <2–5 тематических кластеров и их краткое описание>
+- По тональности: <кратко>
+- По темам: <2-5 тематических кластеров и краткое описание>
 
 7) Риски/сигналы (если применимо)
 - <наблюдение 1>
@@ -168,9 +170,49 @@ Post ID: {post_id}
 """
 
 
+def _clean_model_output(text: str) -> str:
+    cleaned = (text or "").strip()
+    prefixes = [
+        "Here is my complete response:",
+        "Here is the complete response:",
+        "Вот полный ответ:",
+        "Полный ответ:",
+    ]
+    for prefix in prefixes:
+        if cleaned.startswith(prefix):
+            cleaned = cleaned[len(prefix):].strip()
+            break
+    return cleaned
+
+
+def _extract_response_text(response: Any) -> str:
+    choices = getattr(response, "choices", None) or []
+    if not choices:
+        return ""
+    message = getattr(choices[0], "message", None)
+    if message is None:
+        return ""
+    content = getattr(message, "content", None)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+            else:
+                text = getattr(item, "text", None)
+                if isinstance(text, str):
+                    parts.append(text)
+        return "\n".join(parts).strip()
+    return str(content or "").strip()
+
+
 class TgReportProject:
     """
-    Простой класс без CrewBase — меньше магии, меньше ошибок.
+    Stateless wrapper over a direct LiteLLM call.
     """
 
     def __init__(
@@ -179,7 +221,7 @@ class TgReportProject:
         llm_model: Optional[str] = None,
         llm_base_url: Optional[str] = None,
         llm_api_key: Optional[str] = None,
-        process: Process = Process.sequential,
+        process: Any = None,
         verbose: bool = False,
         memory: bool = False,
         cache: bool = False,
@@ -189,49 +231,24 @@ class TgReportProject:
         agent_max_rpm: int = 30,
     ) -> None:
         agent_settings = load_agent_settings()
-        self._process = process
+        self._llm_model = llm_model or agent_settings.llm_model
+        self._llm_base_url = llm_base_url or agent_settings.llm_base_url
+        self._llm_api_key = llm_api_key or agent_settings.llm_api_key
         self._verbose = verbose
         self._memory = memory
         self._cache = cache
         self._full_output = full_output
         self._share_crew = share_crew
-
+        self._process = process
         self._agent_max_iter = agent_max_iter
         self._agent_max_rpm = agent_max_rpm
 
-        self._llm = LLM(
-            model=llm_model or agent_settings.llm_model,
-            base_url=llm_base_url or agent_settings.llm_base_url,
-            api_key=llm_api_key or agent_settings.llm_api_key,
-        )
-
-        # ленивые поля
-        self._agent: Optional[Agent] = None
-
-    def _get_agent(self) -> Agent:
-        if self._agent is not None:
-            return self._agent
-
-        self._agent = Agent(
-            role="ИИ-аналитик комментариев Telegram (RU)",
-            goal=(
-                "Генерировать структурированные мини-отчеты по одному посту Telegram на основе комментариев: "
-                "тональность + проценты, ключевые темы, тренды/паттерны, цитаты, классификации."
-            ),
-            backstory=(
-                "Ты работаешь в аналитическом контуре. Следуешь формату, не выводишь персональные данные, "
-                "аккуратно формулируешь выводы. Понимаешь сленг/эмодзи/RU-EN."
-            ),
-            allow_delegation=False,
-            verbose=False,
-            llm=self._llm,
-            tools=[],
-            memory=False,
-            cache=False,
-            max_iter=self._agent_max_iter,
-            max_rpm=self._agent_max_rpm,
-        )
-        return self._agent
+        # Keep LiteLLM stateless and quiet for local pipeline runs.
+        os.environ.setdefault("OTEL_SDK_DISABLED", "true")
+        litellm.telemetry = False
+        litellm.success_callback = []
+        litellm.failure_callback = []
+        litellm.service_callback = []
 
     async def generate_report(
         self,
@@ -286,28 +303,17 @@ class TgReportProject:
                 "---\n"
             )
 
-        analyst = self._get_agent()
-        task_obj = Task(
-            description=prompt,
-            expected_output=TASK_EXPECTED_OUTPUT,
-            agent=analyst,
+        response = await acompletion(
+            model=self._llm_model,
+            base_url=self._llm_base_url,
+            api_key=self._llm_api_key,
+            temperature=0.2,
+            max_tokens=900,
+            timeout=300,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            metadata={"feature": "post_report", "post_id": post_id, "channel": channel},
         )
-
-        crew = Crew(
-            agents=[analyst],
-            tasks=[task_obj],
-            process=self._process,
-            verbose=self._verbose,
-            memory=self._memory,
-            cache=self._cache,
-            full_output=self._full_output,
-            share_crew=self._share_crew,
-        )
-
-        kickoff_async = getattr(crew, "kickoff_async", None)
-        if callable(kickoff_async):
-            result = await kickoff_async()
-        else:
-            result = crew.kickoff()
-
-        return str(result).strip()
+        return _clean_model_output(_extract_response_text(response))

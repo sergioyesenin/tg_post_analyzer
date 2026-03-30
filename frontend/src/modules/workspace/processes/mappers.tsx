@@ -19,6 +19,7 @@ export type ProcessDashboardRowViewModel = {
   involvement: string;
   eventsCount: string;
   eventIds: number[];
+  postIds: number[];
   reportStatus: string;
   graphReady: boolean;
 };
@@ -68,6 +69,7 @@ function mapProcessItemToRow(item: ProcessesDashboardItemDto): ProcessDashboardR
     involvement: formatNullableRatio(item.involvement),
     eventsCount: String(item.events_count),
     eventIds: item.event_ids,
+    postIds: item.post_ids ?? [],
     reportStatus: item.report_status,
     graphReady: item.graph_ready,
   };
@@ -220,4 +222,6 @@ export function mapProcessGraphToViewModel(response: ProcessGraphResponse): Proc
     })),
   };
 }
+
+
 

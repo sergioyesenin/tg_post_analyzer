@@ -46,7 +46,7 @@ describe('i18n', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'Отчеты' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'РћС‚С‡РµС‚С‹' })).toBeInTheDocument();
     });
 
     expect(screen.getByRole('button', { name: 'EN' })).toBeInTheDocument();
@@ -58,3 +58,4 @@ describe('i18n', () => {
     });
   });
 });
+

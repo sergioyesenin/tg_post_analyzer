@@ -120,7 +120,7 @@ export function mapEventsRowsToTableRows(
           <div className="dashboard-table-shell__actions">
             <button
               type="button"
-              className={`dashboard-button ${isSelected ? 'dashboard-button--ghost' : ''}`.trim()}
+              className={`dashboard-button ${isSelected ? 'dashboard-button--selected' : 'dashboard-button--ghost'}`.trim()}
               aria-pressed={isSelected}
               onClick={() => onSelect(row.eventId)}
             >
@@ -203,3 +203,7 @@ export function mapEventGraphToViewModel(response: EventGraphResponse): EventGra
     })),
   };
 }
+
+
+
+

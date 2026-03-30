@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 
 import type { EventsDashboardResponse, PostsDashboardResponse } from '@shared/dashboard/contracts';
 import { mapDashboardResponseToViewModel } from '@shared/dashboard/mappers';
@@ -12,6 +12,7 @@ describe('Dashboard contracts foundation', () => {
       partial: false,
       warnings: [],
       filters_applied: {
+        query: '',
         date_from: '2026-03-01T00:00:00Z',
         date_to: '2026-03-13T00:00:00Z',
         limit: 25,
@@ -70,6 +71,7 @@ describe('Dashboard contracts foundation', () => {
         },
       ],
       filters_applied: {
+        query: '',
         date_from: null,
         date_to: null,
         limit: 20,
@@ -101,4 +103,6 @@ describe('Dashboard contracts foundation', () => {
     expect(viewModel.warnings).toHaveLength(1);
   });
 });
+
+
 

@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   color-scheme: light;
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
   background:
@@ -586,6 +586,12 @@ textarea {
   color: var(--color-text);
 }
 
+.dashboard-button--selected {
+  background: var(--color-accent);
+  color: #fffaf2;
+  box-shadow: 0 0 0 1px rgba(140, 52, 23, 0.14);
+}
+
 .dashboard-table-shell__cell-stack--selection {
   gap: 6px;
 }
@@ -812,6 +818,10 @@ textarea {
   background: rgba(15, 76, 117, 0.08);
 }
 
+.dashboard-table-shell__row--selected .dashboard-table-shell__cell-title strong {
+  color: #7c2f15;
+}
+
 .dashboard-table-shell__cell-stack,
 .dashboard-table-shell__actions {
   display: grid;
@@ -974,6 +984,7 @@ textarea {
   border-style: solid;
   border-color: rgba(15, 76, 117, 0.2);
   background: linear-gradient(145deg, rgba(15, 76, 117, 0.1), rgba(255, 255, 255, 0.72));
+  box-shadow: inset 3px 0 0 rgba(15, 76, 117, 0.32);
 }
 
 .workspace-selection-context p {
@@ -2312,3 +2323,6 @@ textarea {
   gap: 10px;
   justify-content: flex-end;
 }
+
+
+

@@ -288,6 +288,7 @@ class Report(Base):
 
     status: Mapped[str] = mapped_column(String(50), default="ready")  # ready / pending / failed
     content: Mapped[str] = mapped_column(Text)
+    report_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 
@@ -605,6 +606,7 @@ class ArchivePostReport(Base):
     post_id: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    report_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
     archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

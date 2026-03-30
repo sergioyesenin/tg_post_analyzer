@@ -32,6 +32,8 @@ export type ReportViewModel = {
   status: string;
   content: string;
   createdAt: string;
+  summary: string | null;
+  topics: string[];
 };
 
 export type LinkViewModel = {
@@ -58,6 +60,28 @@ function formatNullableNumber(value: number | null) {
 
 function formatNullableRatio(value: number | null) {
   return value === null ? i18n.t('common.na') : value.toFixed(2);
+}
+
+function readReportSummary(reportJson: Record<string, unknown> | null): string | null {
+  if (!reportJson) {
+    return null;
+  }
+  const summary = reportJson.summary;
+  return typeof summary === 'string' && summary.trim() ? summary : null;
+}
+
+function readReportTopics(reportJson: Record<string, unknown> | null): string[] {
+  if (!reportJson) {
+    return [];
+  }
+  const topics = reportJson.topics;
+  if (!Array.isArray(topics)) {
+    return [];
+  }
+  return topics
+    .map((topic) => (typeof topic === 'object' && topic && 'name' in topic ? String((topic as { name?: unknown }).name ?? '').trim() : ''))
+    .filter((topic) => Boolean(topic))
+    .slice(0, 4);
 }
 
 export function mapPostDetailToViewModel(dto: PostDetailDto): PostDetailViewModel {
@@ -94,6 +118,8 @@ export function mapReportToViewModel(dto: ReportDto | null): ReportViewModel | n
     status: dto.status,
     content: dto.content ?? i18n.t('posts.report.emptyContent'),
     createdAt: formatDate(dto.created_at),
+    summary: readReportSummary(dto.report_json),
+    topics: readReportTopics(dto.report_json),
   };
 }
 

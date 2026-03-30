@@ -23,7 +23,18 @@ export type ProcessDetailEventDto = {
   post_ids: number[];
 };
 
+export type LinkedReportDto = {
+  id: number;
+  status: string;
+  version: number | null;
+  report_text: string | null;
+  report_json: Record<string, unknown> | null;
+  created_at: string;
+};
+
 export type ProcessDetailDto = {
   process: ProcessDetailSummaryDto;
   events: ProcessDetailEventDto[];
+  latest_report: LinkedReportDto | null;
 };
+

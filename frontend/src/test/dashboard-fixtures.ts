@@ -242,6 +242,14 @@ export function createEventDetailResponse(overrides: Partial<EventDetailDto> = {
     post_ids: overrides.post_ids ?? [4012, 3975, 3980],
     root_post_id: overrides.root_post_id ?? 4012,
     channels: overrides.channels ?? ['signal_watch', 'briefing_room'],
+    latest_report: overrides.latest_report ?? {
+      id: 701,
+      status: 'ready',
+      version: 2,
+      report_text: 'Event report text.',
+      report_json: { summary: 'Сводка по событию.', cross_post_topics: [{ name: 'ошибка входа' }, { name: 'обновление' }] },
+      created_at: '2026-03-13T08:45:00Z',
+    },
   };
 }
 
@@ -424,6 +432,7 @@ export function createProcessDetailResponse(
   overrides: Partial<ProcessDetailDto> = {},
 ): ProcessDetailDto {
   return {
+    ...overrides,
     process: {
       id: 201,
       title: 'Narrative escalation chain',
@@ -434,8 +443,9 @@ export function createProcessDetailResponse(
       created_by: 'analyst.bot',
       comments_count: 720,
       involvement: 0.51,
+      ...(overrides.process ?? {}),
     },
-    events: [
+    events: overrides.events ?? [
       {
         event_id: 81,
         title: 'Election coverage spike',
@@ -461,7 +471,14 @@ export function createProcessDetailResponse(
         post_ids: [4100],
       },
     ],
-    ...overrides,
+    latest_report: overrides.latest_report ?? {
+      id: 801,
+      status: 'ready',
+      version: 5,
+      report_text: 'Process report text.',
+      report_json: { summary: 'Сводка по процессу.', stage_analysis: [{ main_topics: ['эскалация', 'реакция'] }] },
+      created_at: '2026-03-13T08:45:00Z',
+    },
   };
 }
 
@@ -1024,6 +1041,7 @@ export function createReportResponse(overrides: Partial<ReportDto> = {}): Report
     post_id: 42,
     status: 'ready',
     content: 'Report content body.',
+    report_json: { summary: 'Краткая сводка по посту.', topics: [{ name: 'ошибка входа' }, { name: 'обновление' }] },
     created_at: '2026-03-12T12:00:00Z',
     ...overrides,
   };
@@ -1093,6 +1111,17 @@ export function createJobResultResponse(
 ): JobResultResponse {
   return overrides;
 }
+
+
+
+
+
+
+
+
+
+
+
 
 
 

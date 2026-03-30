@@ -317,3 +317,156 @@ class TgReportProject:
             metadata={"feature": "post_report", "post_id": post_id, "channel": channel},
         )
         return _clean_model_output(_extract_response_text(response))
+
+    async def generate_post_report_payload(
+        self,
+        *,
+        channel: str,
+        post_id: int,
+        published_at_iso: str,
+        post_text: str,
+        comments: list[str],
+        thread_comments: Optional[list[dict]] = None,
+        views: Optional[int] = None,
+        media_links: Optional[list[str]] = None,
+        config: Optional[ReportConfig] = None,
+    ) -> dict[str, Any]:
+        cfg = config or ReportConfig()
+        thread_comments = thread_comments or []
+        comments_count = len(thread_comments) if thread_comments else len(comments)
+        if comments_count < cfg.min_comments:
+            return {
+                "type": "post_report_v2",
+                "status": "skipped_min_comments",
+                "post_id": post_id,
+                "title": "Недостаточно комментариев",
+                "summary": f"Недостаточно комментариев для устойчивого анализа ({comments_count}).",
+                "comment_count": comments_count,
+                "sentiment": {
+                    "dominant": "neutral",
+                    "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+                    "confidence": "low",
+                },
+                "topics": [],
+                "clusters": [],
+                "time_trends": [],
+                "risks": [],
+                "anomalies": [],
+                "representative_quotes": [],
+                "confidence": {"overall": "low", "reason": "Недостаточно комментариев."},
+                "meta": {"prompt_version": "post_report_v2"},
+            }
+
+        prompt = f"""
+Return one valid JSON object only. No markdown. No prose outside JSON.
+Language of all natural-language fields must be Russian.
+
+Task: analyze one Telegram post and its comments and build a compact structured report.
+Use only these sentiment labels: positive, negative, neutral.
+Do not invent facts. If confidence is low, say so in confidence.reason.
+Comments are short and noisy; prefer cautious aggregation over strong claims.
+
+Required JSON schema:
+{{
+  "type": "post_report_v2",
+  "status": "ready",
+  "title": "string",
+  "summary": "string",
+  "comment_count": {comments_count},
+  "sentiment": {{
+    "dominant": "positive|negative|neutral",
+    "distribution": {{
+      "positive": 0.0,
+      "negative": 0.0,
+      "neutral": 0.0
+    }},
+    "confidence": "low|medium|high"
+  }},
+  "topics": [{{"name": "string", "share": 0.0}}],
+  "clusters": [
+    {{
+      "cluster_id": "string",
+      "name": "string",
+      "size": 0,
+      "dominant_sentiment": "positive|negative|neutral",
+      "summary": "string"
+    }}
+  ],
+  "time_trends": [
+    {{
+      "period": "string",
+      "activity": "low|medium|high",
+      "sentiment_shift": "positive|negative|neutral|mixed|stable",
+      "summary": "string"
+    }}
+  ],
+  "risks": ["string"],
+  "anomalies": ["string"],
+  "representative_quotes": ["string"],
+  "confidence": {{
+    "overall": "low|medium|high",
+    "reason": "string"
+  }}
+}}
+
+Input:
+- channel: {channel}
+- post_id: {post_id}
+- published_at: {published_at_iso}
+- views: {"" if views is None else views}
+- media_links: {", ".join(media_links or [])}
+- post_text:
+{_short_text(post_text or "", max_chars_each=3000)}
+
+- comments:
+{_format_comments_items(comments, max_chars_each=300)}
+"""
+        if thread_comments:
+            prompt += (
+                "\n- thread_nodes_json:\n"
+                f"{_format_thread_nodes_json(thread_comments)}\n"
+            )
+
+        response = await acompletion(
+            model=self._llm_model,
+            base_url=self._llm_base_url,
+            api_key=self._llm_api_key,
+            temperature=0.1,
+            max_tokens=1200,
+            timeout=300,
+            messages=[
+                {"role": "system", "content": "You are a strict JSON report generator for Russian Telegram analytics."},
+                {"role": "user", "content": prompt},
+            ],
+            metadata={"feature": "post_report_v2", "post_id": post_id, "channel": channel},
+        )
+        text = _clean_model_output(_extract_response_text(response))
+        payload = _extract_json_object(text)
+        payload.setdefault("type", "post_report_v2")
+        payload.setdefault("status", "ready")
+        payload["post_id"] = post_id
+        payload["comment_count"] = comments_count
+        meta = payload.setdefault("meta", {})
+        if isinstance(meta, dict):
+            meta.setdefault("prompt_version", "post_report_v2")
+        return payload
+
+
+def _extract_json_object(text: str) -> dict[str, Any]:
+    cleaned = (text or "").strip()
+    if not cleaned:
+        raise ValueError("Empty model output")
+    try:
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start >= 0 and end > start:
+        parsed = json.loads(cleaned[start : end + 1])
+        if isinstance(parsed, dict):
+            return parsed
+    raise ValueError("Model output is not a JSON object")

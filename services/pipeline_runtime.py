@@ -24,7 +24,7 @@ from client.telegram import (
     is_session_locked_error,
     with_session_lock_retry,
 )
-from db.models import Channel, Job, JobDeadLetter, Post, Report
+from db.models import Channel, EventPost, Job, JobDeadLetter, Post, ProcessEvent, Report
 from db.session import AsyncSessionLocal
 from services.archive import run_archive_retention
 from services.auth import write_audit_log
@@ -45,7 +45,12 @@ from services.jobs import (
 from services.jobs_retention import run_jobs_retention
 from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
 from services.processes.build_processes import rebuild_processes
-from services.reporting import build_event_report_draft, build_post_report, build_process_report_draft
+from services.reporting import (
+    REPORT_STATUS_DEFERRED,
+    build_event_report_draft,
+    build_post_report,
+    build_process_report_draft,
+)
 from services.scheduler_dispatch import enqueue_daily_retention_jobs, retention_scheduler_enabled
 from services.settings_defaults import get_default_setting
 from services.settings_store import get_all_settings, report_config_from_settings
@@ -59,6 +64,8 @@ PRIORITY_API_POST_REPORT = 1
 PRIORITY_API_POST_REPORT_BATCH = 5
 PRIORITY_BUILD_POST_LINKS = 4
 PRIORITY_BUILD_POST_REPORT = 40
+PRIORITY_BUILD_EVENT_REPORT = 45
+PRIORITY_BUILD_PROCESS_REPORT = 50
 PRIORITY_ARCHIVE_RETENTION = 95
 PRIORITY_JOBS_RETENTION = 96
 
@@ -263,6 +270,7 @@ async def enqueue_event_report_job(
     event_id: int,
     priority: int = PRIORITY_API_REPORT,
     source: str = "api",
+    dedupe_key: str | None = None,
 ) -> Job | None:
     return await enqueue_job(
         session,
@@ -271,7 +279,7 @@ async def enqueue_event_report_job(
         run_at=datetime.now(timezone.utc),
         priority=priority,
         max_attempts=5,
-        dedupe_key=None,
+        dedupe_key=dedupe_key,
     )
 
 
@@ -281,6 +289,7 @@ async def enqueue_process_report_job(
     process_id: int,
     priority: int = PRIORITY_API_REPORT,
     source: str = "api",
+    dedupe_key: str | None = None,
 ) -> Job | None:
     return await enqueue_job(
         session,
@@ -289,7 +298,7 @@ async def enqueue_process_report_job(
         run_at=datetime.now(timezone.utc),
         priority=priority,
         max_attempts=5,
-        dedupe_key=None,
+        dedupe_key=dedupe_key,
     )
 
 
@@ -417,6 +426,66 @@ async def dispatch_post_report_batch(
         "job_ids": queued_job_ids,
         "filters": filters,
     }
+
+
+async def _enqueue_related_event_report_jobs(
+    session: AsyncSession,
+    *,
+    post_id: int,
+    source: str,
+) -> int:
+    event_ids = [
+        int(row[0])
+        for row in (
+            await session.execute(
+                select(EventPost.event_id)
+                .where(EventPost.post_id == post_id)
+                .distinct()
+            )
+        ).all()
+    ]
+    queued = 0
+    for event_id in event_ids:
+        job = await enqueue_event_report_job(
+            session,
+            event_id=event_id,
+            priority=PRIORITY_BUILD_EVENT_REPORT,
+            source=source,
+            dedupe_key=f"build_event_report:{event_id}",
+        )
+        if job is not None:
+            queued += 1
+    return queued
+
+
+async def _enqueue_related_process_report_jobs(
+    session: AsyncSession,
+    *,
+    event_id: int,
+    source: str,
+) -> int:
+    process_ids = [
+        int(row[0])
+        for row in (
+            await session.execute(
+                select(ProcessEvent.process_id)
+                .where(ProcessEvent.event_id == event_id)
+                .distinct()
+            )
+        ).all()
+    ]
+    queued = 0
+    for process_id in process_ids:
+        job = await enqueue_process_report_job(
+            session,
+            process_id=process_id,
+            priority=PRIORITY_BUILD_PROCESS_REPORT,
+            source=source,
+            dedupe_key=f"build_process_report:{process_id}",
+        )
+        if job is not None:
+            queued += 1
+    return queued
 
 
 async def _get_active_channels() -> list[Channel]:
@@ -1049,6 +1118,39 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
                         result = await build_process_report_draft(session, process_id=int(payload.get("process_id")))
                     else:
                         raise ValueError(f"Unsupported AI job type: {db_job.type}")
+
+                    result_status = str(result.get("status") or "")
+                    if result_status == REPORT_STATUS_DEFERRED:
+                        set_job_result(db_job, result)
+                        await requeue_job(
+                            session,
+                            job=db_job,
+                            retry_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+                            error=f"{db_job.type}:waiting_dependencies",
+                        )
+                        await session.commit()
+                        logger.info(
+                            "Job %s deferred reason=%s worker_id=%s",
+                            db_job.type,
+                            result.get("reason"),
+                            worker_id,
+                        )
+                        return 0
+
+                    source = str(payload.get("source") or "ai")
+                    if db_job.type == JobType.BUILD_POST_REPORT and result_status in {REPORT_STATUS_READY, "skipped_min_comments"}:
+                        await _enqueue_related_event_report_jobs(
+                            session,
+                            post_id=int(payload.get("post_id")),
+                            source=f"{source}:cascade",
+                        )
+                    elif db_job.type == JobType.BUILD_EVENT_REPORT and result_status in {REPORT_STATUS_READY, REPORT_STATUS_DRAFT}:
+                        await _enqueue_related_process_report_jobs(
+                            session,
+                            event_id=int(payload.get("event_id")),
+                            source=f"{source}:cascade",
+                        )
+
                     set_job_result(db_job, result)
                     await mark_job_done(session, job=db_job)
                     await session.commit()

@@ -22,6 +22,8 @@ export type ProcessDetailPageViewModel = {
     eventIds: number[];
     createdBy: string;
     reportStatus: string;
+    reportSummary: string | null;
+    reportTopics: string[];
     graphReady: boolean | null;
   };
   summaryCards: DashboardSummaryCard[];
@@ -38,6 +40,26 @@ export type ProcessDetailPageViewModel = {
   confirmedPostIds: number[];
   graph: ProcessGraphPanelViewModel | null;
 };
+
+function readProcessReportSummary(detail: ProcessDetailDto): string | null {
+  const summary = detail.latest_report?.report_json?.summary;
+  return typeof summary === 'string' && summary.trim() ? summary : null;
+}
+
+function readProcessReportTopics(detail: ProcessDetailDto): string[] {
+  const stages = detail.latest_report?.report_json?.stage_analysis;
+  if (!Array.isArray(stages)) {
+    return [];
+  }
+  const names = stages.flatMap((stage) => {
+    if (typeof stage !== 'object' || !stage || !('main_topics' in stage)) {
+      return [];
+    }
+    const topics = (stage as { main_topics?: unknown }).main_topics;
+    return Array.isArray(topics) ? topics.map((topic) => String(topic)) : [];
+  });
+  return Array.from(new Set(names.filter((topic) => topic.trim()))).slice(0, 4);
+}
 
 export function mapProcessDetailToViewModel(
   detail: ProcessDetailDto,
@@ -76,7 +98,9 @@ export function mapProcessDetailToViewModel(
       eventsCount: String(detail.events.length),
       eventIds: detail.events.map((event) => event.event_id),
       createdBy: detail.process.created_by ?? i18n.t('common.na'),
-      reportStatus: graph?.summary.report_status ?? 'missing',
+      reportStatus: graph?.summary.report_status ?? detail.latest_report?.status ?? 'missing',
+      reportSummary: readProcessReportSummary(detail),
+      reportTopics: readProcessReportTopics(detail),
       graphReady: graph ? true : null,
     },
     summaryCards: [

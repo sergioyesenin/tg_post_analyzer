@@ -10,9 +10,20 @@ export type EventDetailSummaryDto = {
   involvement: number | null;
 };
 
+export type LinkedReportDto = {
+  id: number;
+  status: string;
+  version: number | null;
+  report_text: string | null;
+  report_json: Record<string, unknown> | null;
+  created_at: string;
+};
+
 export type EventDetailDto = {
   event: EventDetailSummaryDto;
   post_ids: number[];
   root_post_id: number | null;
   channels: string[];
+  latest_report: LinkedReportDto | null;
 };
+

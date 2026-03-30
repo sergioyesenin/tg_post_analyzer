@@ -17,6 +17,8 @@ export type ProcessDetailPanelProcess = {
   eventsCount: string;
   eventIds: number[];
   reportStatus: string;
+  reportSummary?: string | null;
+  reportTopics?: string[];
   graphReady: boolean | null;
 };
 
@@ -107,7 +109,10 @@ export function ProcessDetailPanel({ process, graph, relatedEvents, actionSlot }
             <span className="state-card__eyebrow">{t('processes.detail.reportEyebrow')}</span>
             <ReportStatusBadge status={graph?.summary.reportStatus ?? process.reportStatus} />
           </div>
-          <p className="dashboard-panel-copy">{t('processes.detail.reportDescription')}</p>
+          <p className="dashboard-panel-copy">{process.reportSummary ?? t('processes.detail.reportDescription')}</p>
+          {(process.reportTopics ?? []).length > 0 ? (
+            <p className="dashboard-panel-copy">{t('processes.detail.reportTopicsInline', { defaultValue: 'Темы: {{topics}}', topics: (process.reportTopics ?? []).join(', ') })}</p>
+          ) : null}
         </div>
 
         <div className="process-detail-panel__events">

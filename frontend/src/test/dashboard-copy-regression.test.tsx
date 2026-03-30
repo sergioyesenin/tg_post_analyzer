@@ -94,7 +94,7 @@ describe('dashboard analytical copy regression guard', () => {
     i18n.addResourceBundle('ru', 'common', ruBundle, true, true);
     i18n.addResourceBundle('en', 'common', enBundle, true, true);
 
-    let resolveSearch: ((value: unknown) => void) | null = null;
+    const searchDeferred: { resolve?: (value: { total: number; items: unknown[] }) => void } = {};
 
     vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
       if (path === '/api/channels/') {
@@ -108,8 +108,8 @@ describe('dashboard analytical copy regression guard', () => {
 
     vi.spyOn(apiClient, 'post').mockImplementation(async (path: string) => {
       if (path === '/api/keyword/search/posts') {
-        return await new Promise((resolve) => {
-          resolveSearch = resolve;
+        return await new Promise<{ total: number; items: unknown[] }>((resolve) => {
+          searchDeferred.resolve = resolve;
         });
       }
       throw new Error(`Unhandled POST path in fallback regression test: ${path}`);
@@ -133,12 +133,9 @@ describe('dashboard analytical copy regression guard', () => {
       expect(screen.getByText(/Текущая таблица остается на экране, пока обновляются результаты поиска/i)).toBeInTheDocument();
       expect(screen.queryByText(mojibakePattern)).toBeNull();
     } finally {
-      if (resolveSearch) {
-        resolveSearch({ total: 0, items: [] });
-      }
+      searchDeferred.resolve?.({ total: 0, items: [] });
       i18n.addResourceBundle('ru', 'common', backupRu, true, true);
       i18n.addResourceBundle('en', 'common', backupEn, true, true);
     }
   });
 });
-

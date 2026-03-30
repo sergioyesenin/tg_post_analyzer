@@ -8,10 +8,11 @@ from collections import defaultdict
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Channel, Event, EventPost, Post, PostLink, Process, ProcessEvent
+from db.models import Channel, Event, EventPost, EventReport, Post, PostLink, Process, ProcessEvent, ProcessReport
 from deps import get_session, require_roles
 from schemas.linking import (
     EventDetailOut,
+    LinkedReportOut,
     EventSummaryOut,
     LinkRunResponse,
     PostLinksResponse,
@@ -157,6 +158,14 @@ async def get_event(
             .distinct()
         )
     ).all()
+    latest_report = (
+        await session.execute(
+            select(EventReport)
+            .where(EventReport.event_id == event_id)
+            .order_by(EventReport.version.desc(), EventReport.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
     return EventDetailOut(
         event=EventSummaryOut.model_validate(event).model_copy(
             update=metrics_by_event_id.get(event_id, {"comments_count": 0, "involvement": None})
@@ -164,6 +173,14 @@ async def get_event(
         post_ids=post_ids,
         root_post_id=int(root_post_id) if root_post_id is not None else (int(post_ids[0]) if post_ids else None),
         channels=[str(username) for username, in channel_rows if username],
+        latest_report=LinkedReportOut(
+            id=latest_report.id,
+            status=latest_report.report_json.get("status", "ready") if isinstance(latest_report.report_json, dict) else "ready",
+            version=latest_report.version,
+            report_text=latest_report.report_text,
+            report_json=latest_report.report_json,
+            created_at=latest_report.created_at,
+        ) if latest_report is not None else None,
     )
 
 
@@ -206,6 +223,14 @@ async def get_process(
         if parsed_post_id not in bucket:
             bucket.append(parsed_post_id)
     metrics_by_process_id = await load_process_metrics(session, [process_id])
+    latest_report = (
+        await session.execute(
+            select(ProcessReport)
+            .where(ProcessReport.process_id == process_id)
+            .order_by(ProcessReport.version.desc(), ProcessReport.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
     return ProcessDetailOut(
         process=ProcessSummaryOut.model_validate(process).model_copy(
             update=metrics_by_process_id.get(process_id, {"comments_count": 0, "involvement": None})
@@ -225,4 +250,12 @@ async def get_process(
             )
             for item, title, started_at, ended_at, confidence in event_rows
         ],
+        latest_report=LinkedReportOut(
+            id=latest_report.id,
+            status=latest_report.report_json.get("status", "ready") if isinstance(latest_report.report_json, dict) else "ready",
+            version=latest_report.version,
+            report_text=latest_report.report_text,
+            report_json=latest_report.report_json,
+            created_at=latest_report.created_at,
+        ) if latest_report is not None else None,
     )

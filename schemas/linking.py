@@ -51,11 +51,21 @@ class EventSummaryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class LinkedReportOut(BaseModel):
+    id: int
+    status: str
+    version: int | None = None
+    report_text: str | None = None
+    report_json: dict | None = None
+    created_at: datetime
+
+
 class EventDetailOut(BaseModel):
     event: EventSummaryOut
     post_ids: list[int]
     root_post_id: int | None = None
     channels: list[str] = Field(default_factory=list)
+    latest_report: LinkedReportOut | None = None
 
 
 class ProcessSummaryOut(BaseModel):
@@ -88,6 +98,7 @@ class ProcessEventOut(BaseModel):
 class ProcessDetailOut(BaseModel):
     process: ProcessSummaryOut
     events: list[ProcessEventOut]
+    latest_report: LinkedReportOut | None = None
 
 
 class AnchorPayload(BaseModel):

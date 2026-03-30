@@ -27,6 +27,7 @@ export type ReportDto = {
   post_id: number;
   status: string;
   content: string | null;
+  report_json: Record<string, unknown> | null;
   created_at: string;
 };
 
@@ -58,3 +59,4 @@ export type PostDetailQueryBundle = {
 };
 
 export type PostDetailMutationResponse = AcceptedJobResponse;
+

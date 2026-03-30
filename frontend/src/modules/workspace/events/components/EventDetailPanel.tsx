@@ -1,4 +1,4 @@
-ï»¿import { Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -21,6 +21,8 @@ type EventDetailPanelProps = {
     rootPostId: number | null;
     channels: string;
     reportStatus: string | null;
+    reportSummary?: string | null;
+    reportTopics?: string[];
     graphReady: boolean | null;
     createdBy?: string;
   } | null;
@@ -92,7 +94,10 @@ export function EventDetailPanel({ event, graph, actionSlot }: EventDetailPanelP
               <span className="table-link table-link--muted">{t('events.detail.reportPending')}</span>
             )}
           </div>
-          <p className="dashboard-panel-copy">{t('events.detail.reportDescription')}</p>
+          <p className="dashboard-panel-copy">{event.reportSummary ?? t('events.detail.reportDescription')}</p>
+          {(event.reportTopics ?? []).length > 0 ? (
+            <p className="dashboard-panel-copy">{t('events.detail.reportTopicsInline', { defaultValue: 'Òåìû: {{topics}}', topics: (event.reportTopics ?? []).join(', ') })}</p>
+          ) : null}
         </div>
 
         <div className="event-detail-panel__posts">
@@ -128,5 +133,3 @@ export function EventDetailPanel({ event, graph, actionSlot }: EventDetailPanelP
     </section>
   );
 }
-
-

@@ -79,8 +79,17 @@ async def _archive_posts(session: AsyncSession, *, cutoff: datetime, batch_limit
                 post_id=report.post_id,
                 status=report.status,
                 content=report.content,
+                report_json=report.report_json,
                 src_created_at=report.created_at,
-                checksum=_checksum("post_report", report.id, report.post_id, report.status, report.created_at, report.content),
+                checksum=_checksum(
+                    "post_report",
+                    report.id,
+                    report.post_id,
+                    report.status,
+                    report.created_at,
+                    report.content,
+                    report.report_json,
+                ),
             )
             .on_conflict_do_nothing(index_elements=[ArchivePostReport.src_report_id])
         )

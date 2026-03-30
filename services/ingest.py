@@ -195,6 +195,7 @@ async def upsert_report(
     *,
     post_id: int,
     content: str,
+    report_json: dict | None = None,
     status: str = "ready",
 ) -> Report:
     """
@@ -214,6 +215,7 @@ async def upsert_report(
             post_id=post_id,
             status=status,
             content=content,
+            report_json=report_json,
             # created_at задан default-ом на модели, но можно проставить явно:
             created_at=datetime.now(timezone.utc),
         )
@@ -225,6 +227,7 @@ async def upsert_report(
     # Update существующего
     report.status = status
     report.content = content
+    report.report_json = report_json
     # created_at не трогаем: это "время создания"
     await session.flush()
     return report

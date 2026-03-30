@@ -76,6 +76,7 @@ def test_get_process_returns_membership_rows(monkeypatch):
         execute_results=[
             _FakeRowsResult([(membership, "Event 101", now, None, 0.67)]),
             _FakeRowsResult([(101, 501), (101, 502)]),
+            type("_ScalarOneOrNone", (), {"scalar_one_or_none": lambda self_: None})(),
         ],
     )
 
@@ -135,3 +136,4 @@ def test_legacy_links_route_delegates_to_canonical_post_links(monkeypatch):
     assert response.headers["Link"] == "</api/posts/42/links>; rel=\"successor-version\""
     assert response.json()["post_id"] == 42
     assert response.json()["links"][0]["dst_post_id"] == 99
+

@@ -50,6 +50,10 @@ export function ReportBlock({ report, isLoading, isRefreshing, isError, showErro
             <ReportStatusBadge status={report.status} />
             <span>{report.createdAt}</span>
           </div>
+          {report.summary ? <p className="dashboard-panel-copy">{report.summary}</p> : null}
+          {report.topics.length > 0 ? (
+            <p className="dashboard-panel-copy">{t('posts.report.topicsInline', { defaultValue: 'Темы: {{topics}}', topics: report.topics.join(', ') })}</p>
+          ) : null}
           <pre className="report-block__content">{report.content}</pre>
         </div>
       )}

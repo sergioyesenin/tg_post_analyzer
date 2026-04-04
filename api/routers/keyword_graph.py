@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agents.reporter import TgReportProject
+from agents.reporter import get_report_project
 from deps import get_session, require_roles
 from schemas.keyword_graph import (
     GraphBuildRequest,
@@ -18,9 +18,6 @@ from services.keyword_graph import build_posts_graph, generate_graph_report, sea
 from services.settings_store import get_setting
 
 router = APIRouter()
-report_project = TgReportProject(
-    llm_model="ollama/llama3:8b-instruct-q4_K_M",
-)
 
 
 def _in_rollout(user_id: int, percent: int) -> bool:
@@ -100,7 +97,7 @@ async def report_graph(
     session: AsyncSession = Depends(get_session),
 ):
     await _ensure_feature_enabled(session, current_user.id)
-    result = await generate_graph_report(session, payload, report_project=report_project)
+    result = await generate_graph_report(session, payload, report_project=get_report_project())
     await write_audit_log(
         session,
         action="keyword_graph.report_graph",

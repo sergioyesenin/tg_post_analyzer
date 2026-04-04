@@ -98,6 +98,61 @@ def _merge_components_by_title(
     return [sorted(set(component)) for component in merged_components]
 
 
+def _component_payload(*, component: list[int], post_by_id: dict[int, Post], facts_map: dict[int, PostFact]) -> dict | None:
+    component_posts = [post_by_id[pid] for pid in component if pid in post_by_id]
+    if not component_posts:
+        return None
+    root_post = sorted(component_posts, key=lambda post: (post.date, post.id))[0]
+    return {
+        "post_ids": {int(post.id) for post in component_posts},
+        "component_posts": component_posts,
+        "root_post_id": int(root_post.id),
+        "started_at": min(post.date for post in component_posts),
+        "ended_at": max(post.date for post in component_posts),
+        "title": _first_post_title(component_posts, facts_map),
+    }
+
+
+def _membership_payload(*, post_id: int, root_post_id: int, facts_map: dict[int, PostFact]) -> dict:
+    facts = facts_map.get(post_id)
+    return {
+        "role": "root" if post_id == root_post_id else "context",
+        "evidence_json": {
+            "anchors": facts.entities_json if facts else {},
+            "spans": [],
+            "rationale": "Clustered from verified post links.",
+            "counterarguments": [],
+        },
+        "score": 0.8,
+        "status": VerificationStatus.VERIFIED,
+        "model_version": "graph-cluster-v1",
+        "pipeline_version": "events-rebuild-v1",
+    }
+
+
+def _match_component_to_event(
+    *,
+    component_post_ids: set[int],
+    root_post_id: int,
+    existing_post_ids_by_event_id: dict[int, set[int]],
+    assigned_event_ids: set[int],
+) -> int | None:
+    best_event_id: int | None = None
+    best_score: tuple[int, int, int] | None = None
+    for event_id, existing_post_ids in existing_post_ids_by_event_id.items():
+        if event_id in assigned_event_ids:
+            continue
+        overlap = len(component_post_ids & existing_post_ids)
+        root_match = 1 if root_post_id in existing_post_ids else 0
+        if overlap <= 0 and root_match <= 0:
+            continue
+        score = (root_match, overlap, -event_id)
+        if best_score is None or score > best_score:
+            best_score = score
+            best_event_id = event_id
+    return best_event_id
+
+
 async def rebuild_events(
     session: AsyncSession,
     *,
@@ -180,51 +235,121 @@ async def rebuild_events(
     facts_stmt = select(PostFact).where(PostFact.post_id.in_(post_ids))
     facts_map = {f.post_id: f for f in (await session.execute(facts_stmt)).scalars().all()}
     components = _merge_components_by_title(components, post_by_id=post_by_id, facts_map=facts_map)
-
-    if event_ids:
-        await session.execute(delete(EventPost).where(EventPost.event_id.in_(event_ids)))
-        await session.execute(delete(Event).where(Event.id.in_(event_ids)))
-
-    rebuilt = 0
-    for component in components:
-        component_posts = [post_by_id[pid] for pid in component if pid in post_by_id]
-        if not component_posts:
-            continue
-        root_post = sorted(component_posts, key=lambda post: (post.date, post.id))[0]
-        started_at = min(p.date for p in component_posts)
-        ended_at = max(p.date for p in component_posts)
-        title = _first_post_title(component_posts, facts_map)
-        event = Event(
-            title=title,
-            started_at=started_at,
-            ended_at=ended_at,
-            confidence=0.8,
-            status=VerificationStatus.VERIFIED,
-            created_by=created_by,
+    component_payloads = [
+        payload
+        for payload in (
+            _component_payload(component=component, post_by_id=post_by_id, facts_map=facts_map)
+            for component in components
         )
-        session.add(event)
-        await session.flush()
+        if payload is not None
+    ]
 
-        for post_obj in component_posts:
+    existing_events = []
+    existing_memberships = []
+    if event_ids:
+        existing_events = (await session.execute(select(Event).where(Event.id.in_(event_ids)))).scalars().all()
+        existing_memberships = (
+            await session.execute(select(EventPost).where(EventPost.event_id.in_(event_ids)))
+        ).scalars().all()
+
+    existing_event_by_id = {int(event.id): event for event in existing_events}
+    existing_memberships_by_event_id: dict[int, dict[int, EventPost]] = {}
+    existing_post_ids_by_event_id: dict[int, set[int]] = {}
+    for membership in existing_memberships:
+        event_id = int(membership.event_id)
+        post_id = int(membership.post_id)
+        existing_memberships_by_event_id.setdefault(event_id, {})[post_id] = membership
+        existing_post_ids_by_event_id.setdefault(event_id, set()).add(post_id)
+
+    assigned_event_ids: set[int] = set()
+    active_event_ids: set[int] = set()
+    rebuilt = 0
+
+    for payload in sorted(component_payloads, key=lambda item: (item["started_at"], item["root_post_id"])):
+        matched_event_id = _match_component_to_event(
+            component_post_ids=payload["post_ids"],
+            root_post_id=payload["root_post_id"],
+            existing_post_ids_by_event_id=existing_post_ids_by_event_id,
+            assigned_event_ids=assigned_event_ids,
+        )
+        if matched_event_id is not None:
+            event = existing_event_by_id[matched_event_id]
+            assigned_event_ids.add(matched_event_id)
+        else:
+            event = Event(
+                title=payload["title"],
+                started_at=payload["started_at"],
+                ended_at=payload["ended_at"],
+                confidence=0.8,
+                status=VerificationStatus.VERIFIED,
+                created_by=created_by,
+            )
+            session.add(event)
+            await session.flush()
+            matched_event_id = int(event.id)
+            existing_event_by_id[matched_event_id] = event
+            existing_memberships_by_event_id[matched_event_id] = {}
+            existing_post_ids_by_event_id[matched_event_id] = set()
+            assigned_event_ids.add(matched_event_id)
+
+        event.title = payload["title"]
+        event.started_at = payload["started_at"]
+        event.ended_at = payload["ended_at"]
+        event.confidence = 0.8
+        event.status = VerificationStatus.VERIFIED
+        active_event_ids.add(matched_event_id)
+
+        existing_memberships_for_event = existing_memberships_by_event_id.get(matched_event_id, {})
+        stale_post_ids = set(existing_memberships_for_event) - payload["post_ids"]
+        if stale_post_ids:
+            await session.execute(
+                delete(EventPost)
+                .where(EventPost.event_id == matched_event_id)
+                .where(EventPost.post_id.in_(stale_post_ids))
+            )
+            for stale_post_id in stale_post_ids:
+                existing_memberships_for_event.pop(stale_post_id, None)
+            existing_post_ids_by_event_id[matched_event_id] = set(existing_memberships_for_event)
+
+        for post_obj in sorted(payload["component_posts"], key=lambda post: (post.date, post.id)):
+            membership_values = _membership_payload(
+                post_id=int(post_obj.id),
+                root_post_id=payload["root_post_id"],
+                facts_map=facts_map,
+            )
+            existing_membership = existing_memberships_for_event.get(int(post_obj.id))
+            if existing_membership is not None:
+                existing_membership.role = membership_values["role"]
+                existing_membership.evidence_json = membership_values["evidence_json"]
+                existing_membership.score = membership_values["score"]
+                existing_membership.status = membership_values["status"]
+                existing_membership.model_version = membership_values["model_version"]
+                existing_membership.pipeline_version = membership_values["pipeline_version"]
+                continue
+
             membership_stmt = (
                 insert(EventPost)
                 .values(
-                    event_id=event.id,
+                    event_id=matched_event_id,
                     post_id=post_obj.id,
-                    role="root" if post_obj.id == root_post.id else "context",
-                    evidence_json={
-                        "anchors": facts_map.get(post_obj.id).entities_json if facts_map.get(post_obj.id) else {},
-                        "spans": [],
-                        "rationale": "Clustered from verified post links.",
-                        "counterarguments": [],
-                    },
-                    score=0.8,
-                    status=VerificationStatus.VERIFIED,
-                    model_version="graph-cluster-v1",
-                    pipeline_version="events-rebuild-v1",
+                    role=membership_values["role"],
+                    evidence_json=membership_values["evidence_json"],
+                    score=membership_values["score"],
+                    status=membership_values["status"],
+                    model_version=membership_values["model_version"],
+                    pipeline_version=membership_values["pipeline_version"],
                 )
                 .on_conflict_do_nothing()
             )
             await session.execute(membership_stmt)
         rebuilt += 1
+
+    stale_event_ids = set(existing_event_by_id) - active_event_ids
+    for stale_event_id in stale_event_ids:
+        if existing_post_ids_by_event_id.get(stale_event_id):
+            await session.execute(delete(EventPost).where(EventPost.event_id == stale_event_id))
+        stale_event = existing_event_by_id[stale_event_id]
+        stale_event.status = VerificationStatus.REJECTED
+        stale_event.confidence = 0.0
+
     return rebuilt

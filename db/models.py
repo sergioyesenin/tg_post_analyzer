@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum as PyEnum
 from sqlalchemy import (
     BigInteger,
@@ -12,8 +12,8 @@ from sqlalchemy import (
     Float,
     String,
     Text,
-    UniqueConstraint,
     Index,
+    UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -21,6 +21,10 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):
     pass
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def _value_enum(enum_cls: type[PyEnum], *, name: str) -> Enum:
@@ -79,8 +83,8 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
     is_local: Mapped[bool] = mapped_column(default=True, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
 
 class Role(Base):
@@ -92,7 +96,7 @@ class Role(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class UserRole(Base):
@@ -103,7 +107,7 @@ class UserRole(Base):
 
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     role_id: Mapped[int] = mapped_column(ForeignKey("roles.id", ondelete="CASCADE"), primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class AuthIdentity(Base):
@@ -118,7 +122,7 @@ class AuthIdentity(Base):
     provider: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     external_subject: Mapped[str] = mapped_column(String(255), nullable=False)
     attrs_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class AuthRefreshToken(Base):
@@ -139,7 +143,20 @@ class AuthRefreshToken(Base):
         nullable=True,
         index=True,
     )
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class AuthRateLimitBucket(Base):
+    __tablename__ = "auth_rate_limit_buckets"
+    __table_args__ = (
+        Index("ix_auth_rate_limit_buckets_updated_at", "updated_at"),
+    )
+
+    scope: Mapped[str] = mapped_column(String(128), primary_key=True)
+    bucket_key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
 
 class AuditLog(Base):
@@ -155,7 +172,7 @@ class AuditLog(Base):
     target_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
     target_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     details_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class AppSetting(Base):
@@ -169,8 +186,8 @@ class AppSetting(Base):
     value_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)
     updated_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
 
 class Channel(Base):
@@ -182,7 +199,7 @@ class Channel(Base):
     category: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     posts: Mapped[list["Post"]] = relationship(back_populates="channel")
 
@@ -226,7 +243,7 @@ class Post(Base):
     last_comments_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     comments_scan_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     channel: Mapped["Channel"] = relationship(back_populates="posts")
     comments: Mapped[list["Comment"]] = relationship(back_populates="post")
@@ -272,7 +289,7 @@ class Comment(Base):
 
     text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     post: Mapped["Post"] = relationship(back_populates="comments")
 
@@ -290,7 +307,7 @@ class Report(Base):
     content: Mapped[str] = mapped_column(Text)
     report_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     post: Mapped["Post"] = relationship(back_populates="report")
 
@@ -298,7 +315,12 @@ class Report(Base):
 class Job(Base):
     __tablename__ = "jobs"
     __table_args__ = (
-        UniqueConstraint("dedupe_key", name="uq_jobs_dedupe_key"),
+        Index(
+            "ux_jobs_active_dedupe_key",
+            "dedupe_key",
+            unique=True,
+            postgresql_where="status IN ('pending', 'running')",
+        ),
         Index("ix_jobs_status_retry_priority", "status", "retry_at", "priority"),
         Index("ix_jobs_type_status", "type", "status"),
     )
@@ -308,7 +330,7 @@ class Job(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
     priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100, index=True)
     payload_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
-    run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=datetime.utcnow, index=True)
+    run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True)
     retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
@@ -317,8 +339,8 @@ class Job(Base):
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     dedupe_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
 
 class JobDeadLetter(Base):
@@ -337,8 +359,8 @@ class JobDeadLetter(Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, index=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    failed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class Event(Base):
@@ -355,8 +377,8 @@ class Event(Base):
         index=True,
     )
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
     posts: Mapped[list["EventPost"]] = relationship(back_populates="event")
     reports: Mapped[list["EventReport"]] = relationship(back_populates="event")
@@ -381,7 +403,7 @@ class EventPost(Base):
     )
     model_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pipeline_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     event: Mapped["Event"] = relationship(back_populates="posts")
     post: Mapped["Post"] = relationship(back_populates="event_memberships")
@@ -418,8 +440,8 @@ class PostLink(Base):
     evidence_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     model_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pipeline_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
     src_post: Mapped["Post"] = relationship(back_populates="outgoing_links", foreign_keys=[src_post_id])
     dst_post: Mapped["Post"] = relationship(back_populates="incoming_links", foreign_keys=[dst_post_id])
@@ -442,7 +464,7 @@ class PostFact(Base):
     key_numbers_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     fingerprint_json: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     embedding_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     post: Mapped["Post"] = relationship(back_populates="facts")
 
@@ -465,8 +487,8 @@ class Process(Base):
         nullable=False,
     )
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
     events: Mapped[list["ProcessEvent"]] = relationship(back_populates="process")
 
@@ -499,7 +521,7 @@ class ProcessEvent(Base):
     )
     model_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     pipeline_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     process: Mapped["Process"] = relationship(back_populates="events")
     event: Mapped["Event"] = relationship(back_populates="process_memberships")
@@ -516,7 +538,7 @@ class EventReport(Base):
     report_text: Mapped[str] = mapped_column(Text)
     report_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
     event: Mapped["Event"] = relationship(back_populates="reports")
 
@@ -532,7 +554,7 @@ class ProcessReport(Base):
     report_text: Mapped[str] = mapped_column(Text)
     report_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class ArchivePostText(Base):
@@ -549,7 +571,7 @@ class ArchivePostText(Base):
     post_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     text: Mapped[str | None] = mapped_column(Text, nullable=True)
     checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class ArchiveEvent(Base):
@@ -570,7 +592,7 @@ class ArchiveEvent(Base):
     src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     src_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class ArchiveProcess(Base):
@@ -591,7 +613,7 @@ class ArchiveProcess(Base):
     src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     src_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class ArchivePostReport(Base):
@@ -609,7 +631,7 @@ class ArchivePostReport(Base):
     report_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class ArchiveEventReport(Base):
@@ -627,7 +649,7 @@ class ArchiveEventReport(Base):
     version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class ArchiveProcessReport(Base):
@@ -645,7 +667,7 @@ class ArchiveProcessReport(Base):
     version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     src_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
 class ArchiveWatermark(Base):
@@ -661,4 +683,5 @@ class ArchiveWatermark(Base):
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rows_archived_last_run: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+

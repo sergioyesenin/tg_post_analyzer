@@ -5,26 +5,24 @@ import logging
 import os
 import random
 import sys
-import uuid
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sqlalchemy import and_, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import update
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from agents.reporter import TgReportProject
+from agents.reporter import get_report_project
 from client.telegram import (
     TelegramClientHandle,
-    build_telegram_client,
     is_session_locked_error,
     with_session_lock_retry,
 )
-from db.models import Channel, EventPost, Job, JobDeadLetter, Post, ProcessEvent, Report
+from db.models import Channel, EventPost, EventReport, Job, JobDeadLetter, Post, ProcessEvent, ProcessReport, Report
 from db.session import AsyncSessionLocal
 from services.archive import run_archive_retention
 from services.auth import write_audit_log
@@ -32,6 +30,7 @@ from services.channel_management import resolve_and_upsert_channel
 from services.events.build_events import rebuild_events
 from services.ingestion_core import IngestionCore, IngestionContext, IngestionOptions
 from services.jobs import (
+    JOB_STATUS_PENDING,
     JobType,
     defer_locked_job,
     enqueue_job,
@@ -45,11 +44,49 @@ from services.jobs import (
 from services.jobs_retention import run_jobs_retention
 from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
 from services.processes.build_processes import rebuild_processes
+from services.pipeline_runtime_common import (
+    TelegramCycleMetrics,
+    build_tg_client,
+    build_worker_id,
+    clamp_positive_int,
+    collect_backlog_snapshot,
+    configure_logging,
+    get_ai_poll_seconds,
+    get_telegram_poll_seconds,
+    has_due_priority_job,
+    resolve_setting_value,
+    sleep_until_next_telegram_cycle,
+)
+from services.pipeline_runtime_support import (
+    collect_comments_job_priority,
+    dispatch_post_report_batch as dispatch_post_report_batch_impl,
+    enqueue_comment_refresh_job as enqueue_comment_refresh_job_impl,
+    enqueue_event_report_job as enqueue_event_report_job_impl,
+    enqueue_post_link_job as enqueue_post_link_job_impl,
+    enqueue_post_report_batch_job as enqueue_post_report_batch_job_impl,
+    enqueue_post_report_job as enqueue_post_report_job_impl,
+    enqueue_process_report_job as enqueue_process_report_job_impl,
+    enqueue_rebuild_events_job as enqueue_rebuild_events_job_impl,
+    enqueue_rebuild_processes_job as enqueue_rebuild_processes_job_impl,
+    enqueue_related_event_report_jobs as enqueue_related_event_report_jobs_impl,
+    enqueue_related_process_report_jobs as enqueue_related_process_report_jobs_impl,
+    get_active_channels,
+    mark_related_event_reports_stale as mark_related_event_reports_stale_impl,
+    mark_related_process_reports_stale as mark_related_process_reports_stale_impl,
+    process_channel as process_channel_impl,
+    rebuild_event_process_graphs as rebuild_event_process_graphs_impl,
+    schedule_due_post_report_jobs as schedule_due_post_report_jobs_impl,
+    split_jobs_for_telegram_worker,
+)
+from services import reporting as reporting_module
 from services.reporting import (
     REPORT_STATUS_DEFERRED,
+    REPORT_STATUS_STALE,
     build_event_report_draft,
     build_post_report,
     build_process_report_draft,
+    mark_report_payload_stale,
+    sync_post_report_staleness,
 )
 from services.scheduler_dispatch import enqueue_daily_retention_jobs, retention_scheduler_enabled
 from services.settings_defaults import get_default_setting
@@ -63,17 +100,22 @@ PRIORITY_API_COMMENT_REFRESH = 1
 PRIORITY_API_POST_REPORT = 1
 PRIORITY_API_POST_REPORT_BATCH = 5
 PRIORITY_BUILD_POST_LINKS = 4
+PRIORITY_REBUILD_EVENTS = 6
+PRIORITY_REBUILD_PROCESSES = 7
 PRIORITY_BUILD_POST_REPORT = 40
 PRIORITY_BUILD_EVENT_REPORT = 45
 PRIORITY_BUILD_PROCESS_REPORT = 50
 PRIORITY_ARCHIVE_RETENTION = 95
 PRIORITY_JOBS_RETENTION = 96
+AI_JOB_TIMEOUT_SECONDS = int(os.getenv("AI_JOB_TIMEOUT_SECONDS", "300"))
 
 TELEGRAM_JOB_TYPES = {
     JobType.ADD_CHANNEL,
     JobType.COLLECT_COMMENTS,
     JobType.REFRESH_COMMENTS,
     JobType.BUILD_POST_LINKS,
+    JobType.REBUILD_EVENTS,
+    JobType.REBUILD_PROCESSES,
     JobType.ARCHIVE_RETENTION,
     JobType.JOBS_RETENTION,
 }
@@ -88,37 +130,9 @@ AI_JOB_TYPES = {
 SKIP_CHANNEL_IDS: dict[int, str] = {}
 
 
-@dataclass(frozen=True)
-class TelegramCycleMetrics:
-    processed_posts: int
-    executed_jobs: int
-
-
 TelegramPipelineClient = TelegramClientHandle
-
-
-def _clamp_positive_int(value: int | None, *, default: int, minimum: int = 1, maximum: int = 64) -> int:
-    try:
-        parsed = int(value) if value is not None else int(default)
-    except (TypeError, ValueError):
-        parsed = int(default)
-    return max(minimum, min(maximum, parsed))
-
-
-def _resolve_setting_value(*, settings_value, cli_value, fallback):
-    if settings_value is not None:
-        return settings_value
-    if cli_value is not None:
-        return cli_value
-    return fallback
-
-
-def configure_logging(level: str) -> None:
-    logging.basicConfig(level=getattr(logging, level), format="%(asctime)s | %(levelname)-7s | %(message)s")
-
-
-def build_worker_id(prefix: str) -> str:
-    return f"{prefix}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
+_clamp_positive_int = clamp_positive_int
+_resolve_setting_value = resolve_setting_value
 
 
 async def _persist_job_failure_after_exception(
@@ -155,97 +169,6 @@ async def _persist_job_failure_after_exception(
         return False
 
 
-def build_tg_client(*, session_suffix: str, unique_session_per_run: bool) -> TelegramPipelineClient:
-    return build_telegram_client(
-        session_suffix=session_suffix,
-        unique_session_per_run=unique_session_per_run,
-    )
-
-
-async def collect_backlog_snapshot(*, allowed_types: set[str] | None = None) -> dict[str, int]:
-    now_utc = datetime.now(timezone.utc)
-    async with AsyncSessionLocal() as session:
-        stmt = select(Job.status, func.count()).group_by(Job.status)
-        if allowed_types:
-            stmt = stmt.where(Job.type.in_(allowed_types))
-        rows = (await session.execute(stmt)).all()
-
-        pending_stmt = select(func.min(func.coalesce(Job.retry_at, Job.run_at))).where(Job.status == "pending")
-        if allowed_types:
-            pending_stmt = pending_stmt.where(Job.type.in_(allowed_types))
-        pending_oldest = await session.scalar(pending_stmt)
-
-        dead_stmt = select(func.count()).select_from(JobDeadLetter)
-        if allowed_types:
-            dead_stmt = dead_stmt.where(JobDeadLetter.type.in_(allowed_types))
-        dead_letters = int((await session.scalar(dead_stmt)) or 0)
-
-    counts = {str(status): int(count) for status, count in rows}
-    pending_lag_seconds = 0
-    if pending_oldest is not None:
-        pending_lag_seconds = max(0, int((now_utc - pending_oldest).total_seconds()))
-    return {
-        "pending": int(counts.get("pending", 0)),
-        "running": int(counts.get("running", 0)),
-        "done": int(counts.get("done", 0)),
-        "failed": int(counts.get("failed", 0)),
-        "dead_letters": dead_letters,
-        "pending_lag_seconds": pending_lag_seconds,
-    }
-
-
-async def has_due_priority_job(*, allowed_types: set[str], max_priority: int) -> bool:
-    now_utc = datetime.now(timezone.utc)
-    async with AsyncSessionLocal() as session:
-        stmt = (
-            select(Job.id)
-            .where(Job.status == "pending")
-            .where(Job.type.in_(allowed_types))
-            .where(Job.priority <= max_priority)
-            .where(func.coalesce(Job.retry_at, Job.run_at) <= now_utc)
-            .limit(1)
-        )
-        job_id = await session.scalar(stmt)
-    return job_id is not None
-
-
-async def get_telegram_poll_seconds(*, cli_override: int | None, default: int | None = None) -> int:
-    async with AsyncSessionLocal() as session:
-        effective_settings = await get_all_settings(session)
-    ingest_settings = effective_settings.get("ingest", {})
-    resolved = _resolve_setting_value(
-        settings_value=ingest_settings.get("poll_seconds"),
-        cli_value=cli_override,
-        fallback=get_default_setting("ingest", "poll_seconds") if default is None else default,
-    )
-    return max(5, int(resolved))
-
-
-async def get_ai_poll_seconds(*, cli_override: int | None, default: int | None = None) -> int:
-    async with AsyncSessionLocal() as session:
-        effective_settings = await get_all_settings(session)
-    jobs_settings = effective_settings.get("jobs", {})
-    resolved = _resolve_setting_value(
-        settings_value=jobs_settings.get("ai_poll_seconds"),
-        cli_value=cli_override,
-        fallback=get_default_setting("jobs", "ai_poll_seconds") if default is None else default,
-    )
-    return max(5, int(resolved))
-
-
-async def sleep_until_next_telegram_cycle(*, target_seconds: int, wake_priority_threshold: int = PRIORITY_API_COMMENT_REFRESH) -> None:
-    remaining = max(1, int(target_seconds))
-    while remaining > 0:
-        if await has_due_priority_job(
-            allowed_types={JobType.REFRESH_COMMENTS},
-            max_priority=wake_priority_threshold,
-        ):
-            return
-        chunk = min(1, remaining)
-        await asyncio.sleep(chunk)
-        remaining -= chunk
-
-
 async def enqueue_comment_refresh_job(
     session: AsyncSession,
     *,
@@ -253,15 +176,7 @@ async def enqueue_comment_refresh_job(
     priority: int = PRIORITY_API_COMMENT_REFRESH,
     source: str = "api",
 ) -> Job | None:
-    return await enqueue_job(
-        session,
-        job_type=JobType.REFRESH_COMMENTS,
-        payload={"post_id": post_id, "source": source},
-        run_at=datetime.now(timezone.utc),
-        priority=priority,
-        max_attempts=8,
-        dedupe_key=None,
-    )
+    return await enqueue_comment_refresh_job_impl(session, post_id=post_id, priority=priority, source=source)
 
 
 async def enqueue_event_report_job(
@@ -272,13 +187,11 @@ async def enqueue_event_report_job(
     source: str = "api",
     dedupe_key: str | None = None,
 ) -> Job | None:
-    return await enqueue_job(
+    return await enqueue_event_report_job_impl(
         session,
-        job_type=JobType.BUILD_EVENT_REPORT,
-        payload={"event_id": event_id, "source": source},
-        run_at=datetime.now(timezone.utc),
+        event_id=event_id,
         priority=priority,
-        max_attempts=5,
+        source=source,
         dedupe_key=dedupe_key,
     )
 
@@ -291,13 +204,11 @@ async def enqueue_process_report_job(
     source: str = "api",
     dedupe_key: str | None = None,
 ) -> Job | None:
-    return await enqueue_job(
+    return await enqueue_process_report_job_impl(
         session,
-        job_type=JobType.BUILD_PROCESS_REPORT,
-        payload={"process_id": process_id, "source": source},
-        run_at=datetime.now(timezone.utc),
+        process_id=process_id,
         priority=priority,
-        max_attempts=5,
+        source=source,
         dedupe_key=dedupe_key,
     )
 
@@ -310,13 +221,11 @@ async def enqueue_post_report_job(
     source: str = "api",
     dedupe_key: str | None = None,
 ) -> Job | None:
-    return await enqueue_job(
+    return await enqueue_post_report_job_impl(
         session,
-        job_type=JobType.BUILD_POST_REPORT,
-        payload={"post_id": post_id, "source": source},
-        run_at=datetime.now(timezone.utc),
+        post_id=post_id,
         priority=priority,
-        max_attempts=5,
+        source=source,
         dedupe_key=dedupe_key,
     )
 
@@ -328,46 +237,76 @@ async def enqueue_post_report_batch_job(
     priority: int = PRIORITY_API_POST_REPORT_BATCH,
     source: str = "api",
 ) -> Job | None:
-    return await enqueue_job(
+    return await enqueue_post_report_batch_job_impl(session, filters=filters, priority=priority, source=source)
+
+
+async def enqueue_post_link_job(
+    session: AsyncSession,
+    *,
+    post_id: int,
+    priority: int = PRIORITY_BUILD_POST_LINKS,
+    source: str = "api",
+    requested_by_user_id: int | None = None,
+    dedupe_key: str | None = None,
+) -> Job | None:
+    return await enqueue_post_link_job_impl(
         session,
-        job_type=JobType.BUILD_POST_REPORT_BATCH,
-        payload={"filters": filters, "source": source},
-        run_at=datetime.now(timezone.utc),
+        post_id=post_id,
         priority=priority,
-        max_attempts=3,
-        dedupe_key=None,
+        source=source,
+        requested_by_user_id=requested_by_user_id,
+        dedupe_key=dedupe_key,
+    )
+
+
+async def enqueue_rebuild_events_job(
+    session: AsyncSession,
+    *,
+    date_from: datetime,
+    date_to: datetime,
+    priority: int = PRIORITY_REBUILD_EVENTS,
+    source: str = "api",
+    requested_by_user_id: int | None = None,
+    dedupe_key: str | None = None,
+) -> Job | None:
+    return await enqueue_rebuild_events_job_impl(
+        session,
+        date_from=date_from,
+        date_to=date_to,
+        priority=priority,
+        source=source,
+        requested_by_user_id=requested_by_user_id,
+        dedupe_key=dedupe_key,
+    )
+
+
+async def enqueue_rebuild_processes_job(
+    session: AsyncSession,
+    *,
+    date_from: datetime,
+    date_to: datetime,
+    priority: int = PRIORITY_REBUILD_PROCESSES,
+    source: str = "api",
+    requested_by_user_id: int | None = None,
+    dedupe_key: str | None = None,
+) -> Job | None:
+    return await enqueue_rebuild_processes_job_impl(
+        session,
+        date_from=date_from,
+        date_to=date_to,
+        priority=priority,
+        source=source,
+        requested_by_user_id=requested_by_user_id,
+        dedupe_key=dedupe_key,
     )
 
 
 async def schedule_due_post_report_jobs(*, min_age_hours: int, limit: int) -> int:
-    threshold = datetime.now(timezone.utc) - timedelta(hours=max(1, int(min_age_hours)))
-    queued = 0
-    async with AsyncSessionLocal() as session:
-        stmt = (
-            select(Post.id)
-            .outerjoin(Report, Report.post_id == Post.id)
-            .where(Post.date <= threshold)
-            .where(Post.last_comments_scan_at.is_not(None))
-            .where(Report.id.is_(None))
-            .order_by(Post.date.asc(), Post.id.asc())
-            .limit(limit)
-        )
-        post_ids = [int(row[0]) for row in (await session.execute(stmt)).all()]
-        now_utc = datetime.now(timezone.utc)
-        for post_id in post_ids:
-            job = await enqueue_job(
-                session,
-                job_type=JobType.BUILD_POST_REPORT,
-                payload={"post_id": post_id, "source": "scheduler"},
-                run_at=now_utc,
-                priority=PRIORITY_BUILD_POST_REPORT,
-                max_attempts=5,
-                dedupe_key=f"build_post_report:{post_id}",
-            )
-            if job is not None:
-                queued += 1
-        await session.commit()
-    return queued
+    return await schedule_due_post_report_jobs_impl(
+        min_age_hours=min_age_hours,
+        limit=limit,
+        priority_build_post_report=PRIORITY_BUILD_POST_REPORT,
+    )
 
 
 async def dispatch_post_report_batch(
@@ -375,57 +314,12 @@ async def dispatch_post_report_batch(
     *,
     filters: dict,
 ) -> dict:
-    channel_ids = [int(value) for value in (filters.get("channel_ids") or [])]
-    categories = [str(value) for value in (filters.get("categories") or []) if str(value).strip()]
-    date_from = filters.get("date_from")
-    date_to = filters.get("date_to")
-    min_comments = filters.get("min_comments")
-    limit = max(1, min(500, int(filters.get("limit") or 100)))
-
-    stmt = (
-        select(Post.id)
-        .join(Channel, Channel.id == Post.channel_id)
-        .order_by(Post.date.desc(), Post.id.desc())
+    return await dispatch_post_report_batch_impl(
+        session,
+        filters=filters,
+        priority_build_post_report=PRIORITY_BUILD_POST_REPORT,
+        enqueue_post_report_job_fn=enqueue_post_report_job,
     )
-    conditions = []
-    if channel_ids:
-        conditions.append(Post.channel_id.in_(channel_ids))
-    if categories:
-        conditions.append(Channel.category.in_(categories))
-    if date_from is not None:
-        conditions.append(Post.date >= datetime.fromisoformat(str(date_from)))
-    if date_to is not None:
-        conditions.append(Post.date <= datetime.fromisoformat(str(date_to)))
-    if min_comments is not None:
-        conditions.append(Post.comments_count >= int(min_comments))
-    if conditions:
-        stmt = stmt.where(and_(*conditions))
-
-    post_ids = [int(row[0]) for row in (await session.execute(stmt.limit(limit))).all()]
-    queued_job_ids: list[int] = []
-    skipped_post_ids: list[int] = []
-    for post_id in post_ids:
-        job = await enqueue_post_report_job(
-            session,
-            post_id=post_id,
-            priority=PRIORITY_BUILD_POST_REPORT,
-            source="batch",
-            dedupe_key=f"build_post_report:{post_id}",
-        )
-        if job is None:
-            skipped_post_ids.append(post_id)
-            continue
-        queued_job_ids.append(int(job.id))
-
-    return {
-        "status": "queued",
-        "matched_posts": len(post_ids),
-        "queued_jobs": len(queued_job_ids),
-        "skipped_existing": len(skipped_post_ids),
-        "post_ids": post_ids,
-        "job_ids": queued_job_ids,
-        "filters": filters,
-    }
 
 
 async def _enqueue_related_event_report_jobs(
@@ -434,28 +328,21 @@ async def _enqueue_related_event_report_jobs(
     post_id: int,
     source: str,
 ) -> int:
-    event_ids = [
-        int(row[0])
-        for row in (
-            await session.execute(
-                select(EventPost.event_id)
-                .where(EventPost.post_id == post_id)
-                .distinct()
-            )
-        ).all()
-    ]
-    queued = 0
-    for event_id in event_ids:
-        job = await enqueue_event_report_job(
-            session,
-            event_id=event_id,
-            priority=PRIORITY_BUILD_EVENT_REPORT,
-            source=source,
-            dedupe_key=f"build_event_report:{event_id}",
-        )
-        if job is not None:
-            queued += 1
-    return queued
+    return await enqueue_related_event_report_jobs_impl(
+        session,
+        post_id=post_id,
+        source=source,
+        priority_build_event_report=PRIORITY_BUILD_EVENT_REPORT,
+        enqueue_event_report_job_fn=enqueue_event_report_job,
+    )
+
+
+async def _mark_related_event_reports_stale(
+    session: AsyncSession,
+    *,
+    post_id: int,
+) -> int:
+    return await mark_related_event_reports_stale_impl(session, post_id=post_id)
 
 
 async def _enqueue_related_process_report_jobs(
@@ -464,125 +351,29 @@ async def _enqueue_related_process_report_jobs(
     event_id: int,
     source: str,
 ) -> int:
-    process_ids = [
-        int(row[0])
-        for row in (
-            await session.execute(
-                select(ProcessEvent.process_id)
-                .where(ProcessEvent.event_id == event_id)
-                .distinct()
-            )
-        ).all()
-    ]
-    queued = 0
-    for process_id in process_ids:
-        job = await enqueue_process_report_job(
-            session,
-            process_id=process_id,
-            priority=PRIORITY_BUILD_PROCESS_REPORT,
-            source=source,
-            dedupe_key=f"build_process_report:{process_id}",
-        )
-        if job is not None:
-            queued += 1
-    return queued
+    return await enqueue_related_process_report_jobs_impl(
+        session,
+        event_id=event_id,
+        source=source,
+        priority_build_process_report=PRIORITY_BUILD_PROCESS_REPORT,
+        enqueue_process_report_job_fn=enqueue_process_report_job,
+    )
+
+
+async def _mark_related_process_reports_stale(
+    session: AsyncSession,
+    *,
+    event_id: int,
+) -> int:
+    return await mark_related_process_reports_stale_impl(session, event_id=event_id)
 
 
 async def _get_active_channels() -> list[Channel]:
-    async with AsyncSessionLocal() as session:
-        stmt = select(Channel).where(Channel.is_active.is_(True)).order_by(Channel.id.asc())
-        return list((await session.execute(stmt)).scalars().all())
-
-
-async def _get_last_tg_message_id_for_channel(*, session: AsyncSession, channel_id: int) -> int:
-    stmt = select(func.max(Post.tg_message_id)).where(Post.channel_id == channel_id)
-    last_value = (await session.execute(stmt)).scalar_one_or_none()
-    if isinstance(last_value, int) and last_value > 0:
-        return last_value
-    return 0
+    return await get_active_channels()
 
 
 def _collect_comments_job_priority(*, post: Post, scan_index: int) -> int:
-    priority = 20
-    if scan_index == 0:
-        priority -= 2
-    elif scan_index == 1:
-        priority -= 1
-
-    comments = int(post.comments_count or 0)
-    if comments >= 100:
-        priority -= 4
-    elif comments >= 50:
-        priority -= 3
-    elif comments >= 20:
-        priority -= 2
-    elif comments >= 5:
-        priority -= 1
-
-    views = int(post.views or 0)
-    if views >= 5000:
-        priority -= 2
-    elif views >= 1000:
-        priority -= 1
-
-    if isinstance(post.involvement, (int, float)):
-        if post.involvement >= 0.20:
-            priority -= 2
-        elif post.involvement >= 0.10:
-            priority -= 1
-
-    return max(5, min(90, priority))
-
-
-def split_jobs_for_telegram_worker(jobs: list[Job]) -> tuple[list[Job], list[Job]]:
-    comment_jobs: list[Job] = []
-    other_jobs: list[Job] = []
-    for job in jobs:
-        if job.type in {JobType.COLLECT_COMMENTS, JobType.REFRESH_COMMENTS}:
-            comment_jobs.append(job)
-        else:
-            other_jobs.append(job)
-    return comment_jobs, other_jobs
-
-
-async def _schedule_post_jobs(
-    session: AsyncSession,
-    *,
-    post: Post,
-    comment_first_delay_hours: int,
-    comment_interval_hours: int,
-    comment_window_hours: int,
-    comment_schedule_jitter_seconds: int,
-) -> None:
-    await enqueue_job(
-        session,
-        job_type=JobType.BUILD_POST_LINKS,
-        payload={"post_id": post.id},
-        run_at=datetime.now(timezone.utc),
-        priority=PRIORITY_BUILD_POST_LINKS,
-        max_attempts=5,
-        dedupe_key=f"build_post_links:{post.id}",
-    )
-
-    first_comment_at = post.date + timedelta(hours=comment_first_delay_hours)
-    comment_until = post.date + timedelta(hours=comment_window_hours)
-    current = first_comment_at
-    scan_index = 0
-    while current <= comment_until:
-        jitter_seconds = random.randint(0, max(0, int(comment_schedule_jitter_seconds)))
-        scheduled_at = current + timedelta(seconds=jitter_seconds)
-        ts = int(scheduled_at.timestamp())
-        await enqueue_job(
-            session,
-            job_type=JobType.COLLECT_COMMENTS,
-            payload={"post_id": post.id, "scan_index": scan_index, "source": "scheduler"},
-            run_at=scheduled_at,
-            priority=_collect_comments_job_priority(post=post, scan_index=scan_index),
-            max_attempts=8,
-            dedupe_key=f"collect_comments:{post.id}:{ts}",
-        )
-        current = current + timedelta(hours=comment_interval_hours)
-        scan_index += 1
+    return collect_comments_job_priority(post=post, scan_index=scan_index)
 
 
 async def _process_channel(
@@ -596,68 +387,26 @@ async def _process_channel(
     comment_window_hours: int,
     comment_schedule_jitter_seconds: int,
 ) -> int:
-    if channel.id in SKIP_CHANNEL_IDS:
-        logger.info("Skip channel id=%s (@%s): excluded by config", channel.id, channel.username)
-        return 0
-
-    logger.info("Parsing channel @%s since %s", channel.username, since_utc.isoformat())
-    async with AsyncSessionLocal() as session:
-        channel_last_tg_msg_id = await _get_last_tg_message_id_for_channel(session=session, channel_id=channel.id)
-
-    core = IngestionCore(tg_client=client, session_factory=AsyncSessionLocal)
-    options = IngestionOptions(
+    return await process_channel_impl(
+        client,
+        channel,
         since_utc=since_utc,
         max_posts=max_posts,
-        min_tg_message_id_exclusive=channel_last_tg_msg_id,
-        resolve_album_representative=True,
+        comment_first_delay_hours=comment_first_delay_hours,
+        comment_interval_hours=comment_interval_hours,
+        comment_window_hours=comment_window_hours,
+        comment_schedule_jitter_seconds=comment_schedule_jitter_seconds,
+        skip_channel_ids=SKIP_CHANNEL_IDS,
+        priority_build_post_links=PRIORITY_BUILD_POST_LINKS,
+        collect_comments_job_priority_fn=_collect_comments_job_priority,
     )
-
-    async def _on_post_saved(session: AsyncSession, post: Post, ctx: IngestionContext) -> None:
-        await _schedule_post_jobs(
-            session,
-            post=post,
-            comment_first_delay_hours=comment_first_delay_hours,
-            comment_interval_hours=comment_interval_hours,
-            comment_window_hours=comment_window_hours,
-            comment_schedule_jitter_seconds=comment_schedule_jitter_seconds,
-        )
-        logger.info("Saved post id=%s tg_msg_id=%s channel=@%s", post.id, ctx.message.id, channel.username)
-
-    async with client.operation_lock:
-        result = await core.ingest_channel(channel=channel, options=options, on_post_saved=_on_post_saved)
-    logger.info(
-        "Finished @%s processed_posts=%s stopped_reason=%s",
-        channel.username,
-        result.processed_posts,
-        result.stopped_reason,
-    )
-    return result.processed_posts
 
 
 async def _rebuild_event_process_graphs(*, date_from: datetime, date_to: datetime) -> None:
-    async with AsyncSessionLocal() as session:
-        rebuilt_events = await rebuild_events(
-            session,
-            date_from=date_from,
-            date_to=date_to,
-            created_by="telegram-pipeline",
-        )
-        await session.commit()
-    logger.info("Rebuilt events=%s for %s..%s", rebuilt_events, date_from.isoformat(), date_to.isoformat())
-
-    async with AsyncSessionLocal() as session:
-        rebuilt_process_edges = await rebuild_processes(
-            session,
-            date_from=date_from,
-            date_to=date_to,
-            created_by="telegram-pipeline",
-        )
-        await session.commit()
-    logger.info(
-        "Rebuilt process_edges=%s for %s..%s",
-        rebuilt_process_edges,
-        date_from.isoformat(),
-        date_to.isoformat(),
+    await rebuild_event_process_graphs_impl(
+        date_from=date_from,
+        date_to=date_to,
+        created_by="telegram-pipeline",
     )
 
 
@@ -675,6 +424,24 @@ async def _run_link_job(*, job: Job, worker_id: str) -> int:
         try:
             pipeline = NoLlmLinkingPipeline.build_default()
             result = await pipeline.run_for_post(session, post)
+            set_job_result(db_job, result.model_dump())
+            actor_user_id = payload.get("requested_by_user_id")
+            if actor_user_id is not None:
+                await write_audit_log(
+                    session,
+                    action="linking.run.executed",
+                    actor_user_id=int(actor_user_id),
+                    target_type="post",
+                    target_id=str(post.id),
+                    details={
+                        "job_id": db_job.id,
+                        "job_type": db_job.type,
+                        "source": payload.get("source"),
+                        "links_verified": result.links_verified,
+                        "links_rejected": result.links_rejected,
+                        "candidates_checked": result.candidates_checked,
+                    },
+                )
             await mark_job_done(session, job=db_job)
             await session.commit()
             logger.info(
@@ -694,6 +461,134 @@ async def _run_link_job(*, job: Job, worker_id: str) -> int:
             )
             logger.exception(
                 "Job failed marker=job_unexpected op=build_post_links job_id=%s worker_id=%s err=%r",
+                db_job.id,
+                worker_id,
+                exc,
+            )
+            return 0
+
+
+async def _run_rebuild_events_job(*, job: Job, worker_id: str) -> int:
+    async with AsyncSessionLocal() as session:
+        db_job = await session.get(Job, job.id)
+        if db_job is None:
+            return 0
+        payload = db_job.payload_json or {}
+        try:
+            date_from = datetime.fromisoformat(str(payload.get("date_from")))
+            date_to = datetime.fromisoformat(str(payload.get("date_to")))
+            rebuilt = await rebuild_events(
+                session,
+                date_from=date_from,
+                date_to=date_to,
+                created_by="job-pipeline",
+            )
+            result = {
+                "status": "done",
+                "rebuilt_events": rebuilt,
+                "date_from": date_from.isoformat(),
+                "date_to": date_to.isoformat(),
+            }
+            set_job_result(db_job, result)
+            actor_user_id = payload.get("requested_by_user_id")
+            if actor_user_id is not None:
+                await write_audit_log(
+                    session,
+                    action="events.rebuild.executed",
+                    actor_user_id=int(actor_user_id),
+                    target_type="events",
+                    target_id=None,
+                    details={
+                        "job_id": db_job.id,
+                        "job_type": db_job.type,
+                        "source": payload.get("source"),
+                        "date_from": result["date_from"],
+                        "date_to": result["date_to"],
+                        "rebuilt_events": rebuilt,
+                    },
+                )
+            await mark_job_done(session, job=db_job)
+            await session.commit()
+            logger.info(
+                "Job rebuild_events rebuilt=%s date_from=%s date_to=%s worker_id=%s",
+                rebuilt,
+                result["date_from"],
+                result["date_to"],
+                worker_id,
+            )
+            return 1
+        except Exception as exc:
+            await _persist_job_failure_after_exception(
+                session,
+                job_id=db_job.id,
+                error=f"job_unexpected:{db_job.type}:{type(exc).__name__}:{exc}",
+            )
+            logger.exception(
+                "Job failed marker=job_unexpected op=rebuild_events job_id=%s worker_id=%s err=%r",
+                db_job.id,
+                worker_id,
+                exc,
+            )
+            return 0
+
+
+async def _run_rebuild_processes_job(*, job: Job, worker_id: str) -> int:
+    async with AsyncSessionLocal() as session:
+        db_job = await session.get(Job, job.id)
+        if db_job is None:
+            return 0
+        payload = db_job.payload_json or {}
+        try:
+            date_from = datetime.fromisoformat(str(payload.get("date_from")))
+            date_to = datetime.fromisoformat(str(payload.get("date_to")))
+            rebuilt = await rebuild_processes(
+                session,
+                date_from=date_from,
+                date_to=date_to,
+                created_by="job-pipeline",
+            )
+            result = {
+                "status": "done",
+                "rebuilt_process_edges": rebuilt,
+                "date_from": date_from.isoformat(),
+                "date_to": date_to.isoformat(),
+            }
+            set_job_result(db_job, result)
+            actor_user_id = payload.get("requested_by_user_id")
+            if actor_user_id is not None:
+                await write_audit_log(
+                    session,
+                    action="processes.rebuild.executed",
+                    actor_user_id=int(actor_user_id),
+                    target_type="processes",
+                    target_id=None,
+                    details={
+                        "job_id": db_job.id,
+                        "job_type": db_job.type,
+                        "source": payload.get("source"),
+                        "date_from": result["date_from"],
+                        "date_to": result["date_to"],
+                        "rebuilt_process_edges": rebuilt,
+                    },
+                )
+            await mark_job_done(session, job=db_job)
+            await session.commit()
+            logger.info(
+                "Job rebuild_processes rebuilt_edges=%s date_from=%s date_to=%s worker_id=%s",
+                rebuilt,
+                result["date_from"],
+                result["date_to"],
+                worker_id,
+            )
+            return 1
+        except Exception as exc:
+            await _persist_job_failure_after_exception(
+                session,
+                job_id=db_job.id,
+                error=f"job_unexpected:{db_job.type}:{type(exc).__name__}:{exc}",
+            )
+            logger.exception(
+                "Job failed marker=job_unexpected op=rebuild_processes job_id=%s worker_id=%s err=%r",
                 db_job.id,
                 worker_id,
                 exc,
@@ -862,6 +757,13 @@ async def _run_comment_job(
 
             if status in {"ok", "unchanged"}:
                 collect_comments_flood_streak = 0
+                result["post_report_sync"] = await sync_post_report_staleness(
+                    session,
+                    post_id=post_id,
+                    source=f"{source}:comments_refresh",
+                    dependency_type="comments_refresh",
+                    dependency_id=post_id,
+                )
                 set_job_result(db_job, result)
                 await mark_job_done(session, job=db_job)
                 await session.commit()
@@ -1052,6 +954,10 @@ async def run_telegram_jobs(
                     return await _run_add_channel_job(job=job, tg_client=tg_client, worker_id=worker_id)
                 if job.type == JobType.BUILD_POST_LINKS:
                     return await _run_link_job(job=job, worker_id=worker_id)
+                if job.type == JobType.REBUILD_EVENTS:
+                    return await _run_rebuild_events_job(job=job, worker_id=worker_id)
+                if job.type == JobType.REBUILD_PROCESSES:
+                    return await _run_rebuild_processes_job(job=job, worker_id=worker_id)
                 return await _run_maintenance_job(job=job, worker_id=worker_id)
 
         executed += sum(await asyncio.gather(*[_run_other(job) for job in other_jobs]))
@@ -1087,7 +993,7 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
         )
         await session.commit()
 
-    report_project = TgReportProject(llm_model="ollama/llama3:8b-instruct-q4_K_M")
+    report_project = get_report_project()
     report_config = report_config_from_settings(effective_settings)
     parallelism = _clamp_positive_int(job_worker_concurrency, default=2, minimum=1, maximum=16)
     semaphore = asyncio.Semaphore(parallelism)
@@ -1098,26 +1004,31 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
                 db_job = await session.get(Job, job.id)
                 if db_job is None:
                     return 0
+                job_type = str(db_job.type)
+                job_id = int(db_job.id)
                 payload = db_job.payload_json or {}
                 try:
+                    logger.info("AI job start type=%s job_id=%s worker_id=%s", job_type, job_id, worker_id)
                     if db_job.type == JobType.BUILD_POST_REPORT:
-                        result = await build_post_report(
+                        job_coro = build_post_report(
                             session,
                             post_id=int(payload.get("post_id")),
                             report_project=report_project,
                             report_config=report_config,
                         )
                     elif db_job.type == JobType.BUILD_POST_REPORT_BATCH:
-                        result = await dispatch_post_report_batch(
+                        job_coro = dispatch_post_report_batch(
                             session,
                             filters=dict(payload.get("filters") or {}),
                         )
                     elif db_job.type == JobType.BUILD_EVENT_REPORT:
-                        result = await build_event_report_draft(session, event_id=int(payload.get("event_id")))
+                        job_coro = build_event_report_draft(session, event_id=int(payload.get("event_id")))
                     elif db_job.type == JobType.BUILD_PROCESS_REPORT:
-                        result = await build_process_report_draft(session, process_id=int(payload.get("process_id")))
+                        job_coro = build_process_report_draft(session, process_id=int(payload.get("process_id")))
                     else:
                         raise ValueError(f"Unsupported AI job type: {db_job.type}")
+
+                    result = await asyncio.wait_for(job_coro, timeout=AI_JOB_TIMEOUT_SECONDS)
 
                     result_status = str(result.get("status") or "")
                     if result_status == REPORT_STATUS_DEFERRED:
@@ -1138,13 +1049,22 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
                         return 0
 
                     source = str(payload.get("source") or "ai")
-                    if db_job.type == JobType.BUILD_POST_REPORT and result_status in {REPORT_STATUS_READY, "skipped_min_comments"}:
+                    if db_job.type == JobType.BUILD_POST_REPORT and result_status in {reporting_module.REPORT_STATUS_READY, "skipped_min_comments"}:
+                        if result_status == reporting_module.REPORT_STATUS_READY:
+                            await _mark_related_event_reports_stale(
+                                session,
+                                post_id=int(payload.get("post_id")),
+                            )
                         await _enqueue_related_event_report_jobs(
                             session,
                             post_id=int(payload.get("post_id")),
                             source=f"{source}:cascade",
                         )
-                    elif db_job.type == JobType.BUILD_EVENT_REPORT and result_status in {REPORT_STATUS_READY, REPORT_STATUS_DRAFT}:
+                    elif db_job.type == JobType.BUILD_EVENT_REPORT and result_status in {reporting_module.REPORT_STATUS_READY, reporting_module.REPORT_STATUS_DRAFT}:
+                        await _mark_related_process_reports_stale(
+                            session,
+                            event_id=int(payload.get("event_id")),
+                        )
                         await _enqueue_related_process_report_jobs(
                             session,
                             event_id=int(payload.get("event_id")),
@@ -1154,17 +1074,40 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
                     set_job_result(db_job, result)
                     await mark_job_done(session, job=db_job)
                     await session.commit()
-                    logger.info("Job %s status=%s worker_id=%s", db_job.type, result.get("status"), worker_id)
+                    logger.info("Job %s status=%s worker_id=%s", job_type, result.get("status"), worker_id)
                     return 1
+                except asyncio.TimeoutError:
+                    await session.rollback()
+                    await session.execute(
+                        update(Job)
+                        .where(Job.id == job_id)
+                        .values(
+                            last_error=f"job_timeout:{job_type}:{AI_JOB_TIMEOUT_SECONDS}s",
+                            status=JOB_STATUS_PENDING,
+                            retry_at=datetime.now(timezone.utc) + timedelta(seconds=30),
+                            locked_by=None,
+                            locked_at=None,
+                            heartbeat_at=None,
+                        )
+                    )
+                    await session.commit()
+                    logger.error(
+                        "Job failed marker=job_timeout op=ai_job job_id=%s worker_id=%s timeout=%ss",
+                        job_id,
+                        worker_id,
+                        AI_JOB_TIMEOUT_SECONDS,
+                    )
+                    return 0
                 except Exception as exc:
+                    await session.rollback()
                     await _persist_job_failure_after_exception(
                         session,
-                        job_id=db_job.id,
-                        error=f"job_unexpected:{db_job.type}:{type(exc).__name__}:{exc}",
+                        job_id=job_id,
+                        error=f"job_unexpected:{job_type}:{type(exc).__name__}:{exc}",
                     )
                     logger.exception(
                         "Job failed marker=job_unexpected op=ai_job job_id=%s worker_id=%s err=%r",
-                        db_job.id,
+                        job_id,
                         worker_id,
                         exc,
                     )

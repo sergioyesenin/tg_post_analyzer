@@ -11,6 +11,7 @@ const reportStatusMeta: Record<string, StatusMeta> = {
   missing: { label: i18n.t('statusLabels.missing'), tone: 'muted' },
   pending: { label: i18n.t('statusLabels.pending'), tone: 'warning' },
   draft: { label: i18n.t('statusLabels.draft'), tone: 'info' },
+  stale: { label: i18n.exists('statusLabels.stale') ? i18n.t('statusLabels.stale') : 'Stale', tone: 'warning' },
   ready: { label: i18n.t('statusLabels.ready'), tone: 'success' },
   failed: { label: i18n.t('statusLabels.failed'), tone: 'danger' },
 };

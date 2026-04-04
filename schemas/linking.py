@@ -37,6 +37,14 @@ class LinkRunResponse(BaseModel):
     queued_for_review: int = 0
 
 
+class JobAcceptedResponse(BaseModel):
+    status: str
+    job_id: int
+    job_type: str
+    status_url: str
+    result_url: str
+
+
 class EventSummaryOut(BaseModel):
     id: int
     title: str | None = None

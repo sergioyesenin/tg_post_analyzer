@@ -13,17 +13,19 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from services.pipeline_runtime import (
+from services.orchestration import (
     TELEGRAM_JOB_TYPES,
+    run_telegram_cycle,
+)
+from services.orchestration import (
+    is_session_locked_error,
+    with_session_lock_retry,
     build_tg_client,
     build_worker_id,
     collect_backlog_snapshot,
     configure_logging,
     get_telegram_poll_seconds,
-    is_session_locked_error,
-    run_telegram_cycle,
     sleep_until_next_telegram_cycle,
-    with_session_lock_retry,
 )
 from services.runtime_heartbeat import HEARTBEAT_INTERVAL_SECONDS, persist_runtime_heartbeat
 from services.runtime_topology import TELEGRAM_PIPELINE_RUNTIME

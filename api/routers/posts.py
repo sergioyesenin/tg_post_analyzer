@@ -11,7 +11,7 @@ from db.models import Post, Channel, Comment
 from schemas.post import PostCardOut, PostDetailOut
 from schemas.comment import CommentOut
 from services.auth import AuthUser
-from services.pipeline_runtime import enqueue_comment_refresh_job
+from services.orchestration import enqueue_comment_refresh_job
 from services.settings_store import get_setting
 
 router = APIRouter()

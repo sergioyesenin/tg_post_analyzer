@@ -1,51 +1,65 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class SentimentDistribution(BaseModel):
-    positive: float = 0.0
-    negative: float = 0.0
-    neutral: float = 0.0
+    positive: float = Field(default=0.0, ge=0.0, le=1.0)
+    negative: float = Field(default=0.0, ge=0.0, le=1.0)
+    neutral: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class SentimentSummary(BaseModel):
-    dominant: str = "neutral"
+    dominant: Literal["positive", "negative", "neutral"] = "neutral"
     distribution: SentimentDistribution = Field(default_factory=SentimentDistribution)
-    confidence: str | None = None
+    confidence: Literal["low", "medium", "high"] | None = None
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ConfidenceSummary(BaseModel):
-    overall: str = "medium"
+    overall: Literal["low", "medium", "high"] = "medium"
     reason: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class TopicSummary(BaseModel):
     name: str
-    share: float | None = None
+    share: float | None = Field(default=None, ge=0.0, le=1.0)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ClusterSummary(BaseModel):
     cluster_id: str | None = None
     name: str
     size: int | None = None
-    dominant_sentiment: str | None = None
+    dominant_sentiment: Literal["positive", "negative", "neutral"] | None = None
     summary: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class TrendSummary(BaseModel):
     period: str | None = None
-    activity: str | None = None
-    sentiment_shift: str | None = None
+    activity: Literal["low", "medium", "high"] | None = None
+    sentiment_shift: Literal["positive", "negative", "neutral", "mixed", "stable"] | None = None
     summary: str
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class PostReportPayload(BaseModel):
-    type: str = "post_report_v2"
-    status: str = "ready"
+    type: Literal["post_report_v2"] = "post_report_v2"
+    status: Literal["ready", "skipped_min_comments", "failed"] = "ready"
     post_id: int
+    published_at: str | None = None
     title: str
     summary: str
     comment_count: int = 0
@@ -58,6 +72,8 @@ class PostReportPayload(BaseModel):
     representative_quotes: list[str] = Field(default_factory=list)
     confidence: ConfidenceSummary = Field(default_factory=ConfidenceSummary)
     meta: dict = Field(default_factory=dict)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class EventReportPayload(BaseModel):

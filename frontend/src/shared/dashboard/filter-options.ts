@@ -1,4 +1,4 @@
-import type { ChannelDto } from '@modules/admin/contracts';
+﻿import type { ChannelDto } from '@modules/admin/contracts';
 import type {
   EventsDashboardResponse,
   PostsDashboardResponse,
@@ -57,8 +57,14 @@ function formatChannelDescription(channel: ChannelDto) {
   return parts.join(' | ');
 }
 
+function normalizeChannels(channels: ChannelDto[] | undefined): ChannelDto[] {
+  return Array.isArray(channels) ? channels : [];
+}
+
 function buildChannelOptions(channels: ChannelDto[] | undefined, selectedIds: number[]) {
-  const knownChannels = [...(channels ?? [])].sort((left, right) => formatChannelLabel(left).localeCompare(formatChannelLabel(right)));
+  const knownChannels = [...normalizeChannels(channels)].sort((left, right) =>
+    formatChannelLabel(left).localeCompare(formatChannelLabel(right)),
+  );
   const selectedIdSet = new Set(selectedIds);
   const options = knownChannels.map((channel) => ({
     value: channel.id,
@@ -91,7 +97,7 @@ function buildChannelOptions(channels: ChannelDto[] | undefined, selectedIds: nu
 }
 
 function buildCategoryOptions(channels: ChannelDto[] | undefined, selectedCategories: string[]) {
-  const values = sortTextValues([...(channels ?? []).map((channel) => channel.category?.trim() ?? ''), ...selectedCategories]);
+  const values = sortTextValues([...normalizeChannels(channels).map((channel) => channel.category?.trim() ?? ''), ...selectedCategories]);
 
   return values.map((value) => ({
     value,
@@ -149,3 +155,4 @@ export function getProcessesDashboardFilterOptions(params: {
     status: buildStringOptions(dashboardData?.items.map((item) => item.status) ?? [], filters.status),
   };
 }
+

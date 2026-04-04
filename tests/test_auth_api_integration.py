@@ -1,15 +1,43 @@
 from __future__ import annotations
 
+import asyncio
+from collections import deque
 from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 
 from api.routers import auth as auth_router
 from db.models import AuthRefreshToken, Role, User, UserRole
 from deps import get_current_user
 from services import auth as auth_service
+from services import auth_rate_limit as auth_rate_limit_service
 from services.auth import AuthUser
+from services.auth_rate_limit import reset_auth_rate_limits
+
+
+class _FakeSharedRateLimiterBackend:
+    def __init__(self) -> None:
+        self._buckets: dict[tuple[str, str], deque] = {}
+        self._lock = asyncio.Lock()
+
+    async def check(self, *, scope: str, key: str, limit: int, window_seconds: int) -> None:
+        now = auth_rate_limit_service._utcnow()
+        window_start = now - timedelta(seconds=window_seconds)
+        bucket_key = (scope, key)
+        async with self._lock:
+            bucket = self._buckets.setdefault(bucket_key, deque())
+            while bucket and bucket[0] < window_start:
+                bucket.popleft()
+            if len(bucket) >= limit:
+                retry_after = max(1, int((bucket[0] + timedelta(seconds=window_seconds) - now).total_seconds()))
+                raise auth_rate_limit_service._rate_limit_exception(retry_after=retry_after)
+            bucket.append(now)
+
+    async def clear(self) -> None:
+        async with self._lock:
+            self._buckets.clear()
 
 
 class _ScalarOneOrNoneResult:
@@ -163,6 +191,17 @@ def _build_client(session: _FakeSession) -> TestClient:
     return TestClient(app)
 
 
+def _reset_rate_limits() -> None:
+    import asyncio
+
+    asyncio.run(reset_auth_rate_limits())
+
+
+@pytest.fixture(autouse=True)
+def _stub_shared_rate_limiter(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(auth_router.auth_rate_limiter, '_shared_backend', _FakeSharedRateLimiterBackend())
+
+
 def _auth_header(token: str) -> dict[str, str]:
     return {'Authorization': f'Bearer {token}'}
 
@@ -176,6 +215,7 @@ def _apply_cookie_settings(monkeypatch):
 
 
 def test_login_refresh_logout_and_revoked_refresh_flow(monkeypatch):
+    _reset_rate_limits()
     store = _AuthStore()
     session = _FakeSession(store)
     client = _build_client(session)
@@ -216,6 +256,7 @@ def test_login_refresh_logout_and_revoked_refresh_flow(monkeypatch):
 
 
 def test_refresh_rejects_expired_token(monkeypatch):
+    _reset_rate_limits()
     store = _AuthStore()
     expired = store.add_refresh_token(
         user_id=1,
@@ -238,6 +279,7 @@ def test_refresh_rejects_expired_token(monkeypatch):
 
 
 def test_rbac_blocks_viewer_and_allows_admin_for_user_listing():
+    _reset_rate_limits()
     store = _AuthStore()
     session = _FakeSession(store)
     client = _build_client(session)
@@ -254,6 +296,7 @@ def test_rbac_blocks_viewer_and_allows_admin_for_user_listing():
 
 
 def test_list_users_uses_bulk_role_loading_without_n_plus_one(monkeypatch):
+    _reset_rate_limits()
     store = _AuthStore()
     session = _FakeSession(store)
     client = _build_client(session)

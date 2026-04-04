@@ -12,7 +12,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from db.session import AsyncSessionLocal
-from services.pipeline_runtime import configure_logging
+from services.pipeline_runtime_common import configure_logging
 from services.runtime_heartbeat import HEARTBEAT_INTERVAL_SECONDS, persist_runtime_heartbeat
 from services.scheduler_dispatch import retention_scheduler_enabled
 from services.scheduler_runtime import build_scheduler, register_periodic_jobs
@@ -30,9 +30,9 @@ async def main_async() -> None:
     async with AsyncSessionLocal() as session:
         effective_settings = await get_all_settings(session)
 
-    #if not retention_scheduler_enabled(effective_settings):
-    #    logging.info("Scheduler process is disabled by settings.")
-    #    return
+    if not retention_scheduler_enabled(effective_settings):
+        logging.info("Scheduler process is disabled by settings.")
+        return
 
     scheduler = build_scheduler()
     register_periodic_jobs(scheduler, effective_settings=effective_settings)

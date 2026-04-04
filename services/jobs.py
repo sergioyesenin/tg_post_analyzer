@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +13,7 @@ JOB_STATUS_PENDING = "pending"
 JOB_STATUS_RUNNING = "running"
 JOB_STATUS_DONE = "done"
 JOB_STATUS_FAILED = "failed"
+ACTIVE_JOB_STATUSES = (JOB_STATUS_PENDING, JOB_STATUS_RUNNING)
 JOB_RESULT_KEY = "_job_result"
 
 
@@ -22,6 +23,8 @@ class JobType:
     COLLECT_COMMENTS: str = "collect_comments"
     REFRESH_COMMENTS: str = "refresh_comments"
     BUILD_POST_LINKS: str = "build_post_links"
+    REBUILD_EVENTS: str = "rebuild_events"
+    REBUILD_PROCESSES: str = "rebuild_processes"
     BUILD_POST_REPORT: str = "build_post_report"
     BUILD_POST_REPORT_BATCH: str = "build_post_report_batch"
     BUILD_EVENT_REPORT: str = "build_event_report"
@@ -60,7 +63,10 @@ async def enqueue_job(
         stmt = (
             insert(Job)
             .values(**values)
-            .on_conflict_do_nothing(index_elements=[Job.dedupe_key])
+            .on_conflict_do_nothing(
+                index_elements=[Job.dedupe_key],
+                index_where=text("status IN ('pending', 'running')"),
+            )
             .returning(Job.id)
         )
         result = await session.execute(stmt)

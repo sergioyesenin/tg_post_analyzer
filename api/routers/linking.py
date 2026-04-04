@@ -2,31 +2,68 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from collections import defaultdict
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 
-from db.models import Channel, Event, EventPost, EventReport, Post, PostLink, Process, ProcessEvent, ProcessReport
+from db.models import Channel, Event, EventPost, EventReport, Job, Post, PostLink, Process, ProcessEvent, ProcessReport
 from deps import get_session, require_roles
 from schemas.linking import (
     EventDetailOut,
     LinkedReportOut,
     EventSummaryOut,
-    LinkRunResponse,
+    JobAcceptedResponse,
     PostLinksResponse,
     ProcessDetailOut,
     ProcessEventOut,
     ProcessSummaryOut,
 )
 from services.auth import AuthUser, write_audit_log
-from services.events.build_events import rebuild_events
 from services.linking_metrics import load_event_metrics, load_process_metrics
-from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
-from services.processes.build_processes import rebuild_processes
+from services.jobs import JOB_STATUS_PENDING, JOB_STATUS_RUNNING, JobType
+from services.orchestration import (
+    enqueue_post_link_job,
+    enqueue_rebuild_events_job,
+    enqueue_rebuild_processes_job,
+)
 
 router = APIRouter()
+
+
+def _job_accepted_response(job: Job) -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content=jsonable_encoder(
+            {
+                "status": "queued",
+                "job_id": job.id,
+                "job_type": job.type,
+                "status_url": f"/api/jobs/{job.id}",
+                "result_url": f"/api/jobs/{job.id}/result",
+            }
+        ),
+    )
+
+
+async def _find_active_job_by_dedupe_key(
+    session: AsyncSession,
+    *,
+    job_type: str,
+    dedupe_key: str,
+) -> Job | None:
+    stmt = (
+        select(Job)
+        .where(Job.type == job_type)
+        .where(Job.dedupe_key == dedupe_key)
+        .where(Job.status.in_((JOB_STATUS_PENDING, JOB_STATUS_RUNNING)))
+        .order_by(Job.created_at.desc(), Job.id.desc())
+        .limit(1)
+    )
+    return (await session.execute(stmt)).scalar_one_or_none()
 
 
 @router.get("/events", response_model=list[EventSummaryOut])
@@ -50,7 +87,7 @@ async def list_events(
     ]
 
 
-@router.post("/linking/run", response_model=LinkRunResponse)
+@router.post("/linking/run", response_model=JobAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
 async def run_linking(
     post_id: int = Query(...),
     current_user: AuthUser = Depends(require_roles("admin")),
@@ -59,55 +96,104 @@ async def run_linking(
     post = await session.get(Post, post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
-    pipeline = NoLlmLinkingPipeline.build_default()
-    result = await pipeline.run_for_post(session, post)
+    dedupe_key = f"build_post_links:{post_id}"
+    job = await enqueue_post_link_job(
+        session,
+        post_id=post_id,
+        source="api.linking.run",
+        requested_by_user_id=current_user.id,
+        dedupe_key=dedupe_key,
+    )
+    if job is None:
+        job = await _find_active_job_by_dedupe_key(
+            session,
+            job_type=JobType.BUILD_POST_LINKS,
+            dedupe_key=dedupe_key,
+        )
+    if job is None:
+        raise HTTPException(status_code=500, detail="Failed to enqueue build_post_links job")
     await write_audit_log(
         session,
-        action="linking.run",
+        action="linking.run.queued",
         actor_user_id=current_user.id,
-        target_type="post",
-        target_id=str(post.id),
+        target_type="job",
+        target_id=str(job.id),
+        details={"post_id": post.id, "job_type": job.type},
     )
     await session.commit()
-    return result
+    return _job_accepted_response(job)
 
 
-@router.post("/events/rebuild")
+@router.post("/events/rebuild", response_model=JobAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
 async def rebuild_events_api(
     date_from: datetime,
     date_to: datetime,
     current_user: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    rebuilt = await rebuild_events(session, date_from=date_from, date_to=date_to)
+    dedupe_key = f"rebuild_events:{date_from.isoformat()}:{date_to.isoformat()}"
+    job = await enqueue_rebuild_events_job(
+        session,
+        date_from=date_from,
+        date_to=date_to,
+        source="api.events.rebuild",
+        requested_by_user_id=current_user.id,
+        dedupe_key=dedupe_key,
+    )
+    if job is None:
+        job = await _find_active_job_by_dedupe_key(
+            session,
+            job_type=JobType.REBUILD_EVENTS,
+            dedupe_key=dedupe_key,
+        )
+    if job is None:
+        raise HTTPException(status_code=500, detail="Failed to enqueue rebuild_events job")
     await write_audit_log(
         session,
-        action="events.rebuild",
+        action="events.rebuild.queued",
         actor_user_id=current_user.id,
-        target_type="events",
-        details={"date_from": date_from.isoformat(), "date_to": date_to.isoformat(), "rebuilt": rebuilt},
+        target_type="job",
+        target_id=str(job.id),
+        details={"date_from": date_from.isoformat(), "date_to": date_to.isoformat(), "job_type": job.type},
     )
     await session.commit()
-    return {"rebuilt_events": rebuilt, "date_from": date_from, "date_to": date_to}
+    return _job_accepted_response(job)
 
 
-@router.post("/processes/rebuild")
+@router.post("/processes/rebuild", response_model=JobAcceptedResponse, status_code=status.HTTP_202_ACCEPTED)
 async def rebuild_processes_api(
     date_from: datetime,
     date_to: datetime,
     current_user: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    rebuilt_edges = await rebuild_processes(session, date_from=date_from, date_to=date_to)
+    dedupe_key = f"rebuild_processes:{date_from.isoformat()}:{date_to.isoformat()}"
+    job = await enqueue_rebuild_processes_job(
+        session,
+        date_from=date_from,
+        date_to=date_to,
+        source="api.processes.rebuild",
+        requested_by_user_id=current_user.id,
+        dedupe_key=dedupe_key,
+    )
+    if job is None:
+        job = await _find_active_job_by_dedupe_key(
+            session,
+            job_type=JobType.REBUILD_PROCESSES,
+            dedupe_key=dedupe_key,
+        )
+    if job is None:
+        raise HTTPException(status_code=500, detail="Failed to enqueue rebuild_processes job")
     await write_audit_log(
         session,
-        action="processes.rebuild",
+        action="processes.rebuild.queued",
         actor_user_id=current_user.id,
-        target_type="processes",
-        details={"date_from": date_from.isoformat(), "date_to": date_to.isoformat(), "rebuilt_edges": rebuilt_edges},
+        target_type="job",
+        target_id=str(job.id),
+        details={"date_from": date_from.isoformat(), "date_to": date_to.isoformat(), "job_type": job.type},
     )
     await session.commit()
-    return {"rebuilt_process_edges": rebuilt_edges, "date_from": date_from, "date_to": date_to}
+    return _job_accepted_response(job)
 
 
 @router.get("/posts/{post_id}/links", response_model=PostLinksResponse)

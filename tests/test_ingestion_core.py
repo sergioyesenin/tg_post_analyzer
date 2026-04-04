@@ -15,6 +15,10 @@ class _FakeSession:
     async def __aexit__(self, exc_type, exc, tb):
         return False
 
+    async def get(self, model, key):
+        del model, key
+        return None
+
     async def commit(self) -> None:
         return None
 
@@ -228,3 +232,64 @@ def test_pick_album_representative_message_recovers_from_partial_nearby_fetch():
 
     assert representative.id == 101
     assert len(client.requests) >= 2
+
+
+def test_ingestion_core_marks_post_report_stale_when_existing_post_inputs_change(monkeypatch):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    message = _msg(msg_id=201, dt=now, replies=12)
+    sync_calls: list[dict] = []
+
+    async def _upsert(session, **kwargs):
+        return SimpleNamespace(id=501, tg_message_id=kwargs["tg_message_id"])
+
+    async def _existing(*, session, channel_id: int, tg_message_id: int):
+        return SimpleNamespace(
+            id=501,
+            tg_message_id=tg_message_id,
+            date=now - timedelta(minutes=5),
+            text="old text",
+            views=10,
+            comments_count=1,
+        )
+
+    async def _fake_sync_post_report_staleness(_session, *, post_id, source, dependency_type, dependency_id):
+        sync_calls.append(
+            {
+                "post_id": post_id,
+                "source": source,
+                "dependency_type": dependency_type,
+                "dependency_id": dependency_id,
+            }
+        )
+        return {"status": "queued"}
+
+    monkeypatch.setattr("services.reporting.sync_post_report_staleness", _fake_sync_post_report_staleness)
+
+    core = IngestionCore(
+        tg_client=_FakeClient([message]),
+        session_factory=_FakeSession,
+        upsert_post_fn=_upsert,
+    )
+    core._get_post_by_channel_msg = _existing  # type: ignore[method-assign]
+    core._ensure_parent_post = AsyncMock(return_value=None)  # type: ignore[attr-defined]
+
+    result = asyncio.run(
+        core.ingest_channel(
+            channel=SimpleNamespace(id=1, username="demo"),
+            options=IngestionOptions(
+                since_utc=now - timedelta(hours=1),
+                resolve_album_representative=False,
+                stop_on_existing_post=False,
+            ),
+        )
+    )
+
+    assert result.processed_posts == 1
+    assert sync_calls == [
+        {
+            "post_id": 501,
+            "source": "ingestion.post_update",
+            "dependency_type": "post_ingestion",
+            "dependency_id": 501,
+        }
+    ]

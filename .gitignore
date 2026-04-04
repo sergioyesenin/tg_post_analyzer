@@ -66,7 +66,9 @@ Thumbs.db
 # =========================
 .pytest_cache/
 .coverage
+.coverage.*
 htmlcov/
+coverage/
 
 # =========================
 # Build artifacts
@@ -75,9 +77,10 @@ build/
 dist/
 *.egg-info/
 .eggs/
+*.tsbuildinfo
+node_modules/
 frontend/node_modules/
 frontend/dist/
-frontend/*.tsbuildinfo/
 docs/logs.txt
 docs/posts_*.txt
 docs/*_test_results_*.txt

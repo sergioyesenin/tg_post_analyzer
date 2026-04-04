@@ -32,6 +32,7 @@ class Settings:
         self.TG_FLOOD_SLEEP_THRESHOLD = self._env_int("TG_FLOOD_SLEEP_THRESHOLD", default=5, errors=errors)
         self.DB_URL = self._env_str("DB_URL", alias="DATABASE_URL", required=True, errors=errors)
         self.APP_ENV = self._env_str("APP_ENV", default="dev", errors=errors) or "dev"
+        self.IS_NON_PROD = self.APP_ENV.strip().lower() in self._NON_PROD_ENVS
         self._validate_non_dev_db_credentials(self.DB_URL, self.APP_ENV, errors)
         self.tz = self._env_str("APP_TZ", alias="TZ", default="Europe/Minsk", errors=errors)
         self._validate_timezone(self.tz, errors)
@@ -39,6 +40,24 @@ class Settings:
         self.LINKER_LLM_MODEL = self._env_str("LINKER_LLM_MODEL", default="ollama/llama3:8b-instruct-q4_K_M", errors=errors)
         self.LINKER_LLM_BASE_URL = self._env_str("LINKER_LLM_BASE_URL", default="http://localhost:11434", errors=errors)
         self.LINKER_LLM_API_KEY = self._env_str("LINKER_LLM_API_KEY", default=None, errors=errors)
+        self.REPORT_LLM_MODEL = self._env_str(
+            "REPORT_LLM_MODEL",
+            alias="LINKER_LLM_MODEL",
+            default="ollama/llama3:8b-instruct-q4_K_M",
+            errors=errors,
+        )
+        self.REPORT_LLM_BASE_URL = self._env_str(
+            "REPORT_LLM_BASE_URL",
+            alias="LINKER_LLM_BASE_URL",
+            default="http://localhost:11434",
+            errors=errors,
+        )
+        self.REPORT_LLM_API_KEY = self._env_str(
+            "REPORT_LLM_API_KEY",
+            alias="LINKER_LLM_API_KEY",
+            default=None,
+            errors=errors,
+        )
 
         self.LINKING_PIPELINE_VERSION = self._env_str("LINKING_PIPELINE_VERSION", default="v2-evidence-first", errors=errors)
         self.LINKING_TOP_K = self._env_int("LINKING_TOP_K", default=50, errors=errors)
@@ -72,6 +91,12 @@ class Settings:
         self.AUTH_REFRESH_COOKIE_SAMESITE = self._env_str("AUTH_REFRESH_COOKIE_SAMESITE", default="lax", errors=errors)
         self.AUTH_REFRESH_COOKIE_DOMAIN = self._env_str("AUTH_REFRESH_COOKIE_DOMAIN", default=None, errors=errors)
         self.AUTH_REFRESH_COOKIE_PATH = self._env_str("AUTH_REFRESH_COOKIE_PATH", default="/api/auth", errors=errors)
+        self.AUTH_TRUST_PROXY_HEADERS = self._env_bool("AUTH_TRUST_PROXY_HEADERS", default=False, errors=errors)
+        self.AUTH_RATE_LIMIT_WINDOW_SECONDS = self._env_int("AUTH_RATE_LIMIT_WINDOW_SECONDS", default=300, errors=errors)
+        self.AUTH_LOGIN_MAX_ATTEMPTS = self._env_int("AUTH_LOGIN_MAX_ATTEMPTS", default=10, errors=errors)
+        self.AUTH_REFRESH_MAX_ATTEMPTS = self._env_int("AUTH_REFRESH_MAX_ATTEMPTS", default=20, errors=errors)
+        self._validate_auth_cookie_policy(errors)
+        self._validate_auth_rate_limits(errors)
         self.CORS_ALLOWED_ORIGINS = self._env_csv(
             "CORS_ALLOWED_ORIGINS",
             default=self._default_cors_origins(self.APP_ENV),
@@ -255,6 +280,42 @@ class Settings:
                 "Insecure DB credentials are not allowed outside dev/local/test; "
                 "set non-default DB_URL credentials"
             )
+
+    def _validate_auth_cookie_policy(self, errors: list[str]) -> None:
+        samesite = (self.AUTH_REFRESH_COOKIE_SAMESITE or "").strip().lower()
+        cookie_name = (self.AUTH_REFRESH_COOKIE_NAME or "").strip()
+        cookie_path = (self.AUTH_REFRESH_COOKIE_PATH or "").strip()
+        cookie_domain = (self.AUTH_REFRESH_COOKIE_DOMAIN or "").strip().lower()
+
+        if not cookie_name:
+            errors.append("Invalid AUTH_REFRESH_COOKIE_NAME: value must not be empty")
+        if not cookie_path.startswith("/"):
+            errors.append("Invalid AUTH_REFRESH_COOKIE_PATH: value must start with '/'")
+        if samesite not in {"lax", "strict", "none"}:
+            errors.append(
+                "Invalid AUTH_REFRESH_COOKIE_SAMESITE: value must be one of lax, strict, none"
+            )
+        if samesite == "none" and not self.AUTH_REFRESH_COOKIE_SECURE:
+            errors.append(
+                "Invalid auth cookie policy: AUTH_REFRESH_COOKIE_SAMESITE=none requires AUTH_REFRESH_COOKIE_SECURE=true"
+            )
+        if not self.IS_NON_PROD and not self.AUTH_REFRESH_COOKIE_SECURE:
+            errors.append(
+                "Invalid auth cookie policy outside dev/local/test: AUTH_REFRESH_COOKIE_SECURE must be true"
+            )
+        if not self.IS_NON_PROD and cookie_domain in {"localhost", "127.0.0.1", "::1"}:
+            errors.append(
+                "Invalid auth cookie policy outside dev/local/test: "
+                "AUTH_REFRESH_COOKIE_DOMAIN cannot point to localhost"
+            )
+
+    def _validate_auth_rate_limits(self, errors: list[str]) -> None:
+        if self.AUTH_RATE_LIMIT_WINDOW_SECONDS is None or self.AUTH_RATE_LIMIT_WINDOW_SECONDS < 30:
+            errors.append("Invalid AUTH_RATE_LIMIT_WINDOW_SECONDS: value must be >= 30")
+        if self.AUTH_LOGIN_MAX_ATTEMPTS is None or self.AUTH_LOGIN_MAX_ATTEMPTS < 1:
+            errors.append("Invalid AUTH_LOGIN_MAX_ATTEMPTS: value must be >= 1")
+        if self.AUTH_REFRESH_MAX_ATTEMPTS is None or self.AUTH_REFRESH_MAX_ATTEMPTS < 1:
+            errors.append("Invalid AUTH_REFRESH_MAX_ATTEMPTS: value must be >= 1")
 
     @classmethod
     def _default_cors_origins(cls, app_env: str | None) -> tuple[str, ...]:

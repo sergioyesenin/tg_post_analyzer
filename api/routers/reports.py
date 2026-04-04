@@ -11,7 +11,6 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy import Select, and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agents.reporter import TgReportProject
 from deps import get_session, require_roles
 from db.models import (
     Channel,
@@ -25,7 +24,7 @@ from db.models import (
 from schemas.query_params import CsvIntList, CsvStrList
 from schemas.report import ReportOut
 from services.auth import AuthUser
-from services.pipeline_runtime import (
+from services.orchestration import (
     enqueue_event_report_job,
     enqueue_post_report_job,
     enqueue_post_report_batch_job,
@@ -34,9 +33,6 @@ from services.pipeline_runtime import (
 from services.reporting import report_status_from_payload
 
 router = APIRouter()
-report_project = TgReportProject(
-    llm_model="ollama/llama3:8b-instruct-q4_K_M",
-)
 
 
 def _event_process_report_status(report) -> str:

@@ -138,6 +138,13 @@ class IngestionCore:
             if parent_parent_post is not None:
                 parent_parent_post_id = parent_parent_post.id
 
+        previous_parent_state = {
+            "date": getattr(parent_post, "date", None) if parent_post is not None else None,
+            "text": getattr(parent_post, "text", None) if parent_post is not None else None,
+            "views": getattr(parent_post, "views", None) if parent_post is not None else None,
+            "comments_count": getattr(parent_post, "comments_count", None) if parent_post is not None else None,
+        } if parent_post is not None else None
+
         parent_post = await self._upsert_post(
             session,
             channel_id=channel.id,
@@ -150,6 +157,21 @@ class IngestionCore:
             comments_count=extract_comments_count(parent_msg),
             involvement=None,
         )
+        if previous_parent_state is not None and (
+            previous_parent_state["date"] != parent_msg.date
+            or previous_parent_state["text"] != parent_msg.message
+            or previous_parent_state["views"] != getattr(parent_msg, "views", None)
+            or previous_parent_state["comments_count"] != extract_comments_count(parent_msg)
+        ):
+            from services.reporting import sync_post_report_staleness
+
+            await sync_post_report_staleness(
+                session,
+                post_id=parent_post.id,
+                source="ingestion.parent_post_update",
+                dependency_type="post_ingestion",
+                dependency_id=parent_post.id,
+            )
         self._hydrated_parent_tg_message_ids.add(int(parent_msg.id))
         return parent_post
 
@@ -277,6 +299,12 @@ class IngestionCore:
                         channel_id=channel.id,
                         tg_message_id=msg.id,
                     )
+                    previous_post_state = {
+                        "date": getattr(existing, "date", None) if existing is not None else None,
+                        "text": getattr(existing, "text", None) if existing is not None else None,
+                        "views": getattr(existing, "views", None) if existing is not None else None,
+                        "comments_count": getattr(existing, "comments_count", None) if existing is not None else None,
+                    } if existing is not None else None
                     if (
                         existing is not None
                         and options.stop_on_existing_post
@@ -308,6 +336,21 @@ class IngestionCore:
                         comments_count=comments_count,
                         involvement=None,
                     )
+                    if previous_post_state is not None and (
+                        previous_post_state["date"] != msg.date
+                        or previous_post_state["text"] != msg.message
+                        or previous_post_state["views"] != getattr(msg, "views", None)
+                        or previous_post_state["comments_count"] != comments_count
+                    ):
+                        from services.reporting import sync_post_report_staleness
+
+                        await sync_post_report_staleness(
+                            session,
+                            post_id=post.id,
+                            source="ingestion.post_update",
+                            dependency_type="post_ingestion",
+                            dependency_id=post.id,
+                        )
 
                     if on_post_saved is not None:
                         await on_post_saved(

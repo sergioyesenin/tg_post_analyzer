@@ -2,6 +2,7 @@ services:
   postgres:
     image: postgres:16
     container_name: tg_analytics_postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
@@ -10,6 +11,128 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      DB_URL: ${DOCKER_DB_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics}
+      TEST_DATABASE_URL: ${DOCKER_TEST_DATABASE_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics_test}
+      REPORT_LLM_BASE_URL: ${DOCKER_REPORT_LLM_BASE_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - alembic
+      - upgrade
+      - head
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_URL: ${DOCKER_DB_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics}
+      TEST_DATABASE_URL: ${DOCKER_TEST_DATABASE_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics_test}
+      REPORT_LLM_BASE_URL: ${DOCKER_REPORT_LLM_BASE_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "8000:8000"
+    command:
+      - python
+      - scripts/run_api.py
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: on-failure
+    env_file:
+      - .env
+    environment:
+      DB_URL: ${DOCKER_DB_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics}
+      TEST_DATABASE_URL: ${DOCKER_TEST_DATABASE_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics_test}
+      REPORT_LLM_BASE_URL: ${DOCKER_REPORT_LLM_BASE_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command:
+      - python
+      - scripts/run_scheduler.py
+
+  telegram_pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_URL: ${DOCKER_DB_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics}
+      TEST_DATABASE_URL: ${DOCKER_TEST_DATABASE_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics_test}
+      REPORT_LLM_BASE_URL: ${DOCKER_REPORT_LLM_BASE_URL:-http://host.docker.internal:11434}
+      TG_SESSION_NAME: ${DOCKER_TG_SESSION_NAME:-/app/runtime/tg_analytics.session}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - tg_session:/app/runtime
+    command:
+      - python
+      - scripts/run_telegram_pipeline.py
+      - --daemon
+
+  ai_pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DB_URL: ${DOCKER_DB_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics}
+      TEST_DATABASE_URL: ${DOCKER_TEST_DATABASE_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics_test}
+      REPORT_LLM_BASE_URL: ${DOCKER_REPORT_LLM_BASE_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command:
+      - python
+      - scripts/run_ai_pipeline.py
+      - --daemon
+      - --skip-db-migrations
 
 volumes:
   pgdata:
+  tg_session:

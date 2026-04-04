@@ -1,3 +1,5 @@
+import hashlib
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -20,6 +22,7 @@ from services.auth import (
     rotate_refresh_token,
     write_audit_log,
 )
+from services.auth_rate_limit import auth_rate_limiter
 
 router = APIRouter()
 
@@ -34,10 +37,11 @@ def _duplicate_user_conflict(error: IntegrityError) -> HTTPException:
 
 
 def _refresh_cookie_kwargs() -> dict:
+    secure_cookie = True if not settings.IS_NON_PROD else bool(settings.AUTH_REFRESH_COOKIE_SECURE)
     return {
         "key": settings.AUTH_REFRESH_COOKIE_NAME,
         "httponly": True,
-        "secure": bool(settings.AUTH_REFRESH_COOKIE_SECURE),
+        "secure": secure_cookie,
         "samesite": str(settings.AUTH_REFRESH_COOKIE_SAMESITE),
         "domain": settings.AUTH_REFRESH_COOKIE_DOMAIN,
         "path": settings.AUTH_REFRESH_COOKIE_PATH,
@@ -63,6 +67,59 @@ def _read_refresh_cookie(request: Request) -> str:
     return refresh_token
 
 
+def _hash_rate_limit_key(raw_value: str) -> str:
+    return hashlib.sha256(raw_value.encode("utf-8")).hexdigest()
+
+
+def _request_client_identity(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if settings.AUTH_TRUST_PROXY_HEADERS and forwarded_for:
+        client_part = forwarded_for.split(",")[0].strip()
+        if client_part:
+            return client_part
+    if request.client is not None:
+        client_part = str(request.client.host)
+        if client_part:
+            return client_part
+    return "unknown"
+
+
+def _normalized_username(username: str) -> str:
+    return username.strip().lower()
+
+
+async def _check_login_rate_limits(request: Request, username: str) -> None:
+    client_identity = _request_client_identity(request)
+    normalized_username = _normalized_username(username)
+    await auth_rate_limiter.check(
+        scope="auth.login.ip",
+        key=client_identity,
+        limit=int(settings.AUTH_LOGIN_MAX_ATTEMPTS),
+        window_seconds=int(settings.AUTH_RATE_LIMIT_WINDOW_SECONDS),
+    )
+    await auth_rate_limiter.check(
+        scope="auth.login.username",
+        key=normalized_username,
+        limit=int(settings.AUTH_LOGIN_MAX_ATTEMPTS),
+        window_seconds=int(settings.AUTH_RATE_LIMIT_WINDOW_SECONDS),
+    )
+
+
+async def _check_refresh_rate_limits(request: Request, refresh_token: str) -> None:
+    await auth_rate_limiter.check(
+        scope="auth.refresh.ip",
+        key=_request_client_identity(request),
+        limit=int(settings.AUTH_REFRESH_MAX_ATTEMPTS),
+        window_seconds=int(settings.AUTH_RATE_LIMIT_WINDOW_SECONDS),
+    )
+    await auth_rate_limiter.check(
+        scope="auth.refresh.token",
+        key=_hash_rate_limit_key(refresh_token),
+        limit=int(settings.AUTH_REFRESH_MAX_ATTEMPTS),
+        window_seconds=int(settings.AUTH_RATE_LIMIT_WINDOW_SECONDS),
+    )
+
+
 async def _serialize_user(session: AsyncSession, user: User) -> UserOut:
     roles_map = await get_user_roles_map(session, [user.id])
     return _serialize_user_with_roles(user, roles_map)
@@ -82,12 +139,13 @@ def _serialize_user_with_roles(user: User, roles_map: dict[int, list[str]]) -> U
 
 
 @router.post("/login", response_model=TokenOut)
-async def login(data: LoginIn, response: Response, session: AsyncSession = Depends(get_session)):
+async def login(data: LoginIn, request: Request, response: Response, session: AsyncSession = Depends(get_session)):
     if settings.AUTH_PROVIDER_MODE.lower() != "local":
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Local login is disabled by AUTH_PROVIDER_MODE",
         )
+    await _check_login_rate_limits(request, data.username)
     auth_user = await authenticate_local_user(session, username=data.username, password=data.password)
     if auth_user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
@@ -112,7 +170,9 @@ async def login(data: LoginIn, response: Response, session: AsyncSession = Depen
 
 @router.post("/refresh", response_model=TokenOut)
 async def refresh(request: Request, response: Response, session: AsyncSession = Depends(get_session)):
-    auth_user, new_refresh_token = await rotate_refresh_token(session, refresh_token=_read_refresh_cookie(request))
+    refresh_token = _read_refresh_cookie(request)
+    await _check_refresh_rate_limits(request, refresh_token)
+    auth_user, new_refresh_token = await rotate_refresh_token(session, refresh_token=refresh_token)
     token = create_access_token(user_id=auth_user.id, username=auth_user.username, roles=list(auth_user.roles))
     await write_audit_log(
         session,

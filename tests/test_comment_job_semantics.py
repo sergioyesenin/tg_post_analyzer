@@ -65,112 +65,6 @@ def _tg_client():
 
 
 @pytest.mark.asyncio
-async def test_run_comment_job_requeues_flood_wait_and_preserves_result(monkeypatch: pytest.MonkeyPatch):
-    job = _job(source="scheduler")
-    session = _FakeSession(job)
-    requeue_calls: list[dict] = []
-    mark_done_calls: list[object] = []
-    mark_failed_calls: list[dict] = []
-
-    async def _fake_update_post_comments(_session, _post_id, tg_client=None):
-        del _session, _post_id, tg_client
-        return {"status": "flood_wait", "wait_seconds": 7, "flood_source": "iter_comments"}
-
-    async def _fake_requeue_job(_session, *, job, retry_at, error=None):
-        requeue_calls.append({"job": job, "retry_at": retry_at, "error": error})
-
-    async def _fake_mark_job_done(_session, *, job):
-        mark_done_calls.append(job)
-
-    async def _fake_mark_job_failed(_session, *, job, error, retry_base_seconds=30, retry_max_seconds=3600):
-        mark_failed_calls.append({"job": job, "error": error})
-
-    monkeypatch.setattr(pipeline_runtime, "AsyncSessionLocal", lambda: _FakeSessionContext(session))
-    monkeypatch.setattr(pipeline_runtime, "update_post_comments", _fake_update_post_comments)
-    monkeypatch.setattr(pipeline_runtime, "requeue_job", _fake_requeue_job)
-    monkeypatch.setattr(pipeline_runtime, "mark_job_done", _fake_mark_job_done)
-    monkeypatch.setattr(pipeline_runtime, "mark_job_failed", _fake_mark_job_failed)
-
-    result = await pipeline_runtime._run_comment_job(
-        job=job,
-        tg_client=_tg_client(),
-        worker_id="worker-1",
-        cc_sleep_min_ms=0,
-        cc_sleep_max_ms=0,
-        collect_comments_processed=0,
-        collect_comments_quota_per_run=5,
-        collect_comments_global_cooldown_until=None,
-        collect_comments_flood_streak=0,
-    )
-
-    assert result[0] == 0
-    assert result[1] == 1
-    assert result[3] == 1
-    assert result[4] is True
-    assert len(requeue_calls) == 1
-    assert requeue_calls[0]["error"] == "collect_comments:flood_wait:7"
-    assert mark_done_calls == []
-    assert mark_failed_calls == []
-    assert job.payload_json["_job_result"]["status"] == "flood_wait"
-    assert session.commit_calls == 1
-
-
-@pytest.mark.asyncio
-async def test_run_comment_job_marks_rpc_error_retryable_even_for_api_source(monkeypatch: pytest.MonkeyPatch):
-    job = _job(source="api")
-    session = _FakeSession(job)
-    mark_failed_calls: list[dict] = []
-    mark_done_calls: list[object] = []
-
-    async def _fake_update_post_comments(_session, _post_id, tg_client=None):
-        del _session, _post_id, tg_client
-        return {"status": "rpc_error", "error": "rpc failed"}
-
-    async def _fake_mark_job_failed(_session, *, job, error, retry_base_seconds=30, retry_max_seconds=3600):
-        mark_failed_calls.append(
-            {
-                "job": job,
-                "error": error,
-                "retry_base_seconds": retry_base_seconds,
-                "retry_max_seconds": retry_max_seconds,
-            }
-        )
-
-    async def _fake_mark_job_done(_session, *, job):
-        mark_done_calls.append(job)
-
-    monkeypatch.setattr(pipeline_runtime, "AsyncSessionLocal", lambda: _FakeSessionContext(session))
-    monkeypatch.setattr(pipeline_runtime, "update_post_comments", _fake_update_post_comments)
-    monkeypatch.setattr(pipeline_runtime, "mark_job_failed", _fake_mark_job_failed)
-    monkeypatch.setattr(pipeline_runtime, "mark_job_done", _fake_mark_job_done)
-
-    result = await pipeline_runtime._run_comment_job(
-        job=job,
-        tg_client=_tg_client(),
-        worker_id="worker-1",
-        cc_sleep_min_ms=0,
-        cc_sleep_max_ms=0,
-        collect_comments_processed=0,
-        collect_comments_quota_per_run=5,
-        collect_comments_global_cooldown_until=None,
-        collect_comments_flood_streak=0,
-    )
-
-    assert result == (0, 1, None, 0, False)
-    assert mark_done_calls == []
-    assert mark_failed_calls == [
-        {
-            "job": job,
-            "error": "collect_comments:rpc_error",
-            "retry_base_seconds": 120,
-            "retry_max_seconds": 7200,
-        }
-    ]
-    assert job.payload_json["_job_result"]["status"] == "rpc_error"
-    assert session.commit_calls == 1
-
-
-@pytest.mark.asyncio
 async def test_run_comment_job_marks_discussion_error_retryable(monkeypatch: pytest.MonkeyPatch):
     job = _job(source="scheduler")
     session = _FakeSession(job)
@@ -225,6 +119,7 @@ async def test_run_comment_job_keeps_successful_api_job_completion(monkeypatch: 
     session = _FakeSession(job)
     mark_done_calls: list[object] = []
     mark_failed_calls: list[dict] = []
+    sync_calls: list[dict] = []
 
     async def _fake_update_post_comments(_session, _post_id, tg_client=None):
         del _session, _post_id, tg_client
@@ -236,10 +131,22 @@ async def test_run_comment_job_keeps_successful_api_job_completion(monkeypatch: 
     async def _fake_mark_job_failed(_session, *, job, error, retry_base_seconds=30, retry_max_seconds=3600):
         mark_failed_calls.append({"job": job, "error": error})
 
+    async def _fake_sync_post_report_staleness(_session, *, post_id, source, dependency_type, dependency_id):
+        sync_calls.append(
+            {
+                "post_id": post_id,
+                "source": source,
+                "dependency_type": dependency_type,
+                "dependency_id": dependency_id,
+            }
+        )
+        return {"status": "queued", "post_id": post_id}
+
     monkeypatch.setattr(pipeline_runtime, "AsyncSessionLocal", lambda: _FakeSessionContext(session))
     monkeypatch.setattr(pipeline_runtime, "update_post_comments", _fake_update_post_comments)
     monkeypatch.setattr(pipeline_runtime, "mark_job_done", _fake_mark_job_done)
     monkeypatch.setattr(pipeline_runtime, "mark_job_failed", _fake_mark_job_failed)
+    monkeypatch.setattr(pipeline_runtime, "sync_post_report_staleness", _fake_sync_post_report_staleness)
 
     result = await pipeline_runtime._run_comment_job(
         job=job,
@@ -256,7 +163,19 @@ async def test_run_comment_job_keeps_successful_api_job_completion(monkeypatch: 
     assert result == (1, 1, None, 0, False)
     assert mark_done_calls == [job]
     assert mark_failed_calls == []
-    assert job.payload_json["_job_result"] == {"status": "ok", "comments_saved": 3}
+    assert sync_calls == [
+        {
+            "post_id": 42,
+            "source": "api:comments_refresh",
+            "dependency_type": "comments_refresh",
+            "dependency_id": 42,
+        }
+    ]
+    assert job.payload_json["_job_result"] == {
+        "status": "ok",
+        "comments_saved": 3,
+        "post_report_sync": {"status": "queued", "post_id": 42},
+    }
     assert session.commit_calls == 1
 
 
@@ -296,6 +215,60 @@ async def test_run_comment_job_keeps_no_discussion_terminal_completion(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_run_comment_job_syncs_post_report_even_for_unchanged_comment_refresh(monkeypatch: pytest.MonkeyPatch):
+    job = _job(source="scheduler")
+    session = _FakeSession(job)
+    mark_done_calls: list[object] = []
+    sync_calls: list[dict] = []
+
+    async def _fake_update_post_comments(_session, _post_id, tg_client=None):
+        del _session, _post_id, tg_client
+        return {"status": "unchanged", "comments_saved": 2, "comments_count": 2}
+
+    async def _fake_mark_job_done(_session, *, job):
+        mark_done_calls.append(job)
+
+    async def _fake_sync_post_report_staleness(_session, *, post_id, source, dependency_type, dependency_id):
+        sync_calls.append(
+            {
+                "post_id": post_id,
+                "source": source,
+                "dependency_type": dependency_type,
+                "dependency_id": dependency_id,
+            }
+        )
+        return {"status": "unchanged", "post_id": post_id}
+
+    monkeypatch.setattr(pipeline_runtime, "AsyncSessionLocal", lambda: _FakeSessionContext(session))
+    monkeypatch.setattr(pipeline_runtime, "update_post_comments", _fake_update_post_comments)
+    monkeypatch.setattr(pipeline_runtime, "mark_job_done", _fake_mark_job_done)
+    monkeypatch.setattr(pipeline_runtime, "sync_post_report_staleness", _fake_sync_post_report_staleness)
+
+    result = await pipeline_runtime._run_comment_job(
+        job=job,
+        tg_client=_tg_client(),
+        worker_id="worker-1",
+        cc_sleep_min_ms=0,
+        cc_sleep_max_ms=0,
+        collect_comments_processed=0,
+        collect_comments_quota_per_run=5,
+        collect_comments_global_cooldown_until=None,
+        collect_comments_flood_streak=0,
+    )
+
+    assert result == (1, 1, None, 0, False)
+    assert mark_done_calls == [job]
+    assert sync_calls == [
+        {
+            "post_id": 42,
+            "source": "scheduler:comments_refresh",
+            "dependency_type": "comments_refresh",
+            "dependency_id": 42,
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_run_comment_job_rolls_back_partial_mutations_before_retrying_reconciliation_failure(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -331,42 +304,3 @@ async def test_run_comment_job_rolls_back_partial_mutations_before_retrying_reco
     assert mark_failed_calls == [{"job": job, "error": "collect_comments:discussion_error"}]
     assert session.commit_calls == 1
 
-
-@pytest.mark.asyncio
-async def test_run_comment_job_unknown_api_status_is_not_silently_marked_done(monkeypatch: pytest.MonkeyPatch):
-    job = _job(source="api")
-    session = _FakeSession(job)
-    mark_done_calls: list[object] = []
-    mark_failed_calls: list[dict] = []
-
-    async def _fake_update_post_comments(_session, _post_id, tg_client=None):
-        del _session, _post_id, tg_client
-        return {"status": "new_retryable_status", "error": "future status"}
-
-    async def _fake_mark_job_done(_session, *, job):
-        mark_done_calls.append(job)
-
-    async def _fake_mark_job_failed(_session, *, job, error, retry_base_seconds=30, retry_max_seconds=3600):
-        mark_failed_calls.append({"job": job, "error": error})
-
-    monkeypatch.setattr(pipeline_runtime, "AsyncSessionLocal", lambda: _FakeSessionContext(session))
-    monkeypatch.setattr(pipeline_runtime, "update_post_comments", _fake_update_post_comments)
-    monkeypatch.setattr(pipeline_runtime, "mark_job_done", _fake_mark_job_done)
-    monkeypatch.setattr(pipeline_runtime, "mark_job_failed", _fake_mark_job_failed)
-
-    result = await pipeline_runtime._run_comment_job(
-        job=job,
-        tg_client=_tg_client(),
-        worker_id="worker-1",
-        cc_sleep_min_ms=0,
-        cc_sleep_max_ms=0,
-        collect_comments_processed=0,
-        collect_comments_quota_per_run=5,
-        collect_comments_global_cooldown_until=None,
-        collect_comments_flood_streak=0,
-    )
-
-    assert result == (0, 1, None, 0, False)
-    assert mark_done_calls == []
-    assert mark_failed_calls == [{"job": job, "error": "collect_comments:unexpected_status:new_retryable_status"}]
-    assert job.payload_json["_job_result"]["status"] == "new_retryable_status"

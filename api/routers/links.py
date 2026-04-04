@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deps import get_session, require_roles
-from schemas.linking import EventDetailOut, EventSummaryOut, LinkRunResponse, PostLinksResponse
+from schemas.linking import EventDetailOut, EventSummaryOut, JobAcceptedResponse, PostLinksResponse
 from services.auth import AuthUser
 from api.routers import linking
 
@@ -16,7 +16,7 @@ def _mark_deprecated(response: Response, successor: str) -> None:
     response.headers["Link"] = f'<{successor}>; rel="successor-version"'
 
 
-@router.post("/posts/{post_id}/run", response_model=LinkRunResponse, deprecated=True)
+@router.post("/posts/{post_id}/run", response_model=JobAcceptedResponse, deprecated=True)
 async def run_linker_legacy(
     post_id: int,
     response: Response,

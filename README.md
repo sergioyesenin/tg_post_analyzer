@@ -54,13 +54,19 @@ scripts/                Runtime и служебные entrypoint-ы
 services/               Доменные сервисы, runtime, jobs, monitoring и pipeline-логика
 tests/                  Быстрые backend-тесты и integration-тесты
 docs/                   Runbook-ы и сопутствующая инженерная документация
-web/                    Устаревший legacy UI-артефакт; FastAPI его не обслуживает
 ```
+
+## Статус Legacy И CI
+
+- `frontend/` — единственный канонический frontend-контур.
+- Legacy static prototype `web/` удален из репозитория; поддерживается только `frontend/`.
+- Минимальный repo-local CI живет в [.github/workflows/ci.yml](/d:/Projects/tg_post_analyzer/.github/workflows/ci.yml) и запускает канонический быстрый regression loop: backend tests и frontend tests.
+- Backend integration suite остается отдельным manual/gated слоем и не входит в минимальный CI по умолчанию.
 
 ## Архитектурные решения
 
 - `frontend/` — единственная поддерживаемая frontend-кодовая база.
-- FastAPI обслуживает собранный SPA из `frontend/dist` и не делает fallback на `web/`.
+- FastAPI обслуживает собранный SPA из `frontend/dist`.
 - API-маршруты живут под `/api/*`, клиентские маршруты обрабатываются SPA-оболочкой.
 - Канонический linking bounded context расположен в `api/routers/linking.py`.
 - Local auth использует access token только в памяти фронтенда и `HttpOnly` refresh cookie со стороны бэкенда.
@@ -83,6 +89,12 @@ web/                    Устаревший legacy UI-артефакт; FastAPI
 - `python scripts/run_scheduler.py`
 - `python scripts/run_telegram_pipeline.py`
 - `python scripts/run_ai_pipeline.py`
+
+Практические рекомендации для AI pipeline:
+
+- В проде запускать `run_ai_pipeline.py` с `--skip-db-migrations` (миграции прогоняются отдельно), чтобы не блокировать воркер на старте.
+- Фиксировать таймауты LLM через `AI_JOB_TIMEOUT_SECONDS` (например, `60` или `120` секунд), чтобы зависшие запросы не держали очередь.
+- При диагностике использовать `scripts/check_ai_pipeline_status.py` и при необходимости сбрасывать зависшие AI jobs через `scripts/reset_ai_jobs.py`.
 
 Связанные документы:
 
@@ -228,6 +240,8 @@ Integration-тесты запускаются только при явном `--
 venv\Scripts\python -m pytest -q tests
 ```
 
+Для этого fast-suite достаточно установленных Python-зависимостей из `requirements.txt`; отдельная test database не требуется.
+
 Подготовка integration DB:
 
 ```bash
@@ -249,6 +263,27 @@ cd frontend
 npm install
 npm test
 ```
+
+Для frontend suite нужны только зависимости из `frontend/package.json`; отдельные backend secrets или локальная PostgreSQL для этих тестов не требуются.
+
+Канонический локальный engineering flow:
+
+1. `venv\Scripts\python -m pytest -q tests`
+2. `cd frontend && npm test`
+3. `venv\Scripts\python -m pytest -q tests/integration --run-integration`
+4. `cd frontend && npm run build`
+5. `python scripts/run_api.py`
+
+Минимальный repo-local CI автоматизирует только шаги `1` и `2`. Integration suite (`3`) остается gated/manual, потому что требует отдельный `TEST_DATABASE_URL` и bootstrap test database.
+
+Канонические verification-команды:
+
+- Backend fast regression: `venv\Scripts\python -m pytest -q tests`
+- Backend integration regression: `venv\Scripts\python -m pytest -q tests/integration --run-integration`
+- Frontend regression: `cd frontend && npm test`
+- Frontend type/build verification: `cd frontend && npm run build`
+
+Отдельного canonical backend lint/typecheck command в репозитории сейчас нет. Для frontend роль легкого type/build verification выполняет `npm run build`.
 
 Связанный документ:
 
@@ -281,3 +316,93 @@ npm run build
 cd ..
 python scripts/run_api.py
 ```
+
+## Docker Compose
+
+The repository now includes a production-style Docker setup with separate services for:
+
+- `postgres`
+- `migrate`
+- `api`
+- `scheduler`
+- `telegram_pipeline`
+- `ai_pipeline`
+
+Recommended startup flow:
+
+```bash
+copy .env.example .env
+docker compose up --build
+```
+
+Because `docker-compose.override.yml` is included, the local Docker run already overrides:
+
+- container DB host to `postgres`
+- URL-encoded database password for asyncpg DSN
+- `REPORT_LLM_BASE_URL` to `http://host.docker.internal:11434`
+- Telethon session path to `/app/runtime/tg_analytics.session`
+
+After startup:
+
+- API and integrated frontend are available at `http://localhost:8000`
+- PostgreSQL is exposed on `localhost:5432`
+
+Important Docker-specific notes:
+
+- Inside containers, `localhost` does not point to your host machine.
+- `telegram_pipeline` stores the Telethon session in the named volume `tg_session` using `/app/runtime/tg_analytics.session`.
+- `ai_pipeline` defaults `REPORT_LLM_BASE_URL` to `http://host.docker.internal:11434`; override it with `DOCKER_REPORT_LLM_BASE_URL` if your LLM endpoint lives elsewhere.
+- If you want environment-specific overrides, keep them in `docker-compose.override.yml` or switch to `DOCKER_*` variables in `.env`.
+
+Example Docker overrides for `.env`:
+
+```env
+DOCKER_DB_URL=postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics
+DOCKER_TEST_DATABASE_URL=postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics_test
+DOCKER_REPORT_LLM_BASE_URL=http://host.docker.internal:11434
+DOCKER_TG_SESSION_NAME=/app/runtime/tg_analytics.session
+```
+
+Useful commands:
+
+```bash
+docker compose logs -f api
+docker compose logs -f telegram_pipeline
+docker compose logs -f ai_pipeline
+docker compose down
+docker compose down -v
+```
+
+## Скрипты и legacy surface
+
+Чтобы developer loop оставался понятным, `scripts/` стоит читать так:
+
+- Канонические runtime entrypoint-ы:
+  - `scripts/run_api.py`
+  - `scripts/run_scheduler.py`
+  - `scripts/run_telegram_pipeline.py`
+  - `scripts/run_ai_pipeline.py`
+- Канонические test/support entrypoint-ы:
+  - `scripts/test_bootstrap_backend.py` для подготовки integration DB
+- Manual ops-only / diagnostic scripts:
+  - `scripts/check_ai_pipeline_status.py`
+  - `scripts/check_ready_jobs.py`
+  - `scripts/reset_ai_jobs.py`
+  - `scripts/create_admin.py`
+  - `scripts/add_channel.py`
+- Manual maintenance / backfill scripts:
+  - `scripts/backfill_embeddings.py`
+  - `scripts/backfill_links.py`
+  - `scripts/backfill_reply_links.py`
+  - `scripts/backfill_search_lemmas.py`
+- Manual exploratory / smoke scripts, не являющиеся canonical test loop:
+  - `scripts/test_pipeline_run.py`
+  - `scripts/test_parse_last_post_per_channel.py`
+  - `scripts/run_keyword_search_tests.py`
+  - `scripts/run_keyword_graph_build_tests.py`
+  - `scripts/test_db.py`
+
+Compatibility / legacy surface, intentionally retained:
+
+- `main.py` — deprecated compatibility entrypoint; использовать вместо него `python scripts/run_telegram_pipeline.py`
+- `/api/links/*` в `api/routers/links.py` — deprecated compatibility bridge к canonical linking routes

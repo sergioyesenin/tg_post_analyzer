@@ -8,6 +8,9 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
+
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
@@ -16,13 +19,15 @@ if str(ROOT_DIR) not in sys.path:
 os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 os.environ.setdefault("CREWAI_DISABLE_TELEMETRY", "true")
 
-from services.pipeline_runtime import (
+from services.orchestration import (
     AI_JOB_TYPES,
+    run_ai_cycle,
+)
+from services.orchestration import (
     build_worker_id,
     collect_backlog_snapshot,
     configure_logging,
     get_ai_poll_seconds,
-    run_ai_cycle,
 )
 from services.runtime_heartbeat import HEARTBEAT_INTERVAL_SECONDS, persist_runtime_heartbeat
 from services.runtime_topology import AI_PIPELINE_RUNTIME
@@ -32,12 +37,20 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run AI reporting pipeline.")
     parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     parser.add_argument("--daemon", action="store_true")
+    parser.add_argument("--skip-db-migrations", action="store_true")
     parser.add_argument("--poll-seconds", type=int, default=None)
     parser.add_argument("--job-batch-size", type=int, default=None)
     parser.add_argument("--job-worker-concurrency", type=int, default=None)
     parser.add_argument("--post-report-age-hours", type=int, default=None)
     parser.add_argument("--scheduler-limit", type=int, default=None)
     return parser
+
+
+def _apply_db_migrations() -> None:
+    alembic_cfg = Config(str(ROOT_DIR / "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", str(ROOT_DIR / "alembic"))
+    logging.info("Applying database migrations before starting AI pipeline")
+    command.upgrade(alembic_cfg, "head")
 
 
 async def main_async(args: argparse.Namespace) -> None:
@@ -102,6 +115,8 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
     configure_logging(args.log_level)
+    if not args.skip_db_migrations:
+        _apply_db_migrations()
     asyncio.run(main_async(args))
 
 

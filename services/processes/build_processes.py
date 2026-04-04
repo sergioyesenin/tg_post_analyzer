@@ -98,6 +98,42 @@ def _choose_process_title(events: list[Event], *, date_from: datetime, date_to: 
     return first_paragraph[:140] or f"Process {date_from.date().isoformat()}..{date_to.date().isoformat()}"
 
 
+def _process_component_payload(*, component: list[int], event_by_id: dict[int, Event], date_from: datetime, date_to: datetime) -> dict | None:
+    component_events = [event_by_id[event_id] for event_id in component if event_id in event_by_id]
+    if len(component_events) < 2:
+        return None
+    started_candidates = [event.started_at for event in component_events if event.started_at is not None]
+    ended_candidates = [event.ended_at for event in component_events if event.ended_at is not None]
+    return {
+        "event_ids": {int(event.id) for event in component_events},
+        "component_events": component_events,
+        "started_at": min(started_candidates) if started_candidates else None,
+        "ended_at": max(ended_candidates) if ended_candidates else None,
+        "title": _choose_process_title(component_events, date_from=date_from, date_to=date_to),
+    }
+
+
+def _match_component_to_process(
+    *,
+    component_event_ids: set[int],
+    existing_event_ids_by_process_id: dict[int, set[int]],
+    assigned_process_ids: set[int],
+) -> int | None:
+    best_process_id: int | None = None
+    best_score: tuple[int, int] | None = None
+    for process_id, existing_event_ids in existing_event_ids_by_process_id.items():
+        if process_id in assigned_process_ids:
+            continue
+        overlap = len(component_event_ids & existing_event_ids)
+        if overlap <= 0:
+            continue
+        score = (overlap, -process_id)
+        if best_score is None or score > best_score:
+            best_score = score
+            best_process_id = process_id
+    return best_process_id
+
+
 async def rebuild_processes(
     session: AsyncSession,
     *,
@@ -177,9 +213,6 @@ async def rebuild_processes(
         .where(and_(Process.started_at >= date_from, Process.started_at <= date_to))
     )
     process_ids.update(row[0] for row in (await session.execute(process_ids_stmt)).all())
-    if process_ids:
-        await session.execute(delete(ProcessEvent).where(ProcessEvent.process_id.in_(process_ids)))
-        await session.execute(delete(Process).where(Process.id.in_(process_ids)))
 
     events_stmt = select(Event).where(Event.id.in_(event_ids))
     events = (await session.execute(events_stmt)).scalars().all()
@@ -214,43 +247,128 @@ async def rebuild_processes(
     if not components:
         return 0
 
-    created_memberships = 0
-    for component in components:
-        component_events = [event_by_id[event_id] for event_id in component if event_id in event_by_id]
-        if len(component_events) < 2:
-            continue
-
-        started_candidates = [event.started_at for event in component_events if event.started_at is not None]
-        ended_candidates = [event.ended_at for event in component_events if event.ended_at is not None]
-        process = Process(
-            title=_choose_process_title(component_events, date_from=date_from, date_to=date_to),
-            started_at=min(started_candidates) if started_candidates else None,
-            ended_at=max(ended_candidates) if ended_candidates else None,
-            confidence=0.75,
-            status=VerificationStatus.VERIFIED,
-            created_by=created_by,
+    component_payloads = [
+        payload
+        for payload in (
+            _process_component_payload(component=component, event_by_id=event_by_id, date_from=date_from, date_to=date_to)
+            for component in components
         )
-        session.add(process)
-        await session.flush()
+        if payload is not None
+    ]
+    if not component_payloads:
+        return 0
 
-        for event in sorted(component_events, key=lambda item: ((item.started_at or item.created_at), item.id)):
-            payload = event_membership_payload.get(event.id, {})
+    existing_processes = []
+    existing_memberships = []
+    if process_ids:
+        existing_processes = (await session.execute(select(Process).where(Process.id.in_(process_ids)))).scalars().all()
+        existing_memberships = (
+            await session.execute(select(ProcessEvent).where(ProcessEvent.process_id.in_(process_ids)))
+        ).scalars().all()
+
+    existing_process_by_id = {int(process.id): process for process in existing_processes}
+    existing_memberships_by_process_id: dict[int, dict[int, ProcessEvent]] = {}
+    existing_event_ids_by_process_id: dict[int, set[int]] = {}
+    for membership in existing_memberships:
+        process_id = int(membership.process_id)
+        event_id = int(membership.event_id)
+        existing_memberships_by_process_id.setdefault(process_id, {})[event_id] = membership
+        existing_event_ids_by_process_id.setdefault(process_id, set()).add(event_id)
+
+    assigned_process_ids: set[int] = set()
+    active_process_ids: set[int] = set()
+    created_memberships = 0
+
+    for payload in sorted(component_payloads, key=lambda item: ((item["started_at"] or datetime.min), min(item["event_ids"]))):
+        matched_process_id = _match_component_to_process(
+            component_event_ids=payload["event_ids"],
+            existing_event_ids_by_process_id=existing_event_ids_by_process_id,
+            assigned_process_ids=assigned_process_ids,
+        )
+        if matched_process_id is not None:
+            process = existing_process_by_id[matched_process_id]
+            assigned_process_ids.add(matched_process_id)
+        else:
+            process = Process(
+                title=payload["title"],
+                started_at=payload["started_at"],
+                ended_at=payload["ended_at"],
+                confidence=0.75,
+                status=VerificationStatus.VERIFIED,
+                created_by=created_by,
+            )
+            session.add(process)
+            await session.flush()
+            matched_process_id = int(process.id)
+            existing_process_by_id[matched_process_id] = process
+            existing_memberships_by_process_id[matched_process_id] = {}
+            existing_event_ids_by_process_id[matched_process_id] = set()
+            assigned_process_ids.add(matched_process_id)
+
+        process.title = payload["title"]
+        process.started_at = payload["started_at"]
+        process.ended_at = payload["ended_at"]
+        process.confidence = 0.75
+        process.status = VerificationStatus.VERIFIED
+        active_process_ids.add(matched_process_id)
+
+        existing_memberships_for_process = existing_memberships_by_process_id.get(matched_process_id, {})
+        stale_event_ids = set(existing_memberships_for_process) - payload["event_ids"]
+        if stale_event_ids:
+            await session.execute(
+                delete(ProcessEvent)
+                .where(ProcessEvent.process_id == matched_process_id)
+                .where(ProcessEvent.event_id.in_(stale_event_ids))
+            )
+            for stale_event_id in stale_event_ids:
+                existing_memberships_for_process.pop(stale_event_id, None)
+            existing_event_ids_by_process_id[matched_process_id] = set(existing_memberships_for_process)
+
+        for event in sorted(payload["component_events"], key=lambda item: ((item.started_at or item.created_at), item.id)):
+            membership_values = {
+                "relation_type": ProcessRelationType.UPDATE,
+                "direction": event_membership_payload.get(event.id, {}).get("direction", LinkDirection.NONE),
+                "evidence_json": event_membership_payload.get(event.id, {}).get("evidence_json"),
+                "score": event_membership_payload.get(event.id, {}).get("score"),
+                "status": VerificationStatus.VERIFIED,
+                "model_version": event_membership_payload.get(event.id, {}).get("model_version"),
+                "pipeline_version": event_membership_payload.get(event.id, {}).get("pipeline_version"),
+            }
+            existing_membership = existing_memberships_for_process.get(int(event.id))
+            if existing_membership is not None:
+                existing_membership.relation_type = membership_values["relation_type"]
+                existing_membership.direction = membership_values["direction"]
+                existing_membership.evidence_json = membership_values["evidence_json"]
+                existing_membership.score = membership_values["score"]
+                existing_membership.status = membership_values["status"]
+                existing_membership.model_version = membership_values["model_version"]
+                existing_membership.pipeline_version = membership_values["pipeline_version"]
+                continue
+
             stmt = (
                 insert(ProcessEvent)
                 .values(
-                    process_id=process.id,
+                    process_id=matched_process_id,
                     event_id=event.id,
-                    relation_type=ProcessRelationType.UPDATE,
-                    direction=payload.get("direction", LinkDirection.NONE),
-                    evidence_json=payload.get("evidence_json"),
-                    score=payload.get("score"),
-                    status=VerificationStatus.VERIFIED,
-                    model_version=payload.get("model_version"),
-                    pipeline_version=payload.get("pipeline_version"),
+                    relation_type=membership_values["relation_type"],
+                    direction=membership_values["direction"],
+                    evidence_json=membership_values["evidence_json"],
+                    score=membership_values["score"],
+                    status=membership_values["status"],
+                    model_version=membership_values["model_version"],
+                    pipeline_version=membership_values["pipeline_version"],
                 )
                 .on_conflict_do_nothing()
             )
             await session.execute(stmt)
             created_memberships += 1
+
+    stale_process_ids = set(existing_process_by_id) - active_process_ids
+    for stale_process_id in stale_process_ids:
+        if existing_event_ids_by_process_id.get(stale_process_id):
+            await session.execute(delete(ProcessEvent).where(ProcessEvent.process_id == stale_process_id))
+        stale_process = existing_process_by_id[stale_process_id]
+        stale_process.status = VerificationStatus.REJECTED
+        stale_process.confidence = 0.0
 
     return created_memberships

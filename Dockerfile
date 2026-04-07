@@ -22,7 +22,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements-base.txt requirements-ai.txt ./
-RUN pip install -r requirements-base.txt -r requirements-ai.txt
+RUN pip install --index-url https://download.pytorch.org/whl/cpu torch \
+    && pip install -r requirements-base.txt -r requirements-ai.txt
 
 COPY . .
 COPY --from=frontend-build /frontend/dist /app/frontend/dist

@@ -1,5 +1,6 @@
 .git
 .gitignore
+.github/
 .pytest_cache
 .venv
 venv

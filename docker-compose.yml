@@ -1,3 +1,9 @@
+x-app-image: &app-image
+  image: tg_post_analyzer:latest
+  build:
+    context: .
+    dockerfile: Dockerfile
+
 services:
   postgres:
     image: postgres:16
@@ -39,7 +45,7 @@ services:
     command:
       - alembic
       - upgrade
-      - head
+      - heads
 
   api:
     build:

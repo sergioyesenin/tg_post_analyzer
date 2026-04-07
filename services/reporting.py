@@ -28,6 +28,153 @@ def _serialize_report_payload(payload: dict) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
+def _sentiment_label_ru(value: str | None) -> str:
+    mapping = {
+        "positive": "позитивный",
+        "negative": "негативный",
+        "neutral": "нейтральный",
+        "mixed": "смешанный",
+        "stable": "стабильный",
+    }
+    normalized = str(value or "").strip().lower()
+    return mapping.get(normalized, normalized or "нейтральный")
+
+
+def _share_to_percent(value: object) -> str:
+    try:
+        return f"{round(float(value or 0.0) * 100, 1):g}%"
+    except (TypeError, ValueError):
+        return "0%"
+
+
+def _clean_list_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = " ".join(value.strip().split())
+    return text or None
+
+
+def _collect_topic_names(items: object, *, limit: int = 5) -> list[str]:
+    if not isinstance(items, list):
+        return []
+    out: list[str] = []
+    for item in items:
+        name = None
+        if isinstance(item, dict):
+            name = _clean_list_text(item.get("name"))
+        elif isinstance(item, str):
+            name = _clean_list_text(item)
+        if name and name not in out:
+            out.append(name)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _collect_text_items(items: object, *, limit: int = 5) -> list[str]:
+    if not isinstance(items, list):
+        return []
+    out: list[str] = []
+    for item in items:
+        if isinstance(item, dict):
+            text = _clean_list_text(item.get("summary") or item.get("trend") or item.get("name"))
+        else:
+            text = _clean_list_text(item)
+        if text and text not in out:
+            out.append(text)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _trim_sentence(text: str | None, *, fallback: str) -> str:
+    value = _clean_list_text(text)
+    if not value:
+        return fallback
+    return value if value[-1] in ".!?" else f"{value}."
+
+
+def _build_emotional_background(payload: dict, *, sentiment_key: str = "sentiment") -> list[str]:
+    sentiment = payload.get(sentiment_key) or {}
+    distribution = sentiment.get("distribution") or {}
+    dominant = _sentiment_label_ru(sentiment.get("dominant"))
+    lines = [
+        (
+            f"В целом преобладает {dominant} тон. "
+            f"Распределение реакций: позитив {_share_to_percent(distribution.get('positive'))} / "
+            f"негатив {_share_to_percent(distribution.get('negative'))} / "
+            f"нейтрально {_share_to_percent(distribution.get('neutral'))}."
+        )
+    ]
+    summary = _clean_list_text(payload.get("summary"))
+    if summary:
+        lines.append(_trim_sentence(summary, fallback=""))
+    confidence_reason = _clean_list_text((payload.get("confidence") or {}).get("reason"))
+    if confidence_reason:
+        lines.append(_trim_sentence(confidence_reason, fallback=""))
+    risks = _collect_text_items(payload.get("risks"), limit=2)
+    if risks:
+        lines.append(f"В обсуждении также заметны спорные сигналы: {'; '.join(risks)}.")
+    return [line for line in lines if line]
+
+
+def _render_legacy_report_text(
+    payload: dict,
+    *,
+    title: str,
+    intro_label: str,
+    intro_fallback: str,
+    topics: list[str],
+    patterns: list[str],
+    examples: list[str],
+    conclusion_fallback: str,
+    sentiment_key: str = "sentiment",
+) -> str:
+    heading = _clean_list_text(title) or "Заголовок: Отчет"
+    intro = _trim_sentence(payload.get("summary"), fallback=intro_fallback)
+    emotional_background = _build_emotional_background(payload, sentiment_key=sentiment_key)
+    if not topics:
+        topics = ["Явно выраженные тематические линии в данных не выделяются."]
+    if not patterns:
+        patterns = ["Повторяющиеся паттерны выражены слабо, дискуссия выглядит относительно ровной."]
+    if not examples:
+        examples = ["Характерные тезисы в исходных данных выражены недостаточно явно для надежной выборки."]
+
+    risks = _collect_text_items(payload.get("risks"), limit=3)
+    anomalies = _collect_text_items(payload.get("anomalies"), limit=3)
+    conclusion_parts: list[str] = []
+    summary = _clean_list_text(payload.get("summary"))
+    if summary:
+        conclusion_parts.append(summary.rstrip("."))
+    if risks:
+        conclusion_parts.append(f"Среди заметных рисков и спорных моментов: {'; '.join(risks)}")
+    if anomalies:
+        conclusion_parts.append(f"Дополнительные сигналы: {'; '.join(anomalies)}")
+    conclusion = ". ".join(part for part in conclusion_parts if part).strip()
+    if conclusion:
+        conclusion = conclusion if conclusion.endswith(".") else f"{conclusion}."
+    else:
+        conclusion = conclusion_fallback
+
+    lines = [
+        f"Краткий анализ комментариев к {intro_label}",
+        "",
+        heading,
+        "",
+        "Общий эмоциональный фон",
+        *emotional_background,
+        "2. Основные направления мысли",
+        *[f"- {item}" for item in topics[:5]],
+        "3. Противоречия и спорные моменты",
+        *[f"- {item}" for item in patterns[:5]],
+        "4. Примеры характерных тезисов (для ориентира)",
+        *[f"- {item}" for item in examples[:5]],
+        "Итог",
+        conclusion,
+    ]
+    return "\n".join(lines).strip()
+
+
 def _signature_timestamp(value: datetime | None) -> str | None:
     if value is None:
         return None
@@ -97,7 +244,7 @@ async def compute_post_report_input_signature(
     return _build_post_report_input_signature(post=post_row, comment_rows=comment_rows)
 
 
-def _render_post_report_text(payload: dict) -> str:
+def _obsolete_render_post_report_text_v1(payload: dict) -> str:
     lines = [
         f"Заголовок: {payload.get('title') or 'Отчет по посту'}",
         "",
@@ -126,7 +273,7 @@ def _render_post_report_text(payload: dict) -> str:
     return "\n".join(lines).strip()
 
 
-def _render_event_or_process_text(payload: dict) -> str:
+def _obsolete_render_event_or_process_text_v1(payload: dict) -> str:
     title = payload.get("event_title") or payload.get("process_title") or payload.get("title") or "Отчет"
     lines = [
         f"Заголовок: {title}",
@@ -145,6 +292,217 @@ def _render_event_or_process_text(payload: dict) -> str:
     risks = [item for item in payload.get("risks") or [] if isinstance(item, str) and item.strip()]
     if risks:
         lines.extend(["", "Риски:", *[f"- {item}" for item in risks[:5]]])
+    return "\n".join(lines).strip()
+
+
+def _obsolete_render_post_report_text_v2(payload: dict) -> str:
+    topics = _collect_topic_names(payload.get("topics"), limit=5)
+    patterns = _collect_text_items(payload.get("time_trends"), limit=3)
+    for item in payload.get("clusters") or []:
+        if not isinstance(item, dict):
+            continue
+        name = _clean_list_text(item.get("name"))
+        summary = _clean_list_text(item.get("summary"))
+        pattern = f"{name}: {summary}" if name and summary else name or summary
+        if pattern and pattern not in patterns:
+            patterns.append(pattern)
+        if len(patterns) >= 5:
+            break
+    patterns.extend(item for item in _collect_text_items(payload.get("risks"), limit=2) if item not in patterns)
+
+    examples = _collect_text_items(payload.get("representative_quotes"), limit=5)
+    if not examples:
+        examples = topics[:3]
+
+    return _render_legacy_report_text(
+        payload,
+        title=payload.get("title") or "Заголовок: Отчет по посту",
+        intro_label="посту",
+        intro_fallback="Комментарии отражают реакцию аудитории на публикацию и связанные с ней смыслы.",
+        topics=topics,
+        patterns=patterns,
+        examples=examples,
+        conclusion_fallback="Обсуждение в целом остается содержательным, с преобладанием основных тем и ограниченным числом спорных сигналов.",
+    )
+
+
+def _render_event_or_process_text(payload: dict) -> str:
+    is_process = "process_id" in payload or "process_title" in payload
+    title = payload.get("process_title") if is_process else payload.get("event_title")
+    title = title or payload.get("title") or "Отчет"
+
+    topics = _collect_topic_names(payload.get("cross_post_topics"), limit=5)
+    source_items = payload.get("stage_analysis") if is_process else payload.get("post_dynamics")
+    for item in source_items or []:
+        if not isinstance(item, dict):
+            continue
+        name = _clean_list_text(item.get("stage_name") or item.get("role"))
+        summary = _clean_list_text(item.get("summary"))
+        topic = f"{name}: {summary}" if name and summary else summary or name
+        if topic and topic not in topics:
+            topics.append(topic)
+        if len(topics) >= 5:
+            break
+
+    patterns = _collect_text_items(payload.get("event_trends") or payload.get("process_trends"), limit=5)
+    patterns.extend(item for item in _collect_text_items(payload.get("risks"), limit=3) if item not in patterns)
+    patterns.extend(item for item in _collect_text_items(payload.get("bottlenecks"), limit=2) if item not in patterns)
+
+    examples = _collect_text_items(payload.get("risks"), limit=2)
+    examples.extend(item for item in _collect_text_items(payload.get("anomalies"), limit=3) if item not in examples)
+    if not examples:
+        examples = topics[:3]
+
+    return _render_legacy_report_text(
+        payload,
+        title=f"Заголовок: {title}",
+        intro_label="обсуждению",
+        intro_fallback="Сводный отчет фиксирует общую динамику обсуждения и ключевые смысловые линии.",
+        topics=topics,
+        patterns=patterns,
+        examples=examples,
+        conclusion_fallback="Сводное обсуждение сохраняет общую логическую связность и позволяет увидеть основные тенденции без резких перекосов.",
+        sentiment_key="overall_sentiment" if is_process else "sentiment",
+    )
+
+
+def _post_report_tone_label(payload: dict) -> str:
+    sentiment = payload.get("sentiment") or {}
+    distribution = sentiment.get("distribution") or {}
+    positive = float(distribution.get("positive", 0.0) or 0.0)
+    negative = float(distribution.get("negative", 0.0) or 0.0)
+    neutral = float(distribution.get("neutral", 0.0) or 0.0)
+    dominant = str(sentiment.get("dominant") or "neutral").strip().lower()
+    if abs(positive - negative) <= 0.15 and positive >= 0.2 and negative >= 0.2:
+        return "смешанный"
+    if dominant == "positive":
+        return "позитивный"
+    if dominant == "negative":
+        return "негативный"
+    if dominant == "neutral" and positive >= 0.25 and negative >= 0.15:
+        return "смешанный"
+    if neutral >= 0.6:
+        return "нейтральный"
+    return _sentiment_label_ru(dominant)
+
+
+def _build_post_tone_reasoning(payload: dict) -> str:
+    parts: list[str] = []
+    summary = _clean_list_text(payload.get("summary"))
+    if summary:
+        parts.append(summary)
+    confidence_reason = _clean_list_text((payload.get("confidence") or {}).get("reason"))
+    if confidence_reason and confidence_reason not in parts:
+        parts.append(confidence_reason)
+    risks = _collect_text_items(payload.get("risks"), limit=2)
+    if risks:
+        parts.append(f"Отдельно заметны спорные реакции: {'; '.join(risks)}.")
+    if not parts:
+        parts.append("Вывод основан на распределении тональностей, тематических кластерах и репрезентативных комментариях.")
+    return " ".join(part if part.endswith((".", "!", "?")) else f"{part}." for part in parts[:3])
+
+
+def _build_post_sentiment_classification(payload: dict) -> str:
+    sentiment = payload.get("sentiment") or {}
+    distribution = sentiment.get("distribution") or {}
+    parts = [
+        f"позитивные комментарии составляют {_share_to_percent(distribution.get('positive'))} и в основном выражают поддержку или одобрение",
+        f"негативные занимают {_share_to_percent(distribution.get('negative'))} и чаще связаны с критикой, сомнениями или возражениями",
+        f"нейтральные составляют {_share_to_percent(distribution.get('neutral'))} и обычно содержат уточнения, наблюдения или спокойные оценки",
+    ]
+    return " ; ".join(parts) + "."
+
+
+def _build_post_thematic_classification(payload: dict) -> str:
+    cluster_parts: list[str] = []
+    for item in payload.get("clusters") or []:
+        if not isinstance(item, dict):
+            continue
+        name = _clean_list_text(item.get("name"))
+        summary = _clean_list_text(item.get("summary"))
+        if name and summary:
+            cluster_parts.append(f"{name} — {summary}")
+        elif name:
+            cluster_parts.append(name)
+        if len(cluster_parts) >= 4:
+            break
+    if cluster_parts:
+        return "; ".join(cluster_parts) + "."
+    topics = _collect_topic_names(payload.get("topics"), limit=4)
+    if topics:
+        return "Основные тематические кластеры: " + "; ".join(topics) + "."
+    return "Тематическая классификация выражена слабо: заметны только отдельные смысловые линии без устойчивых кластеров."
+
+
+def _render_post_report_text(payload: dict) -> str:
+    title = _clean_list_text(payload.get("title")) or "Заголовок: Отчет по посту"
+    if not title.lower().startswith("заголовок:"):
+        title = f"Заголовок: {title}"
+
+    sentiment = payload.get("sentiment") or {}
+    distribution = sentiment.get("distribution") or {}
+    topics = _collect_topic_names(payload.get("topics"), limit=5)
+    if not topics:
+        topics = ["Явно выраженные темы в комментариях не выделяются."]
+
+    patterns = _collect_text_items(payload.get("time_trends"), limit=3)
+    for item in payload.get("clusters") or []:
+        if not isinstance(item, dict):
+            continue
+        summary = _clean_list_text(item.get("summary"))
+        if summary and summary not in patterns:
+            patterns.append(summary)
+        if len(patterns) >= 5:
+            break
+    if not patterns:
+        patterns = ["Повторяющиеся паттерны выражены умеренно и в основном совпадают с ключевыми темами обсуждения."]
+
+    quotes = _collect_text_items(payload.get("representative_quotes"), limit=5)
+    if not quotes:
+        quotes = ["Репрезентативные цитаты не выделены, поэтому выводы основаны на агрегированных сигналах."]
+
+    risks = _collect_text_items(payload.get("risks"), limit=5)
+    if not risks:
+        risks = ["Сильные риск-сигналы в комментариях не выявлены."]
+
+    lines = [
+        title,
+        "",
+        "1) Контекст поста",
+        _trim_sentence(
+            payload.get("summary"),
+            fallback="Отчет суммирует реакцию аудитории на публикацию и показывает, какие темы и оценки доминируют в комментариях.",
+        ),
+        (
+            "Анализ опирается на комментарии к одному посту и включает общий тон, "
+            "процентное соотношение настроений, тематические линии, паттерны обсуждения и репрезентативные цитаты."
+        ),
+        "",
+        "2) Общий тон обсуждения",
+        f"- Итог: {_post_report_tone_label(payload)}",
+        (
+            f"- Распределение: позитив {_share_to_percent(distribution.get('positive'))} / "
+            f"негатив {_share_to_percent(distribution.get('negative'))} / "
+            f"нейтрально {_share_to_percent(distribution.get('neutral'))}"
+        ),
+        f"- Обоснование: {_build_post_tone_reasoning(payload)}",
+        "",
+        "3) Ключевые темы",
+        *[f"- Тема {idx}: {topic}" for idx, topic in enumerate(topics[:5], start=1)],
+        "",
+        "4) Тренды и повторяющиеся паттерны",
+        *[f"- {item}" for item in patterns[:5]],
+        "",
+        "5) Репрезентативные цитаты",
+        *[f'- "{item}"' for item in quotes[:5]],
+        "",
+        "6) Классификация комментариев",
+        f"- По тональности: {_build_post_sentiment_classification(payload)}",
+        f"- По темам: {_build_post_thematic_classification(payload)}",
+        "",
+        "7) Риски/сигналы",
+        *[f"- {item}" for item in risks[:5]],
+    ]
     return "\n".join(lines).strip()
 
 

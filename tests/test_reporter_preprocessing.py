@@ -96,6 +96,11 @@ def test_generate_post_report_payload_uses_preprocessed_signal_summary(monkeypat
     assert payload["comment_count"] == 2
     assert payload["meta"]["input_mode"] == "preprocessed_signals_v1"
     assert payload["meta"]["input_summary"]["sample_count"] >= 1
+    assert payload["meta"]["sentiment_backend"] in {"transformers", "fallback_neutral"}
+    assert "sentiment_model_configured" in payload["meta"]
+    assert "sentiment_transformers_available" in payload["meta"]
+    assert "sentiment_hint" in payload["meta"]
+    assert "nlp_backend" in payload["meta"]
 
 
 def test_generate_post_report_payload_retries_and_returns_valid_failed_fallback(monkeypatch):
@@ -150,3 +155,5 @@ def test_generate_post_report_payload_retries_and_returns_valid_failed_fallback(
     assert payload["post_id"] == 77
     assert payload["meta"]["fallback_reason"] == "invalid_model_output"
     assert payload["anomalies"] == ["model_output_invalid"]
+    assert payload["meta"]["sentiment_backend"] in {"transformers", "fallback_neutral"}
+    assert "sentiment_model_configured" in payload["meta"]

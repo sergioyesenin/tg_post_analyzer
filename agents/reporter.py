@@ -195,6 +195,39 @@ def _get_sentiment_pipeline():
     return _sentiment_pipeline
 
 
+def _configured_sentiment_model_name() -> str | None:
+    model_name = (os.getenv("POST_REPORT_SENTIMENT_MODEL") or "").strip()
+    return model_name or None
+
+
+def _build_sentiment_diagnostics(sentiment_hint: dict[str, Any] | None = None) -> dict[str, Any]:
+    hint = dict(sentiment_hint or {})
+    backend = str(hint.get("backend") or "fallback_neutral").strip() or "fallback_neutral"
+    model_name = _configured_sentiment_model_name()
+    diagnostics: dict[str, Any] = {
+        "backend": backend,
+        "model": model_name,
+        "configured": bool(model_name),
+        "transformers_available": bool(_TRANSFORMERS_AVAILABLE),
+    }
+    if backend == "fallback_neutral":
+        if not _TRANSFORMERS_AVAILABLE:
+            diagnostics["fallback_reason"] = "transformers_unavailable"
+        elif not model_name:
+            diagnostics["fallback_reason"] = "model_not_configured"
+        elif _sentiment_init_failed:
+            diagnostics["fallback_reason"] = "pipeline_init_failed"
+        else:
+            diagnostics["fallback_reason"] = "runtime_fallback"
+    if hint:
+        diagnostics["hint"] = {
+            "dominant": str(hint.get("dominant_hint") or "neutral"),
+            "distribution": dict(hint.get("distribution_hint") or {}),
+            "confidence": str(hint.get("confidence") or "low"),
+        }
+    return diagnostics
+
+
 def _normalize_sentiment_label(label: Any) -> str:
     normalized = str(label or "").strip().lower()
     if any(marker in normalized for marker in ("pos", "label_2", "4 stars", "5 stars")):
@@ -404,6 +437,7 @@ def build_post_signal_summary(
     }
     keyword_terms = [item["term"] for item in top_keywords]
     overlap = [term for term in keyword_terms if term in post_tokens]
+    sentiment_diagnostics = _build_sentiment_diagnostics(sentiment_hint)
 
     return {
         "comment_count": total,
@@ -428,6 +462,7 @@ def build_post_signal_summary(
         "nlp_backend": {
             "lemmatizer": "natasha" if _get_natasha_components() is not None else "regex_fallback",
             "sentiment": sentiment_hint.get("backend", "fallback_neutral"),
+            "sentiment_diagnostics": sentiment_diagnostics,
         },
     }
 
@@ -474,6 +509,17 @@ Use only these sentiment labels: positive, negative, neutral.
 Do not invent facts. If confidence is low, say so in confidence.reason.
 Treat representative_samples as evidence examples, and treat post_signal_summary as the primary source for counts, structure, topic hints and entities.
 If the evidence is weak or partial, summarize conservatively.
+The resulting payload must be sufficient to render a structured Russian mini-report with these sections:
+- context of the post,
+- overall tone of discussion with percentage sentiment split,
+- key topics,
+- trends and recurring patterns,
+- representative quotes,
+- comment classification by sentiment,
+- thematic classification of comments,
+- risks/signals when applicable.
+Prefer concise topic names, cluster summaries suitable for thematic classification, and time_trends that describe temporal dynamics or recurring patterns.
+Assume short Russian-language comments are common; infer cautiously and avoid overclaiming.
 
 Required JSON schema:
 {{
@@ -577,6 +623,15 @@ def _validate_post_report_payload(
             "sample_count": len(list(signal_summary.get("representative_samples") or [])),
         },
     )
+    sentiment_diagnostics = dict(((signal_summary.get("nlp_backend") or {}).get("sentiment_diagnostics")) or {})
+    meta.setdefault("nlp_backend", dict(signal_summary.get("nlp_backend") or {}))
+    meta.setdefault("sentiment_hint", dict(signal_summary.get("sentiment_hint") or {}))
+    meta.setdefault("sentiment_backend", sentiment_diagnostics.get("backend") or "fallback_neutral")
+    meta.setdefault("sentiment_model", sentiment_diagnostics.get("model"))
+    meta.setdefault("sentiment_model_configured", bool(sentiment_diagnostics.get("configured")))
+    meta.setdefault("sentiment_transformers_available", bool(sentiment_diagnostics.get("transformers_available")))
+    if sentiment_diagnostics.get("fallback_reason"):
+        meta.setdefault("sentiment_fallback_reason", sentiment_diagnostics.get("fallback_reason"))
     normalized["meta"] = meta
     validated = PostReportPayload.model_validate(normalized)
     return validated.model_dump()
@@ -615,6 +670,24 @@ def _build_invalid_output_fallback(
             "input_mode": "preprocessed_signals_v1",
             "fallback_reason": "invalid_model_output",
             "validation_error": error_message[:500],
+            "nlp_backend": dict(signal_summary.get("nlp_backend") or {}),
+            "sentiment_hint": dict(signal_summary.get("sentiment_hint") or {}),
+            "sentiment_backend": (
+                ((signal_summary.get("nlp_backend") or {}).get("sentiment_diagnostics") or {}).get("backend")
+                or "fallback_neutral"
+            ),
+            "sentiment_model": (
+                ((signal_summary.get("nlp_backend") or {}).get("sentiment_diagnostics") or {}).get("model")
+            ),
+            "sentiment_model_configured": bool(
+                ((signal_summary.get("nlp_backend") or {}).get("sentiment_diagnostics") or {}).get("configured")
+            ),
+            "sentiment_transformers_available": bool(
+                ((signal_summary.get("nlp_backend") or {}).get("sentiment_diagnostics") or {}).get("transformers_available")
+            ),
+            "sentiment_fallback_reason": (
+                ((signal_summary.get("nlp_backend") or {}).get("sentiment_diagnostics") or {}).get("fallback_reason")
+            ),
         },
     )
     return fallback.model_dump()
@@ -936,6 +1009,14 @@ class TgReportProject:
         thread_comments = thread_comments or []
         comments_count = len(thread_comments) if thread_comments else len(comments)
         if comments_count < cfg.min_comments:
+            sentiment_diagnostics = _build_sentiment_diagnostics(
+                {
+                    "dominant_hint": "neutral",
+                    "distribution_hint": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+                    "confidence": "low",
+                    "backend": "fallback_neutral",
+                }
+            )
             return {
                 "type": "post_report_v2",
                 "status": "skipped_min_comments",
@@ -955,7 +1036,14 @@ class TgReportProject:
                 "anomalies": [],
                 "representative_quotes": [],
                 "confidence": {"overall": "low", "reason": "Недостаточно комментариев."},
-                "meta": {"prompt_version": "post_report_v2"},
+                "meta": {
+                    "prompt_version": "post_report_v2",
+                    "sentiment_backend": sentiment_diagnostics.get("backend"),
+                    "sentiment_model": sentiment_diagnostics.get("model"),
+                    "sentiment_model_configured": bool(sentiment_diagnostics.get("configured")),
+                    "sentiment_transformers_available": bool(sentiment_diagnostics.get("transformers_available")),
+                    "sentiment_fallback_reason": sentiment_diagnostics.get("fallback_reason"),
+                },
             }
 
         signal_summary = build_post_signal_summary(

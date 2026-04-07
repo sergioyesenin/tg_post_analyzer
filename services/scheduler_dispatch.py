@@ -10,9 +10,8 @@ from services.settings_store import get_all_settings
 
 
 def retention_scheduler_enabled(settings_payload: dict) -> bool:
-    features = settings_payload.get("features", {})
     scheduler = settings_payload.get("scheduler", {})
-    return bool(features.get("scheduler_retention_v2", False) and scheduler.get("enabled", False))
+    return bool(scheduler.get("enabled", False))
 
 
 async def enqueue_daily_retention_jobs(

@@ -1,4 +1,4 @@
-import { cleanup, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -253,10 +253,14 @@ describe('Admin modules', () => {
     renderAdmin('/settings', ['analyst']);
 
     await waitFor(() => {
-      expect(screen.getByText(ru('\u0414\u043b\u044f \u0430\u043d\u0430\u043b\u0438\u0442\u0438\u043a\u0430 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b \u0442\u043e\u043b\u044c\u043a\u043e \u044d\u0444\u0444\u0435\u043a\u0442\u0438\u0432\u043d\u044b\u0435 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438'))).toBeInTheDocument();
+      expect(screen.getByText(ru('\u0414\u043b\u044f \u0430\u043d\u0430\u043b\u0438\u0442\u0438\u043a\u0430 \u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d \u0442\u043e\u043b\u044c\u043a\u043e \u0440\u0435\u0436\u0438\u043c \u0447\u0442\u0435\u043d\u0438\u044f \u043d\u0430\u0441\u0442\u0440\u043e\u0435\u043a'))).toBeInTheDocument();
     });
 
+    expect(screen.getAllByRole('tab')).toHaveLength(9);
     expect(screen.queryByRole('button', { name: ru('\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0443') })).not.toBeInTheDocument();
+
+
+
     expect(analystGetSpy).not.toHaveBeenCalledWith('/api/settings/');
 
     cleanup();
@@ -280,14 +284,38 @@ describe('Admin modules', () => {
     renderAdmin('/settings', ['admin']);
 
     await waitFor(() => {
-      expect(screen.getByText(/Jobs configuration/i)).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: ru('\u0417\u0430\u0434\u0430\u043d\u0438\u044f') })).toBeInTheDocument();
     });
 
+    expect(screen.getAllByRole('tab')).toHaveLength(9);
+
     const settingsUser = userEvent.setup();
-    const jsonField = await screen.findByDisplayValue(/"ai_poll_seconds": 30/i);
-    await settingsUser.clear(jsonField);
-    await settingsUser.paste('{"ai_poll_seconds":60,"ai_scheduler_limit":20}');
-    await settingsUser.click(screen.getByRole('button', { name: ru('\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0443') }));
+    await settingsUser.click(screen.getByRole('tab', { name: ru('\u0417\u0430\u0434\u0430\u043d\u0438\u044f') }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('spinbutton', {
+          name: ru('\u0418\u043d\u0442\u0435\u0440\u0432\u0430\u043b \u043e\u043f\u0440\u043e\u0441\u0430 AI-\u043e\u0447\u0435\u0440\u0435\u0434\u0438, \u0441\u0435\u043a'),
+        }),
+      ).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText(ru('\u0418\u043d\u0442\u0435\u0440\u0432\u0430\u043b \u043e\u043f\u0440\u043e\u0441\u0430 Telegram, \u0441\u0435\u043a'))).not.toBeInTheDocument();
+
+    const pollSecondsInput = screen.getByRole('spinbutton', {
+      name: ru('\u0418\u043d\u0442\u0435\u0440\u0432\u0430\u043b \u043e\u043f\u0440\u043e\u0441\u0430 AI-\u043e\u0447\u0435\u0440\u0435\u0434\u0438, \u0441\u0435\u043a'),
+    });
+    const schedulerLimitInput = screen.getByRole('spinbutton', {
+      name: ru('\u041b\u0438\u043c\u0438\u0442 \u043f\u043e\u0441\u0442\u0430\u043d\u043e\u0432\u043a\u0438 AI-\u043e\u0442\u0447\u0451\u0442\u043e\u0432'),
+    });
+
+    fireEvent.change(pollSecondsInput, { target: { value: '60' } });
+    fireEvent.change(schedulerLimitInput, { target: { value: '20' } });
+    await settingsUser.click(
+      screen.getByRole('button', {
+        name: ru('\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0443'),
+      }),
+    );
 
     await waitFor(() => {
       expect(putSpy).toHaveBeenCalledWith('/api/settings/jobs', {
@@ -298,6 +326,96 @@ describe('Admin modules', () => {
         },
       });
     });
+  });
+
+  it('blocks invalid settings save on the client and keeps 0 as a valid value', async () => {
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/settings/effective') {
+        return createEffectiveSettingsResponse();
+      }
+
+      if (path === '/api/settings/') {
+        return createSettingsResponse();
+      }
+
+      throw new Error(`Unhandled GET path in settings validation test: ${path}`);
+    });
+
+    const putSpy = vi.spyOn(apiClient, 'put').mockResolvedValue(createSettingsResponse()[0]);
+
+    renderAdmin('/settings', ['admin']);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: ru('\u041e\u0442\u0447\u0451\u0442\u044b') })).toBeInTheDocument();
+    });
+
+    const settingsUser = userEvent.setup();
+    await settingsUser.click(screen.getByRole('tab', { name: ru('\u041e\u0442\u0447\u0451\u0442\u044b') }));
+
+    const minCommentsInput = await screen.findByRole('spinbutton', {
+      name: ru('\u041c\u0438\u043d\u0438\u043c\u0443\u043c \u043a\u043e\u043c\u043c\u0435\u043d\u0442\u0430\u0440\u0438\u0435\u0432 \u0434\u043b\u044f \u043e\u0442\u0447\u0451\u0442\u0430'),
+    });
+    const wordTargetInput = screen.getByRole('spinbutton', {
+      name: ru('\u0426\u0435\u043b\u0435\u0432\u0430\u044f \u0434\u043b\u0438\u043d\u0430 \u043e\u0442\u0447\u0451\u0442\u0430, \u0441\u043b\u043e\u0432'),
+    });
+
+    fireEvent.change(minCommentsInput, { target: { value: '0' } });
+    fireEvent.change(wordTargetInput, { target: { value: '4000' } });
+
+    expect(screen.getByRole('button', { name: ru('\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0443') })).toBeDisabled();
+    expect(
+      await screen.findByText(
+        ru('\u0414\u043b\u044f \u043f\u043e\u043b\u044f «\u0426\u0435\u043b\u0435\u0432\u0430\u044f \u0434\u043b\u0438\u043d\u0430 \u043e\u0442\u0447\u0451\u0442\u0430, \u0441\u043b\u043e\u0432» \u0434\u043e\u043f\u0443\u0441\u0442\u0438\u043c \u0434\u0438\u0430\u043f\u0430\u0437\u043e\u043d \u043e\u0442 50 \u0434\u043e 3000'),
+      ),
+    ).toBeInTheDocument();
+    expect(putSpy).not.toHaveBeenCalled();
+  });
+
+  it('maps backend 422 errors to usable settings feedback', async () => {
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/settings/effective') {
+        return createEffectiveSettingsResponse();
+      }
+
+      if (path === '/api/settings/') {
+        return createSettingsResponse();
+      }
+
+      throw new Error(`Unhandled GET path in settings backend validation test: ${path}`);
+    });
+
+    vi.spyOn(apiClient, 'put').mockRejectedValue(
+      new ApiError('Validation failed', 422, {
+        detail: [
+          {
+            loc: ['body', 'value_json', 'ai_poll_seconds'],
+            msg: 'Input should be less than or equal to 3600',
+          },
+        ],
+      }),
+    );
+
+    renderAdmin('/settings', ['admin']);
+
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: ru('\u0417\u0430\u0434\u0430\u043d\u0438\u044f') })).toBeInTheDocument();
+    });
+
+    const settingsUser = userEvent.setup();
+    await settingsUser.click(screen.getByRole('tab', { name: ru('\u0417\u0430\u0434\u0430\u043d\u0438\u044f') }));
+
+    const pollSecondsInput = await screen.findByRole('spinbutton', {
+      name: ru('\u0418\u043d\u0442\u0435\u0440\u0432\u0430\u043b \u043e\u043f\u0440\u043e\u0441\u0430 AI-\u043e\u0447\u0435\u0440\u0435\u0434\u0438, \u0441\u0435\u043a'),
+    });
+
+    fireEvent.change(pollSecondsInput, { target: { value: '3600' } });
+    await settingsUser.click(screen.getByRole('button', { name: ru('\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0443') }));
+
+    expect(
+      await screen.findByText(
+        ru('\u0421\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u0435 \u043e\u0442\u043a\u043b\u043e\u043d\u0435\u043d\u043e \u0438\u0437-\u0437\u0430 \u043d\u0435\u0432\u0430\u043b\u0438\u0434\u043d\u044b\u0445 \u0437\u043d\u0430\u0447\u0435\u043d\u0438\u0439. \u041f\u0440\u043e\u0432\u0435\u0440\u044c\u0442\u0435 \u043f\u043e\u043b\u044f \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435.'),
+      ),
+    ).toBeInTheDocument();
   });
 
   it('renders forbidden backend state for settings when analyst access is denied', async () => {

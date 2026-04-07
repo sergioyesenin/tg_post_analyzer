@@ -25,15 +25,23 @@ from services.ingest import (
     upsert_comment,
 )
 from services.queries import get_post_with_channel_by_post_id
+from services.settings_defaults import get_default_setting
+from services.settings_store import get_all_settings
 
-COMMENTS_SLEEP_EVERY = max(1, int(getattr(settings, "COMMENTS_SLEEP_EVERY", 10)))
-COMMENTS_SLEEP_BASE_SEC = max(0.0, float(getattr(settings, "COMMENTS_SLEEP_BASE_SEC", 0.6)))
-COMMENTS_SLEEP_JITTER_SEC = max(0.0, float(getattr(settings, "COMMENTS_SLEEP_JITTER_SEC", 0.4)))
 logger = logging.getLogger(__name__)
 
 
 async def polite_sleep(base: float, jitter: float) -> None:
     await asyncio.sleep(base + random.random() * jitter)
+
+
+async def _load_comments_settings(session: AsyncSession) -> dict:
+    try:
+        effective_settings = await get_all_settings(session)
+    except Exception:
+        logger.warning("Falling back to canonical comments settings defaults.", exc_info=True)
+        return {}
+    return effective_settings.get("comments", {})
 
 
 def _build_commenter_key(author_id: int | None, author_username: str | None) -> str | None:
@@ -55,10 +63,6 @@ def _build_existing_commenter_keys(rows: list[tuple[int | None, str | None]]) ->
 
 def _legacy_comment_peer_id(channel_id: int) -> int:
     return int(channel_id)
-
-
-def _comments_reconciliation_enabled() -> bool:
-    return bool(getattr(settings, "COMMENTS_RECONCILIATION_ENABLED", False))
 
 
 async def _reconcile_confirmed_comment_snapshot(
@@ -103,10 +107,9 @@ async def _resolve_discussion_with_fallback(
     original_message_date,
     original_message_text,
     original_grouped_id,
+    fallback_window: int,
+    fallback_max_seconds: int,
 ) -> tuple[object | None, int | None, str | None, int | None, int | None]:
-    fallback_window = max(0, int(settings.DISCUSSION_FALLBACK_ID_WINDOW))
-    fallback_max_seconds = max(0, int(settings.DISCUSSION_FALLBACK_MAX_SECONDS))
-
     candidate_msg_ids = [tg_message_id]
     for delta in range(1, fallback_window + 1):
         candidate_msg_ids.append(tg_message_id - delta)
@@ -350,6 +353,79 @@ async def _load_top_level_thread_comments(
 
 async def update_post_comments(session: AsyncSession, post_id: int, tg_client=None) -> dict:
     tg_client = tg_client or default_client
+    comments_settings = await _load_comments_settings(session)
+    comments_sleep_every = max(
+        1,
+        int(
+            comments_settings.get(
+                "sleep_every",
+                getattr(settings, "COMMENTS_SLEEP_EVERY", get_default_setting("comments", "sleep_every")),
+            )
+        ),
+    )
+    comments_sleep_base_sec = max(
+        0.0,
+        float(
+            comments_settings.get(
+                "sleep_base_sec",
+                getattr(settings, "COMMENTS_SLEEP_BASE_SEC", get_default_setting("comments", "sleep_base_sec")),
+            )
+        ),
+    )
+    comments_sleep_jitter_sec = max(
+        0.0,
+        float(
+            comments_settings.get(
+                "sleep_jitter_sec",
+                getattr(settings, "COMMENTS_SLEEP_JITTER_SEC", get_default_setting("comments", "sleep_jitter_sec")),
+            )
+        ),
+    )
+    discussion_fallback_id_window = max(
+        0,
+        int(
+            comments_settings.get(
+                "discussion_fallback_id_window",
+                getattr(
+                    settings,
+                    "DISCUSSION_FALLBACK_ID_WINDOW",
+                    get_default_setting("comments", "discussion_fallback_id_window"),
+                ),
+            )
+        ),
+    )
+    discussion_fallback_max_seconds = max(
+        0,
+        int(
+            comments_settings.get(
+                "discussion_fallback_max_seconds",
+                getattr(
+                    settings,
+                    "DISCUSSION_FALLBACK_MAX_SECONDS",
+                    get_default_setting("comments", "discussion_fallback_max_seconds"),
+                ),
+            )
+        ),
+    )
+    reconciliation_enabled = bool(
+        comments_settings.get(
+            "reconciliation_enabled",
+            getattr(settings, "COMMENTS_RECONCILIATION_ENABLED", get_default_setting("comments", "reconciliation_enabled")),
+        )
+    )
+    album_discussion_expansion_steps = max(
+        2,
+        int(
+            comments_settings.get(
+                "album_discussion_expansion_steps",
+                getattr(
+                    settings,
+                    "ALBUM_DISCUSSION_EXPANSION_STEPS",
+                    get_default_setting("comments", "album_discussion_expansion_steps"),
+                ),
+            )
+        ),
+    )
 
     row = await get_post_with_channel_by_post_id(session, post_id)
     if row is None:
@@ -489,8 +565,6 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         telegram_replies_count = None
 
     is_album = bool(getattr(head_msg, "grouped_id", None)) if head_msg is not None else False
-    reconciliation_enabled = _comments_reconciliation_enabled()
-
     if isinstance(telegram_replies_count, int):
         if isinstance(head_views, int) and head_views != getattr(post, "views", None):
             await set_post_views(session, post_id=post.id, views=head_views)
@@ -536,6 +610,9 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             tg_client=tg_client,
             entity=entity,
             head_msg=head_msg,
+            fallback_window=discussion_fallback_id_window,
+            fallback_max_seconds=discussion_fallback_max_seconds,
+            album_discussion_expansion_steps=album_discussion_expansion_steps,
         )
     )
 
@@ -723,9 +800,9 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             if isinstance(nested_replies_count, int) and nested_replies_count > 0:
                 queue.append((c.id, 0))
 
-            if k >= COMMENTS_SLEEP_EVERY:
+            if k >= comments_sleep_every:
                 k = 0
-                await polite_sleep(COMMENTS_SLEEP_BASE_SEC, COMMENTS_SLEEP_JITTER_SEC)
+                await polite_sleep(comments_sleep_base_sec, comments_sleep_jitter_sec)
 
         # Потом обходим вложенные ответы
         while queue:
@@ -801,9 +878,9 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 if isinstance(nested_replies_count, int) and nested_replies_count > 0:
                     queue.append((c.id, depth))
 
-                if k >= COMMENTS_SLEEP_EVERY:
+                if k >= comments_sleep_every:
                     k = 0
-                    await polite_sleep(COMMENTS_SLEEP_BASE_SEC, COMMENTS_SLEEP_JITTER_SEC)
+                    await polite_sleep(comments_sleep_base_sec, comments_sleep_jitter_sec)
 
     except FloodWaitError as e:
         return {
@@ -944,6 +1021,9 @@ async def _resolve_discussion_for_post_or_album(
     tg_client,
     entity,
     head_msg,
+    fallback_window: int,
+    fallback_max_seconds: int,
+    album_discussion_expansion_steps: int,
 ):
     if head_msg is None:
         return None, None, "no_discussion", None, None
@@ -958,6 +1038,7 @@ async def _resolve_discussion_for_post_or_album(
             tg_client=tg_client,
             entity=entity,
             head_msg=head_msg,
+            expansion_steps=album_discussion_expansion_steps,
         )
 
         ordered: list[int] = []
@@ -996,6 +1077,8 @@ async def _resolve_discussion_for_post_or_album(
             original_message_date=getattr(head_msg, "date", None),
             original_message_text=getattr(head_msg, "message", None),
             original_grouped_id=grouped_id,
+            fallback_window=fallback_window,
+            fallback_max_seconds=fallback_max_seconds,
         )
 
         if discussion is not None:
@@ -1034,6 +1117,7 @@ async def _collect_album_message_ids(
     head_msg,
     window_before: int = 10,
     window_after: int = 10,
+    expansion_steps: int = 6,
 ) -> list[int]:
     grouped_id = getattr(head_msg, "grouped_id", None)
     if not grouped_id:
@@ -1042,8 +1126,6 @@ async def _collect_album_message_ids(
     head_id = int(head_msg.id)
     result: list[int] = []
     seen: set[int] = set()
-    expansion_steps = max(2, int(getattr(settings, "ALBUM_DISCUSSION_EXPANSION_STEPS", 6)))
-
     async def _fetch_into(candidate_ids: list[int]) -> bool:
         if not candidate_ids:
             return False

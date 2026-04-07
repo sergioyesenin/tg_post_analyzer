@@ -37,9 +37,6 @@ class Settings:
         self.tz = self._env_str("APP_TZ", alias="TZ", default="Europe/Minsk", errors=errors)
         self._validate_timezone(self.tz, errors)
 
-        self.LINKER_LLM_MODEL = self._env_str("LINKER_LLM_MODEL", default="ollama/llama3:8b-instruct-q4_K_M", errors=errors)
-        self.LINKER_LLM_BASE_URL = self._env_str("LINKER_LLM_BASE_URL", default="http://localhost:11434", errors=errors)
-        self.LINKER_LLM_API_KEY = self._env_str("LINKER_LLM_API_KEY", default=None, errors=errors)
         self.REPORT_LLM_MODEL = self._env_str(
             "REPORT_LLM_MODEL",
             alias="LINKER_LLM_MODEL",

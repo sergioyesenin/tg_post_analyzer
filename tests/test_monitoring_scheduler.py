@@ -50,8 +50,7 @@ def test_scheduler_snapshot_reports_disabled_mode():
             monitoring.scheduler_snapshot(
                 session,
                 effective_settings={
-                    "features": {"scheduler_retention_v2": False},
-                    "scheduler": {"enabled": True, "retention_hour": 3, "retention_minute": 0},
+                    "scheduler": {"enabled": False, "retention_hour": 3, "retention_minute": 0},
                 },
             )
         )
@@ -85,7 +84,6 @@ def test_scheduler_snapshot_reports_missing_recent_enqueue(monkeypatch):
         monitoring.scheduler_snapshot(
             session,
             effective_settings={
-                "features": {"scheduler_retention_v2": True},
                 "scheduler": {"enabled": True, "retention_hour": 3, "retention_minute": 0},
             },
         )
@@ -118,7 +116,6 @@ def test_scheduler_snapshot_reports_stale_process(monkeypatch):
         monitoring.scheduler_snapshot(
             session,
             effective_settings={
-                "features": {"scheduler_retention_v2": True},
                 "scheduler": {"enabled": True, "retention_hour": 3, "retention_minute": 0},
             },
         )
@@ -149,7 +146,6 @@ def test_health_snapshot_includes_scheduler_dependency(monkeypatch):
         monitoring.health_snapshot(
             session,
             effective_settings={
-                "features": {"scheduler_retention_v2": True},
                 "scheduler": {"enabled": True, "retention_hour": 3, "retention_minute": 0},
             },
         )
@@ -196,7 +192,6 @@ def test_health_snapshot_degrades_when_scheduler_process_is_missing(monkeypatch)
         monitoring.health_snapshot(
             session,
             effective_settings={
-                "features": {"scheduler_retention_v2": True},
                 "scheduler": {"enabled": True, "retention_hour": 3, "retention_minute": 0},
             },
         )

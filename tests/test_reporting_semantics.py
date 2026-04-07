@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
+import pytest
+
 from schemas.report import EventReportPayload, PostReportPayload, ProcessReportPayload
 from services.report_aggregation import build_event_report_payload, build_process_report_payload
 from services import reporting
@@ -54,6 +56,86 @@ def test_report_status_from_payload_detects_legacy_draft_payloads():
     assert reporting.report_status_from_payload({"type": "process_report_draft_v1"}) == "draft"
     assert reporting.report_status_from_payload({"status": "ready"}) == "ready"
     assert reporting.report_status_from_payload(None) == "ready"
+
+
+@pytest.mark.skip(reason="obsolete legacy text template retained only for historical reference")
+def test_render_post_report_uses_obsolete_legacy_text_template():
+    text = reporting._render_post_report_text(
+        {
+            "title": "Заголовок: Добрый поступок вызвал отклик",
+            "summary": "Большинство комментариев поддерживают героя публикации.",
+            "sentiment": {
+                "dominant": "positive",
+                "distribution": {"positive": 0.7, "negative": 0.1, "neutral": 0.2},
+            },
+            "topics": [{"name": "благодарность"}, {"name": "подражание примеру"}],
+            "clusters": [{"name": "поддержка", "summary": "Люди хвалят поступок и желают здоровья."}],
+            "time_trends": [{"summary": "В начале обсуждения доминирует одобрение."}],
+            "representative_quotes": ["Молодец!", "Побольше бы таких людей."],
+            "risks": ["скепсис к съемке на камеру"],
+        }
+    )
+
+    assert "Краткий анализ комментариев к посту" in text
+    assert "Общий эмоциональный фон" in text
+    assert "2. Основные направления мысли" in text
+    assert "3. Противоречия и спорные моменты" in text
+    assert "4. Примеры характерных тезисов (для ориентира)" in text
+    assert "Итог" in text
+    assert "Тональность:" not in text
+
+
+def test_render_event_or_process_report_uses_legacy_text_template():
+    text = reporting._render_event_or_process_text(
+        {
+            "event_id": 4,
+            "event_title": "Обсуждение законопроекта",
+            "summary": "Сводка показывает ровный нейтральный фон.",
+            "sentiment": {
+                "dominant": "neutral",
+                "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+            },
+            "cross_post_topics": [{"name": "законопроект"}],
+            "post_dynamics": [{"role": "контекст", "summary": "Посты фокусируются на содержании инициативы."}],
+            "event_trends": [{"summary": "Тон обсуждения остается ровным."}],
+            "risks": ["propaganda"],
+        }
+    )
+
+    assert "Краткий анализ комментариев к обсуждению" in text
+    assert "Общий эмоциональный фон" in text
+    assert "2. Основные направления мысли" in text
+    assert "Итог" in text
+    assert "Тональность:" not in text
+
+
+def test_render_post_report_uses_legacy_text_template():
+    text = reporting._render_post_report_text(
+        {
+            "title": "Заголовок: Добрый поступок вызвал отклик",
+            "summary": "Большинство комментариев поддерживают героя публикации.",
+            "sentiment": {
+                "dominant": "positive",
+                "distribution": {"positive": 0.7, "negative": 0.1, "neutral": 0.2},
+            },
+            "topics": [{"name": "благодарность"}, {"name": "подражание примеру"}],
+            "clusters": [{"name": "поддержка", "summary": "Люди хвалят поступок и желают здоровья."}],
+            "time_trends": [{"summary": "В начале обсуждения доминирует одобрение."}],
+            "representative_quotes": ["Молодец!", "Побольше бы таких людей."],
+            "risks": ["скепсис к съемке на камеру"],
+        }
+    )
+
+    assert "1) Контекст поста" in text
+    assert "2) Общий тон обсуждения" in text
+    assert "3) Ключевые темы" in text
+    assert "4) Тренды и повторяющиеся паттерны" in text
+    assert "5) Репрезентативные цитаты" in text
+    assert "6) Классификация комментариев" in text
+    assert "7) Риски/сигналы" in text
+    assert "- Итог: позитивный" in text
+    assert "- По тональности:" in text
+    assert "- По темам:" in text
 
 
 def test_mark_report_payload_stale_preserves_context():

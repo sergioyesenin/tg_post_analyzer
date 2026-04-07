@@ -5,11 +5,13 @@ type ApiClientOptions = {
 
 export class ApiError extends Error {
   status: number;
+  payload?: unknown;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, payload?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.payload = payload;
   }
 }
 
@@ -112,7 +114,9 @@ export class ApiClient {
 
   private async parseResponse<T>(response: Response) {
     if (!response.ok) {
-      throw new ApiError(`API request failed with status ${response.status}`, response.status);
+      const payload = await this.readErrorPayload(response);
+      const message = this.resolveErrorMessage(response.status, payload);
+      throw new ApiError(message, response.status, payload);
     }
 
     if (response.status === 204) {
@@ -121,6 +125,48 @@ export class ApiClient {
 
     return (await response.json()) as T;
   }
+
+  private async readErrorPayload(response: Response): Promise<unknown> {
+    const contentType = response.headers.get('content-type') ?? '';
+
+    if (contentType.includes('application/json')) {
+      try {
+        return await response.json();
+      } catch {
+        return null;
+      }
+    }
+
+    try {
+      const text = await response.text();
+      return text || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private resolveErrorMessage(status: number, payload: unknown): string {
+    if (payload && typeof payload === 'object') {
+      const message =
+        readString((payload as Record<string, unknown>).message) ??
+        readString((payload as Record<string, unknown>).detail) ??
+        readString((payload as Record<string, unknown>).error);
+
+      if (message) {
+        return message;
+      }
+    }
+
+    if (typeof payload === 'string' && payload.trim()) {
+      return payload;
+    }
+
+    return `API request failed with status ${status}`;
+  }
 }
 
 export const apiClient = new ApiClient();
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null;
+}

@@ -38,7 +38,7 @@ async def test_main_async_returns_without_starting_scheduler_when_disabled(monke
     build_scheduler_called = False
 
     async def _fake_get_all_settings(_session):
-        return {"features": {"scheduler_retention_v2": False}, "scheduler": {"enabled": True}}
+        return {"scheduler": {"enabled": False}}
 
     def _fake_build_scheduler():
         nonlocal build_scheduler_called
@@ -61,7 +61,7 @@ async def test_main_async_starts_registers_and_shuts_down_scheduler(monkeypatch)
     heartbeat_calls: list[dict] = []
 
     async def _fake_get_all_settings(_session):
-        return {"features": {"scheduler_retention_v2": True}, "scheduler": {"enabled": True, "retention_hour": 4}}
+        return {"scheduler": {"enabled": True, "retention_hour": 4}}
 
     def _fake_register_periodic_jobs(scheduler_obj, *, effective_settings):
         register_calls.append({"scheduler": scheduler_obj, "effective_settings": effective_settings})
@@ -84,7 +84,6 @@ async def test_main_async_starts_registers_and_shuts_down_scheduler(monkeypatch)
         {
             "scheduler": scheduler,
             "effective_settings": {
-                "features": {"scheduler_retention_v2": True},
                 "scheduler": {"enabled": True, "retention_hour": 4},
             },
         }
@@ -98,7 +97,7 @@ async def test_main_async_shuts_down_scheduler_if_initial_heartbeat_fails(monkey
     scheduler = _FakeScheduler()
 
     async def _fake_get_all_settings(_session):
-        return {"features": {"scheduler_retention_v2": True}, "scheduler": {"enabled": True}}
+        return {"scheduler": {"enabled": True}}
 
     async def _failing_persist_runtime_heartbeat(**kwargs):
         if kwargs["status"] == "running":

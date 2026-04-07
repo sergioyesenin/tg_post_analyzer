@@ -254,7 +254,7 @@ describe('Processes dashboard', () => {
     renderWorkspace('/dashboard/processes?query=policy');
 
     await waitFor(() => {
-      expect(screen.getByText(/\u041d\u0438 \u043e\u0434\u0438\u043d \u043f\u0440\u043e\u0446\u0435\u0441\u0441 \u043d\u0435 \u0441\u043e\u0432\u043f\u0430\u0434\u0430\u0435\u0442 \u0441 \u044d\u0442\u0438\u043c \u0437\u0430\u043f\u0440\u043e\u0441\u043e\u043c/i)).toBeInTheDocument();
+      expect(screen.getByText(/По этому запросу процессы не найдены/i)).toBeInTheDocument();
     });
 
     expect(screen.queryByText(/\u0432 \u044d\u0442\u043e\u0439 \u0432\u044b\u0431\u043e\u0440\u043a\u0435/i)).not.toBeInTheDocument();
@@ -286,7 +286,7 @@ describe('Processes dashboard', () => {
     renderWorkspace('/dashboard/processes?query=policy');
 
     await waitFor(() => {
-      expect(screen.getAllByText(/Ни один процесс в текущем snapshot не совпадает с этим запросом/i)).toHaveLength(1);
+      expect(screen.getByText(/По этому запросу процессов в текущей выборке нет/i)).toBeInTheDocument();
     });
 
     expect(screen.getByText('2')).toBeInTheDocument();

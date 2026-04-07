@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import random
 import sys
 from datetime import datetime, timedelta, timezone
@@ -107,8 +106,6 @@ PRIORITY_BUILD_EVENT_REPORT = 45
 PRIORITY_BUILD_PROCESS_REPORT = 50
 PRIORITY_ARCHIVE_RETENTION = 95
 PRIORITY_JOBS_RETENTION = 96
-AI_JOB_TIMEOUT_SECONDS = int(os.getenv("AI_JOB_TIMEOUT_SECONDS", "300"))
-
 TELEGRAM_JOB_TYPES = {
     JobType.ADD_CHANNEL,
     JobType.COLLECT_COMMENTS,
@@ -995,6 +992,17 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
 
     report_project = get_report_project()
     report_config = report_config_from_settings(effective_settings)
+    jobs_settings = effective_settings.get("jobs", {})
+    ai_job_timeout_seconds = max(
+        5,
+        int(
+            _resolve_setting_value(
+                settings_value=jobs_settings.get("ai_job_timeout_seconds"),
+                cli_value=None,
+                fallback=get_default_setting("jobs", "ai_job_timeout_seconds"),
+            )
+        ),
+    )
     parallelism = _clamp_positive_int(job_worker_concurrency, default=2, minimum=1, maximum=16)
     semaphore = asyncio.Semaphore(parallelism)
 
@@ -1028,7 +1036,7 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
                     else:
                         raise ValueError(f"Unsupported AI job type: {db_job.type}")
 
-                    result = await asyncio.wait_for(job_coro, timeout=AI_JOB_TIMEOUT_SECONDS)
+                    result = await asyncio.wait_for(job_coro, timeout=ai_job_timeout_seconds)
 
                     result_status = str(result.get("status") or "")
                     if result_status == REPORT_STATUS_DEFERRED:
@@ -1080,9 +1088,9 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
                     await session.rollback()
                     await session.execute(
                         update(Job)
-                        .where(Job.id == job_id)
-                        .values(
-                            last_error=f"job_timeout:{job_type}:{AI_JOB_TIMEOUT_SECONDS}s",
+                            .where(Job.id == job_id)
+                            .values(
+                            last_error=f"job_timeout:{job_type}:{ai_job_timeout_seconds}s",
                             status=JOB_STATUS_PENDING,
                             retry_at=datetime.now(timezone.utc) + timedelta(seconds=30),
                             locked_by=None,
@@ -1095,7 +1103,7 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
                         "Job failed marker=job_timeout op=ai_job job_id=%s worker_id=%s timeout=%ss",
                         job_id,
                         worker_id,
-                        AI_JOB_TIMEOUT_SECONDS,
+                        ai_job_timeout_seconds,
                     )
                     return 0
                 except Exception as exc:

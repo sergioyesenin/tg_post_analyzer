@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -13,6 +14,41 @@ from telethon.tl.types import PeerChannel
 
 from db.models import Channel, Post
 from services.ingest import upsert_post
+
+logger = logging.getLogger(__name__)
+
+
+def _safe_preview(value: Any, *, limit: int = 300) -> str | None:
+    if not isinstance(value, str):
+        return None
+    return value[:limit]
+
+
+def _message_text_details(message: Any) -> dict[str, Any]:
+    raw_text = getattr(message, "message", None)
+    if raw_text is None:
+        return {
+            "has_message": False,
+            "message_len": None,
+            "message_preview": None,
+        }
+    if not isinstance(raw_text, str):
+        raw_text = str(raw_text)
+    return {
+        "has_message": True,
+        "message_len": len(raw_text),
+        "message_preview": _safe_preview(raw_text),
+    }
+
+
+def _invalid_post_text_reason(raw_text: Any) -> str | None:
+    if raw_text is None:
+        return "text_none"
+    if raw_text == "":
+        return "text_empty"
+    if isinstance(raw_text, str) and raw_text.strip() == "":
+        return "text_whitespace_only"
+    return None
 
 
 def day_bounds_utc(tz_name: str) -> tuple[datetime, datetime]:
@@ -191,14 +227,51 @@ class IngestionCore:
             if not new_candidate_ids:
                 return False
 
+            logger.info(
+                "album_candidate_fetch",
+                extra={
+                    "event": "album_candidate_fetch",
+                    "channel_id": getattr(getattr(entity, "peer", None), "channel_id", None),
+                    "message_id": head_id,
+                    "grouped_id": grouped_id,
+                    "requested_ids": new_candidate_ids,
+                },
+            )
             try:
                 nearby = await self._tg_client.get_messages(entity, ids=new_candidate_ids)
             except Exception:
+                logger.info(
+                    "album_representative_fallback",
+                    extra={
+                        "event": "album_representative_fallback",
+                        "reason": "fetch_failed_or_empty",
+                        "fallback_message_id": head_id,
+                    },
+                )
                 return False
 
             if not isinstance(nearby, list):
                 nearby = [nearby] if nearby is not None else []
 
+            logger.info(
+                "album_candidate_fetch_result",
+                extra={
+                    "event": "album_candidate_fetch_result",
+                    "returned_count": len(nearby),
+                    "items": [
+                        {
+                            "id": getattr(item, "id", None),
+                            "grouped_id": getattr(item, "grouped_id", None),
+                            "date": getattr(item, "date", None).isoformat()
+                            if getattr(item, "date", None) is not None
+                            else None,
+                            **_message_text_details(item),
+                        }
+                        for item in nearby
+                        if item is not None
+                    ],
+                },
+            )
             found_new = False
             for item in nearby:
                 if item is None:
@@ -229,10 +302,28 @@ class IngestionCore:
             found_new = found_left or found_right
 
         if not grouped_messages:
+            logger.info(
+                "album_representative_fallback",
+                extra={
+                    "event": "album_representative_fallback",
+                    "reason": "fetch_failed_or_empty",
+                    "fallback_message_id": head_id,
+                },
+            )
             return message
 
         grouped_messages.sort(key=lambda m: int(getattr(m, "id", 0) or 0))
         representative = grouped_messages[0]
+        logger.info(
+            "album_representative_selected",
+            extra={
+                "event": "album_representative_selected",
+                "selected_id": getattr(representative, "id", None),
+                "selection_reason": "earliest_id",
+                "has_text": _message_text_details(representative)["has_message"],
+                "message_len": _message_text_details(representative)["message_len"],
+            },
+        )
 
         return representative
 
@@ -290,6 +381,27 @@ class IngestionCore:
 
                 comments_count = extract_comments_count(msg)
                 if comments_count < options.min_replies:
+                    continue
+
+                raw_text = getattr(msg, "message", None)
+                invalid_reason = _invalid_post_text_reason(raw_text)
+                if invalid_reason is not None:
+                    raw_text_len = len(raw_text) if isinstance(raw_text, str) else None
+                    logger.info(
+                        "post_text_validation_failed",
+                        extra={
+                            "event": "post_text_validation_failed",
+                            "channel_id": channel.id,
+                            "channel_username": channel.username,
+                            "tg_message_id": getattr(msg, "id", None),
+                            "grouped_id": getattr(msg, "grouped_id", None),
+                            "is_album": isinstance(getattr(msg, "grouped_id", None), int),
+                            "representative_id": getattr(msg, "id", None),
+                            "reason": invalid_reason,
+                            "raw_text_len": raw_text_len,
+                            "raw_text_preview": _safe_preview(raw_text),
+                        },
+                    )
                     continue
 
                 async with self._session_factory() as session:

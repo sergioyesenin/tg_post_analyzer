@@ -19,7 +19,7 @@ def _normalize_ollama_base(base_url: str) -> str:
 
 class EmbeddingProvider:
     def __init__(self) -> None:
-        self._base_url = _normalize_ollama_base(settings.LINKER_LLM_BASE_URL)
+        self._base_url = _normalize_ollama_base(settings.REPORT_LLM_BASE_URL)
         self._model = settings.LINKING_EMBED_MODEL
         self._timeout = float(settings.LINKING_EMBED_TIMEOUT_SEC)
         self._enabled = settings.LINKING_EMBED_ENABLED

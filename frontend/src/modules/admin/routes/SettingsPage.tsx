@@ -1,16 +1,25 @@
-﻿import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useTranslation } from 'react-i18next';
 
 import { useSession } from '@app/providers/SessionProvider';
-import { AdminDataGrid } from '@modules/admin/components/AdminDataGrid';
+import { SettingsCategoryDetails } from '@modules/admin/components/SettingsCategoryDetails';
+import { SettingsCategoryEditor } from '@modules/admin/components/SettingsCategoryEditor';
+import { SettingsCategoryNav } from '@modules/admin/components/SettingsCategoryNav';
 import { useSettingsMutations, useSettingsQueries } from '@modules/admin/hooks';
-import { mapSettingsToRows, settingsColumns } from '@modules/admin/mappers';
-import { updateSettingSchema, type UpdateSettingFormValues } from '@modules/admin/validation';
+import { buildSettingsCategoryViewModels } from '@modules/admin/mappers';
+import { settingsCategoryOrder, type SettingsCategoryKey } from '@modules/admin/settings-catalog';
+import {
+  mapSettingsMutationError,
+  parseSettingsPayload,
+  updateSettingSchema,
+  validateSettingsPayload,
+  type SettingsMutationErrorState,
+  type UpdateSettingFormValues,
+} from '@modules/admin/validation';
 import { ApiError } from '@shared/api/client';
 import { ReadOnlyNotice } from '@shared/ui/notices/ReadOnlyNotice';
-import { EmptyState } from '@shared/ui/states/EmptyState';
 import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
@@ -22,22 +31,15 @@ export function SettingsPage() {
   const { effectiveQuery, settingsQuery } = useSettingsQueries(isAdmin);
   const mutations = useSettingsMutations();
   const settings = settingsQuery.data ?? [];
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const selectedSetting = settings.find((item) => item.key === selectedKey) ?? null;
-
-  useEffect(() => {
-    if (!isAdmin || settings.length === 0) {
-      setSelectedKey(null);
-      return;
-    }
-
-    setSelectedKey((current) => (current && settings.some((item) => item.key === current) ? current : settings[0]!.key));
-  }, [isAdmin, settings]);
-
-  const prettyEffective = useMemo(
-    () => JSON.stringify(effectiveQuery.data ?? {}, null, 2),
-    [effectiveQuery.data],
-  );
+  const effectiveSettings = effectiveQuery.data ?? {};
+  const categories = useMemo(() => buildSettingsCategoryViewModels(settings, effectiveSettings), [effectiveSettings, settings]);
+  const [selectedCategoryKey, setSelectedCategoryKey] = useState<SettingsCategoryKey>(settingsCategoryOrder[0]);
+  const [mutationErrors, setMutationErrors] = useState<SettingsMutationErrorState>({
+    fieldErrors: {},
+    sectionError: null,
+    serverError: null,
+  });
+  const selectedCategory = categories.find((category) => category.key === selectedCategoryKey) ?? categories[0] ?? null;
 
   const form = useForm<UpdateSettingFormValues>({
     resolver: zodResolver(updateSettingSchema),
@@ -48,11 +50,42 @@ export function SettingsPage() {
   });
 
   useEffect(() => {
+    if (!selectedCategory) {
+      return;
+    }
+
     form.reset({
-      description: selectedSetting?.description ?? '',
-      value_json_text: selectedSetting ? JSON.stringify(selectedSetting.value_json, null, 2) : '{}',
+      description: selectedCategory.editableSetting?.description ?? '',
+      value_json_text: selectedCategory.editableSetting ? JSON.stringify(selectedCategory.editableSetting.value_json, null, 2) : '{}',
     });
-  }, [form, selectedSetting]);
+    setMutationErrors({
+      fieldErrors: {},
+      sectionError: null,
+      serverError: null,
+    });
+  }, [form, selectedCategory]);
+
+  const currentJsonText = form.watch('value_json_text');
+  const parsedPayload = useMemo(() => parseSettingsPayload(currentJsonText), [currentJsonText]);
+  const clientFieldErrors = useMemo(() => {
+    if (!selectedCategory || !parsedPayload) {
+      return {};
+    }
+
+    return validateSettingsPayload(selectedCategory.key, parsedPayload);
+  }, [parsedPayload, selectedCategory]);
+  const fieldErrors = useMemo(
+    () => ({ ...mutationErrors.fieldErrors, ...clientFieldErrors }),
+    [clientFieldErrors, mutationErrors.fieldErrors],
+  );
+
+  useEffect(() => {
+    setMutationErrors((current) =>
+      current.sectionError || current.serverError || Object.keys(current.fieldErrors).length > 0
+        ? { fieldErrors: {}, sectionError: null, serverError: null }
+        : current,
+    );
+  }, [currentJsonText, selectedCategoryKey]);
 
   if (effectiveQuery.isLoading || (isAdmin && settingsQuery.isLoading)) {
     return <LoadingState title={t('admin.settings.loadingTitle')} description={t('admin.settings.loadingDescription')} />;
@@ -67,8 +100,12 @@ export function SettingsPage() {
     return <ErrorState title={t('admin.settings.errorTitle')} description={t('admin.settings.errorDescription')} />;
   }
 
+  if (!selectedCategory) {
+    return <ErrorState title={t('admin.settings.errorTitle')} description={t('admin.settings.emptyDescription')} />;
+  }
+
   return (
-    <div className="dashboard-page">
+    <div className="dashboard-page admin-console-page">
       <section className="dashboard-page__hero">
         <div>
           <span className="state-card__eyebrow">{t('states.admin')}</span>
@@ -85,100 +122,63 @@ export function SettingsPage() {
         />
       ) : null}
 
-      <section className="dashboard-page__content dashboard-page__content--workspace">
-        <div className="dashboard-page__primary">
-          {isAdmin ? (
-            settings.length === 0 ? (
-              <EmptyState title={t('admin.settings.emptyTitle')} description={t('admin.settings.emptyDescription')} />
-            ) : (
-              <AdminDataGrid
-                title={t('admin.settings.gridTitle')}
-                description={t('admin.settings.gridDescription')}
-                columns={settingsColumns}
-                rows={mapSettingsToRows(settings).map((row) => ({
-                  ...row,
-                  isSelected: row.id === selectedKey,
-                  cells: {
-                    ...row.cells,
-                    key: (
-                      <button type="button" className="dashboard-button dashboard-button--ghost" onClick={() => setSelectedKey(String(row.id))}>
-                        {row.id === selectedKey ? t('admin.settings.selectedKey', { key: row.id }) : row.id}
-                      </button>
-                    ),
-                  },
-                }))}
-              />
-            )
-          ) : (
-            <section className="detail-block">
-              <div className="detail-block__header">
-                <div>
-                  <span className="state-card__eyebrow">{t('states.effectiveSettings')}</span>
-                  <strong>{t('admin.settings.effectivePayloadTitle')}</strong>
-                </div>
-              </div>
-              <pre className="route-placeholder__code-block">{prettyEffective}</pre>
-            </section>
-          )}
+      <section className="dashboard-page__content dashboard-page__content--workspace settings-page__content">
+        <div className="dashboard-page__primary settings-page__primary">
+          <SettingsCategoryNav categories={categories} selectedCategoryKey={selectedCategoryKey} onSelect={setSelectedCategoryKey} />
+          <SettingsCategoryDetails category={selectedCategory} />
         </div>
 
-        <div className="dashboard-page__secondary">
-          <section className="detail-block">
-            <div className="detail-block__header">
-              <div>
-                <span className="state-card__eyebrow">{t('states.effective')}</span>
-                <strong>{t('admin.settings.effectiveTitle')}</strong>
-              </div>
-            </div>
-            <pre className="route-placeholder__code-block">{prettyEffective}</pre>
-          </section>
+        <div className="dashboard-page__secondary settings-page__secondary">
+          <SettingsCategoryEditor
+            category={selectedCategory}
+            isAdmin={isAdmin}
+            form={form}
+            isSubmitting={mutations.update.isPending}
+            fieldErrors={fieldErrors}
+            sectionError={mutationErrors.sectionError}
+            serverError={mutationErrors.serverError}
+            onSubmit={async () => {
+              if (!selectedCategory.editableSetting) {
+                return;
+              }
 
-          {isAdmin ? (
-            <section className="detail-block">
-              <div className="detail-block__header">
-                <div>
-                  <span className="state-card__eyebrow">{t('states.update')}</span>
-                  <strong>{selectedSetting?.key ?? t('admin.settings.selectedSetting')}</strong>
-                </div>
-              </div>
+              const isBaseValid = await form.trigger();
+              const payload = parseSettingsPayload(form.getValues('value_json_text'));
+              const nextClientErrors = payload ? validateSettingsPayload(selectedCategory.key, payload) : {};
 
-              {selectedSetting ? (
-                <form
-                  className="dashboard-filter-grid"
-                  onSubmit={form.handleSubmit(async (values) => {
-                    if (!window.confirm(t('admin.settings.confirmUpdate', { key: selectedSetting.key }))) {
-                      return;
-                    }
+              if (!isBaseValid || !payload || Object.keys(nextClientErrors).length > 0) {
+                setMutationErrors({
+                  fieldErrors: nextClientErrors,
+                  sectionError: Object.keys(nextClientErrors).length > 0 ? t('admin.settings.validationSectionDescription') : null,
+                  serverError: null,
+                });
+                return;
+              }
 
-                    await mutations.update.mutateAsync({
-                      key: selectedSetting.key,
-                      payload: {
-                        description: values.description || null,
-                        value_json: JSON.parse(values.value_json_text) as Record<string, unknown>,
-                      },
-                    });
-                  })}
-                >
-                  <label>
-                    <span>{t('fields.description')}</span>
-                    <input {...form.register('description')} />
-                  </label>
-                  <label>
-                    <span>{t('fields.valueJson')}</span>
-                    <textarea rows={12} {...form.register('value_json_text')} />
-                    {form.formState.errors.value_json_text ? <small>{form.formState.errors.value_json_text.message}</small> : null}
-                  </label>
-                  <div className="dashboard-filter-bar__actions">
-                    <button type="submit" className="dashboard-button" disabled={mutations.update.isPending}>
-                      {t('actions.saveSetting')}
-                    </button>
-                  </div>
-                </form>
-              ) : (
-                <p className="dashboard-panel-copy">{t('admin.settings.selectionHint')}</p>
-              )}
-            </section>
-          ) : null}
+              if (!window.confirm(t('admin.settings.confirmUpdate', { key: selectedCategory.label }))) {
+                return;
+              }
+
+              const values = form.getValues();
+              setMutationErrors({
+                fieldErrors: {},
+                sectionError: null,
+                serverError: null,
+              });
+
+              try {
+                await mutations.update.mutateAsync({
+                  key: selectedCategory.key,
+                  payload: {
+                    description: values.description || null,
+                    value_json: payload,
+                  },
+                });
+              } catch (error) {
+                setMutationErrors(mapSettingsMutationError(error, selectedCategory.key, payload));
+              }
+            }}
+          />
         </div>
       </section>
     </div>

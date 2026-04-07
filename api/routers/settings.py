@@ -48,7 +48,7 @@ async def update_setting(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Supported keys: ingest, reports, retention, jobs, api, scheduler, monitor, features.
+    Supported keys: ingest, reports, retention, jobs, api, scheduler, comments, monitor, features.
     """
     if key not in DEFAULT_SETTINGS:
         raise HTTPException(status_code=404, detail=f"Unknown setting key: {key}")

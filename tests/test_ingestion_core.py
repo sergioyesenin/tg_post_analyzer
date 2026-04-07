@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -40,8 +41,9 @@ class _FakeClient:
 
 
 class _WindowedClient:
-    def __init__(self, responses_by_window):
+    def __init__(self, responses_by_window, messages=None):
         self._responses_by_window = dict(responses_by_window)
+        self._messages = list(messages or [])
         self.requests: list[tuple[int, ...]] = []
 
     async def get_entity(self, peer):
@@ -56,8 +58,8 @@ class _WindowedClient:
         return self._responses_by_window.get(ids)
 
     async def iter_messages(self, entity):
-        if False:
-            yield entity
+        for msg in self._messages:
+            yield msg
 
 
 def _msg(*, msg_id: int, dt: datetime, replies: int, reply_to_msg_id: int | None = None) -> SimpleNamespace:
@@ -232,6 +234,225 @@ def test_pick_album_representative_message_recovers_from_partial_nearby_fetch():
 
     assert representative.id == 101
     assert len(client.requests) >= 2
+
+
+def test_ingestion_core_skips_album_without_text_and_logs_validation_failure(caplog):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    messages = [
+        SimpleNamespace(
+            id=103,
+            date=now,
+            message=None,
+            replies=SimpleNamespace(replies=8),
+            views=100,
+            reply_to=None,
+            grouped_id=555,
+        )
+    ]
+    album_101 = SimpleNamespace(id=101, date=now, message=None, grouped_id=555)
+    album_102 = SimpleNamespace(id=102, date=now, message=None, grouped_id=555)
+    album_103 = messages[0]
+    responses = {
+        tuple(range(93, 114)): [album_101, album_102, album_103],
+        tuple(range(91, 101)): [],
+        tuple(range(104, 114)): [],
+    }
+    saved_ids: list[int] = []
+
+    async def _upsert(session, **kwargs):
+        saved_ids.append(int(kwargs["tg_message_id"]))
+        return SimpleNamespace(id=kwargs["tg_message_id"])
+
+    core = IngestionCore(
+        tg_client=_WindowedClient(responses_by_window=responses, messages=messages),
+        session_factory=_FakeSession,
+        upsert_post_fn=_upsert,
+    )
+    core._get_post_by_channel_msg = AsyncMock(return_value=None)  # type: ignore[attr-defined]
+    core._ensure_parent_post = AsyncMock(return_value=None)  # type: ignore[attr-defined]
+
+    with caplog.at_level(logging.INFO, logger="services.ingestion_core"):
+        result = asyncio.run(
+            core.ingest_channel(
+                channel=SimpleNamespace(id=1, username="demo"),
+                options=IngestionOptions(
+                    since_utc=now - timedelta(hours=1),
+                    stop_on_existing_post=False,
+                ),
+            )
+        )
+
+    assert result.processed_posts == 0
+    assert saved_ids == []
+    validation_record = next(record for record in caplog.records if record.msg == "post_text_validation_failed")
+    assert validation_record.reason == "text_none"
+    assert validation_record.is_album is True
+    assert validation_record.grouped_id == 555
+
+
+def test_ingestion_core_skips_whitespace_only_text(caplog):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    messages = [
+        SimpleNamespace(
+            id=301,
+            date=now,
+            message="   ",
+            replies=SimpleNamespace(replies=4),
+            views=100,
+            reply_to=None,
+            grouped_id=None,
+        )
+    ]
+    saved_ids: list[int] = []
+
+    async def _upsert(session, **kwargs):
+        saved_ids.append(int(kwargs["tg_message_id"]))
+        return SimpleNamespace(id=kwargs["tg_message_id"])
+
+    core = IngestionCore(
+        tg_client=_FakeClient(messages),
+        session_factory=_FakeSession,
+        upsert_post_fn=_upsert,
+    )
+    core._get_post_by_channel_msg = AsyncMock(return_value=None)  # type: ignore[attr-defined]
+    core._ensure_parent_post = AsyncMock(return_value=None)  # type: ignore[attr-defined]
+
+    with caplog.at_level(logging.INFO, logger="services.ingestion_core"):
+        result = asyncio.run(
+            core.ingest_channel(
+                channel=SimpleNamespace(id=1, username="demo"),
+                options=IngestionOptions(
+                    since_utc=now - timedelta(hours=1),
+                    stop_on_existing_post=False,
+                ),
+            )
+        )
+
+    assert result.processed_posts == 0
+    assert saved_ids == []
+    validation_record = next(record for record in caplog.records if record.msg == "post_text_validation_failed")
+    assert validation_record.reason == "text_whitespace_only"
+    assert validation_record.raw_text_len == 3
+
+
+def test_ingestion_core_keeps_normal_text_flow():
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    messages = [_msg(msg_id=401, dt=now, replies=7)]
+    saved_ids: list[int] = []
+    callback_ids: list[int] = []
+
+    async def _upsert(session, **kwargs):
+        saved_ids.append(int(kwargs["tg_message_id"]))
+        return SimpleNamespace(id=kwargs["tg_message_id"])
+
+    async def _on_saved(session, post, ctx):
+        callback_ids.append(post.id)
+
+    core = IngestionCore(
+        tg_client=_FakeClient(messages),
+        session_factory=_FakeSession,
+        upsert_post_fn=_upsert,
+    )
+    core._get_post_by_channel_msg = AsyncMock(return_value=None)  # type: ignore[attr-defined]
+    core._ensure_parent_post = AsyncMock(return_value=None)  # type: ignore[attr-defined]
+
+    result = asyncio.run(
+        core.ingest_channel(
+            channel=SimpleNamespace(id=1, username="demo"),
+            options=IngestionOptions(
+                since_utc=now - timedelta(hours=1),
+                stop_on_existing_post=False,
+            ),
+            on_post_saved=_on_saved,
+        )
+    )
+
+    assert result.processed_posts == 1
+    assert saved_ids == [401]
+    assert callback_ids == [401]
+
+
+def test_ingestion_core_filters_album_when_representative_has_no_text(caplog):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    head_msg = SimpleNamespace(
+        id=103,
+        date=now,
+        message="caption on later message",
+        replies=SimpleNamespace(replies=6),
+        views=100,
+        reply_to=None,
+        grouped_id=555,
+    )
+    album_101 = SimpleNamespace(id=101, date=now, message=None, grouped_id=555)
+    album_102 = SimpleNamespace(id=102, date=now, message="caption on later message", grouped_id=555)
+    album_103 = head_msg
+    responses = {
+        tuple(range(93, 114)): [album_101, album_102, album_103],
+        tuple(range(91, 101)): [],
+        tuple(range(104, 114)): [],
+    }
+    saved_ids: list[int] = []
+
+    async def _upsert(session, **kwargs):
+        saved_ids.append(int(kwargs["tg_message_id"]))
+        return SimpleNamespace(id=kwargs["tg_message_id"])
+
+    core = IngestionCore(
+        tg_client=_WindowedClient(responses, messages=[head_msg]),
+        session_factory=_FakeSession,
+        upsert_post_fn=_upsert,
+    )
+    core._get_post_by_channel_msg = AsyncMock(return_value=None)  # type: ignore[attr-defined]
+    core._ensure_parent_post = AsyncMock(return_value=None)  # type: ignore[attr-defined]
+
+    with caplog.at_level(logging.INFO, logger="services.ingestion_core"):
+        result = asyncio.run(
+            core.ingest_channel(
+                channel=SimpleNamespace(id=1, username="demo"),
+                options=IngestionOptions(
+                    since_utc=now - timedelta(hours=1),
+                    stop_on_existing_post=False,
+                ),
+            )
+        )
+
+    assert result.processed_posts == 0
+    assert saved_ids == []
+    selected_record = next(record for record in caplog.records if record.msg == "album_representative_selected")
+    assert selected_record.selected_id == 101
+    assert selected_record.has_text is False
+    validation_record = next(record for record in caplog.records if record.msg == "post_text_validation_failed")
+    assert validation_record.representative_id == 101
+    assert validation_record.reason == "text_none"
+
+
+def test_pick_album_representative_logs_fallback_on_fetch_failure(caplog):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    head_msg = SimpleNamespace(id=103, date=now, message="m103", grouped_id=555)
+
+    class _FailingClient:
+        async def get_entity(self, peer):
+            return SimpleNamespace(peer=peer)
+
+        async def get_messages(self, entity, ids):
+            raise RuntimeError("boom")
+
+        async def iter_messages(self, entity):
+            if False:
+                yield entity
+
+    core = IngestionCore(
+        tg_client=_FailingClient(),
+        session_factory=_FakeSession,
+    )
+
+    with caplog.at_level(logging.INFO, logger="services.ingestion_core"):
+        representative = asyncio.run(core._pick_album_representative_message(SimpleNamespace(id=1), head_msg))
+
+    assert representative is head_msg
+    fallback_record = next(record for record in caplog.records if record.msg == "album_representative_fallback")
+    assert fallback_record.reason == "fetch_failed_or_empty"
+    assert fallback_record.fallback_message_id == 103
 
 
 def test_ingestion_core_marks_post_report_stale_when_existing_post_inputs_change(monkeypatch):

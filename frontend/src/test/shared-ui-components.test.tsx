@@ -25,9 +25,10 @@ describe('Shared UI components', () => {
       />,
     );
 
-    expect(screen.getByLabelText(/РЎРёСЃС‚РµРјРЅС‹Рµ СѓРІРµРґРѕРјР»РµРЅРёСЏ РґР°С€Р±РѕСЂРґР°/i)).toBeInTheDocument();
-    expect(screen.getByText(/РЎРЅРёРјРѕРє СЃРѕРґРµСЂР¶РёС‚ РЅРµР±Р»РѕРєРёСЂСѓСЋС‰РёРµ РїСЂРµРґСѓРїСЂРµР¶РґРµРЅРёСЏ/i)).toBeInTheDocument();
-    expect(screen.getByText(/Р­РєСЂР°РЅ РѕСЃС‚Р°РµС‚СЃСЏ РґРѕСЃС‚СѓРїРЅС‹Рј РїСЂРё С‡Р°СЃС‚РёС‡РЅРѕ РѕР±РѕРіР°С‰РµРЅРЅС‹С… РґР°РЅРЅС‹С…/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Системные уведомления дашборда/i)).toBeInTheDocument();
+    expect(screen.getByText(/Снимок содержит неблокирующие предупреждения/i)).toBeInTheDocument();
+    expect(screen.getByText(/Экран остается доступным при частично обогащенных данных/i)).toBeInTheDocument();
+
   });
 
   it('renders analytics, admin, and ops tables through production-equivalent grids', () => {
@@ -102,7 +103,7 @@ describe('Shared UI components', () => {
   it('uses one shared read-only notice pattern across modules', () => {
     render(<ReadOnlyNotice title="Viewer access is read-only" description="Mutations stay hidden while data remains visible." />);
 
-    expect(screen.getByLabelText(/РўРѕР»СЊРєРѕ С‡С‚РµРЅРёРµ/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Только чтение/i)).toBeInTheDocument();
     expect(screen.getByText(/Viewer access is read-only/i)).toBeInTheDocument();
   });
 
@@ -115,9 +116,10 @@ describe('Shared UI components', () => {
       </div>,
     );
 
-    expect(screen.getByLabelText(/РЎС‚Р°С‚СѓСЃ РѕС‚С‡РµС‚Р°: Р“РѕС‚РѕРІ/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/Р—Р°РґР°РЅРёСЏ: Р’С‹РїРѕР»РЅСЏРµС‚СЃСЏ/i)).toHaveTextContent('Р’С‹РїРѕР»РЅСЏРµС‚СЃСЏ #42');
-    expect(screen.getByLabelText(/РњРѕРЅРёС‚РѕСЂРёРЅРі: РљСЂРёС‚РёС‡РЅРѕ/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Статус отчета: Готов/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Задания: Выполняется/i)).toHaveTextContent('Выполняется #42');
+    expect(screen.getByLabelText(/Мониторинг: Критично/i)).toBeInTheDocument();
+
   });
 });
 

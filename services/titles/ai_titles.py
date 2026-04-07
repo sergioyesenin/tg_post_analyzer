@@ -76,9 +76,9 @@ def _fallback_process_title(event_titles: Iterable[str]) -> str:
 class AITitleGenerator:
     def __init__(self) -> None:
         self._llm = LLM(
-            model=settings.LINKER_LLM_MODEL,
-            base_url=settings.LINKER_LLM_BASE_URL,
-            api_key=settings.LINKER_LLM_API_KEY,
+            model=settings.REPORT_LLM_MODEL,
+            base_url=settings.REPORT_LLM_BASE_URL,
+            api_key=settings.REPORT_LLM_API_KEY,
         )
         self._agent = Agent(
             role="Генератор коротких заголовков",

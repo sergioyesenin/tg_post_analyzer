@@ -328,6 +328,9 @@ The repository now includes a production-style Docker setup with separate servic
 - `telegram_pipeline`
 - `ai_pipeline`
 
+All app services share one common image: `tg_post_analyzer:latest`.
+They still run as separate containers, but Docker Desktop should now show a single project image instead of one image per role.
+
 Recommended startup flow:
 
 ```bash
@@ -372,6 +375,8 @@ docker compose logs -f ai_pipeline
 docker compose down
 docker compose down -v
 ```
+
+Note: the Docker migration service uses `alembic upgrade heads` because the current repository state may contain multiple Alembic heads.
 
 ## Скрипты и legacy surface
 

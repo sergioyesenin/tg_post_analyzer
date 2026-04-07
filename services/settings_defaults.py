@@ -31,6 +31,7 @@ CANONICAL_SETTINGS_DEFAULTS: dict[str, dict] = {
         "job_worker_concurrency": 2,
         "collect_comments_quota_per_run": 2,
         "ai_poll_seconds": 120,
+        "ai_job_timeout_seconds": 300,
         "ai_scheduler_limit": 200,
         "done_retention_days": 14,
         "dead_letter_retention_days": 90,
@@ -40,9 +41,18 @@ CANONICAL_SETTINGS_DEFAULTS: dict[str, dict] = {
         "top_posts_default_limit": 20,
     },
     "scheduler": {
-        "enabled": False,
+        "enabled": True,
         "retention_hour": 3,
         "retention_minute": 0,
+    },
+    "comments": {
+        "discussion_fallback_id_window": 1,
+        "discussion_fallback_max_seconds": 10,
+        "sleep_every": 10,
+        "sleep_base_sec": 0.6,
+        "sleep_jitter_sec": 0.4,
+        "reconciliation_enabled": False,
+        "album_discussion_expansion_steps": 6,
     },
     "monitor": {
         "disk_used_percent_warn": 80,
@@ -74,7 +84,6 @@ CANONICAL_SETTINGS_DEFAULTS: dict[str, dict] = {
     "features": {
         "keyword_graph_api_enabled": True,
         "keyword_graph_rollout_percent": 100,
-        "scheduler_retention_v2": False,
     },
 }
 

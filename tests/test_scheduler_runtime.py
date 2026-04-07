@@ -50,9 +50,9 @@ def test_build_scheduler_db_url_handles_password_with_reserved_url_chars():
 
 
 def test_retention_scheduler_enabled_requires_both_flag_and_scheduler_switch():
-    assert retention_scheduler_enabled({"features": {"scheduler_retention_v2": True}, "scheduler": {"enabled": True}}) is True
-    assert retention_scheduler_enabled({"features": {"scheduler_retention_v2": True}, "scheduler": {"enabled": False}}) is False
-    assert retention_scheduler_enabled({"features": {"scheduler_retention_v2": False}, "scheduler": {"enabled": True}}) is False
+    assert retention_scheduler_enabled({"scheduler": {"enabled": True}}) is True
+    assert retention_scheduler_enabled({"scheduler": {"enabled": False}}) is False
+    assert retention_scheduler_enabled({}) is False
 
 
 def test_register_periodic_jobs_adds_retention_daily_job():
@@ -112,7 +112,7 @@ async def test_enqueue_daily_retention_jobs_uses_effective_settings_defaults(mon
 @pytest.mark.asyncio
 async def test_dispatch_daily_retention_returns_disabled_without_enqueue(monkeypatch):
     async def _fake_get_all_settings(_session):
-        return {"features": {"scheduler_retention_v2": False}, "scheduler": {"enabled": True}}
+        return {"scheduler": {"enabled": False}}
 
     async def _unexpected_enqueue(*args, **kwargs):
         raise AssertionError("enqueue_daily_retention_jobs should not be called when scheduler is disabled")
@@ -133,7 +133,7 @@ async def test_dispatch_daily_retention_returns_disabled_without_enqueue(monkeyp
 @pytest.mark.asyncio
 async def test_dispatch_daily_retention_returns_ok_payload_when_enabled(monkeypatch):
     async def _fake_get_all_settings(_session):
-        return {"features": {"scheduler_retention_v2": True}, "scheduler": {"enabled": True}}
+        return {"scheduler": {"enabled": True}}
 
     async def _fake_enqueue_daily_retention_jobs(session, **kwargs):
         assert kwargs["effective_settings"]["scheduler"]["enabled"] is True

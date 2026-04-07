@@ -38,6 +38,7 @@ class JobsSettings(_StrictConfigModel):
     job_worker_concurrency: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["jobs"]["job_worker_concurrency"], ge=1, le=16)
     collect_comments_quota_per_run: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["jobs"]["collect_comments_quota_per_run"], ge=1, le=5000)
     ai_poll_seconds: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["jobs"]["ai_poll_seconds"], ge=5, le=3600)
+    ai_job_timeout_seconds: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["jobs"]["ai_job_timeout_seconds"], ge=5, le=7200)
     ai_scheduler_limit: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["jobs"]["ai_scheduler_limit"], ge=1, le=10000)
     done_retention_days: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["jobs"]["done_retention_days"], ge=1, le=3650)
     dead_letter_retention_days: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["jobs"]["dead_letter_retention_days"], ge=1, le=3650)
@@ -52,6 +53,16 @@ class SchedulerSettings(_StrictConfigModel):
     enabled: bool = Field(default=CANONICAL_SETTINGS_DEFAULTS["scheduler"]["enabled"])
     retention_hour: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["scheduler"]["retention_hour"], ge=0, le=23)
     retention_minute: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["scheduler"]["retention_minute"], ge=0, le=59)
+
+
+class CommentsSettings(_StrictConfigModel):
+    discussion_fallback_id_window: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["comments"]["discussion_fallback_id_window"], ge=0, le=20)
+    discussion_fallback_max_seconds: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["comments"]["discussion_fallback_max_seconds"], ge=0, le=300)
+    sleep_every: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["comments"]["sleep_every"], ge=1, le=1000)
+    sleep_base_sec: float = Field(default=CANONICAL_SETTINGS_DEFAULTS["comments"]["sleep_base_sec"], ge=0.0, le=30.0)
+    sleep_jitter_sec: float = Field(default=CANONICAL_SETTINGS_DEFAULTS["comments"]["sleep_jitter_sec"], ge=0.0, le=30.0)
+    reconciliation_enabled: bool = Field(default=CANONICAL_SETTINGS_DEFAULTS["comments"]["reconciliation_enabled"])
+    album_discussion_expansion_steps: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["comments"]["album_discussion_expansion_steps"], ge=2, le=30)
 
 
 class MonitorSettings(_StrictConfigModel):
@@ -85,7 +96,6 @@ class MonitorSettings(_StrictConfigModel):
 class FeaturesSettings(_StrictConfigModel):
     keyword_graph_api_enabled: bool = Field(default=CANONICAL_SETTINGS_DEFAULTS["features"]["keyword_graph_api_enabled"])
     keyword_graph_rollout_percent: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["features"]["keyword_graph_rollout_percent"], ge=0, le=100)
-    scheduler_retention_v2: bool = Field(default=CANONICAL_SETTINGS_DEFAULTS["features"]["scheduler_retention_v2"])
 
 
 SCHEMA_BY_KEY = {
@@ -95,6 +105,7 @@ SCHEMA_BY_KEY = {
     "jobs": JobsSettings,
     "api": ApiSettings,
     "scheduler": SchedulerSettings,
+    "comments": CommentsSettings,
     "monitor": MonitorSettings,
     "features": FeaturesSettings,
 }

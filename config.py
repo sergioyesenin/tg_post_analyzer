@@ -77,6 +77,12 @@ class Settings:
         self.COMMENTS_SLEEP_BASE_SEC = self._env_float("COMMENTS_SLEEP_BASE_SEC", default=0.6, errors=errors)
         self.COMMENTS_SLEEP_JITTER_SEC = self._env_float("COMMENTS_SLEEP_JITTER_SEC", default=0.4, errors=errors)
         self.COMMENTS_RECONCILIATION_ENABLED = self._env_bool("COMMENTS_RECONCILIATION_ENABLED", default=False, errors=errors)
+        self.COMMENTS_REACTIONS_REFRESH_TTL_SECONDS = self._env_int(
+            "COMMENTS_REACTIONS_REFRESH_TTL_SECONDS",
+            default=900,
+            errors=errors,
+        )
+        self.COMMENTS_REACTIONS_TOP_N = self._env_int("COMMENTS_REACTIONS_TOP_N", default=10, errors=errors)
         self.AUTH_JWT_SECRET = self._env_str("AUTH_JWT_SECRET", required=True, errors=errors)
         self._validate_jwt_secret(self.AUTH_JWT_SECRET, errors)
         self.AUTH_JWT_ALG = self._env_str("AUTH_JWT_ALG", default="HS256", errors=errors)

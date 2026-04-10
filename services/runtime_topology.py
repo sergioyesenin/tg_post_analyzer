@@ -49,7 +49,7 @@ AI_PIPELINE_RUNTIME = RuntimeRole(
     runtime_name="ai_pipeline",
     process_boundary="ai-worker",
     entrypoint="python scripts/run_ai_pipeline.py",
-    ownership="AI report generation, batch report scheduling, and AI job execution.",
+    ownership="Passive AI report execution for queued BUILD_*_REPORT jobs without background report scheduling.",
     heartbeat_source="runtime.ai_pipeline",
     diagnostics="Diagnose through runtime heartbeat, AI job backlog, and report generation outcomes.",
 )

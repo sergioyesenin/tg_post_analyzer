@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type { EventsDashboardFiltersDto, EventsDashboardItemDto } from '@shared/dashboard/contracts';
@@ -120,6 +120,6 @@ export function useUpdateEventReportAction(eventId: number | null) {
         queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.graph.event(eventId) }),
       ]);
     },
+    progress: { mode: 'report-build', entityType: 'event', entityId: eventId },
   });
 }
-

@@ -181,7 +181,7 @@ export function EventDetailsPage() {
               status={reportAction.jobStatus}
               jobId={reportAction.activeJob?.job_id ?? reportAction.terminalState?.jobId}
               resultSummary={reportAction.resultSummary}
-              tone={reportAction.terminalState?.status === 'failed' ? 'danger' : reportAction.jobStatus === 'done' ? 'success' : 'default'}
+              tone={reportAction.terminalState?.status === 'failed' ? 'danger' : reportAction.jobStatus === 'done' || reportAction.jobStatus === 'completed' ? 'success' : 'default'}
             />
           ) : null}
         </aside>
@@ -189,3 +189,4 @@ export function EventDetailsPage() {
     </div>
   );
 }
+

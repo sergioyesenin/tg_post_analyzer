@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from api.routers import auth, channels, dashboard, jobs, keyword_graph, linking, links, monitor, posts, reports, settings
+from api.routers import auth, channels, dashboard, jobs, keyword_graph, linking, links, monitor, posts, report_progress, reports, settings
 from config import settings as app_settings
 
 app = FastAPI(title="TG Post Analyzer Dashboard")
@@ -16,6 +16,7 @@ app.include_router(channels.router, prefix="/api/channels", tags=["Channels"])
 app.include_router(posts.router, prefix="/api/posts", tags=["Posts"])
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
 app.include_router(reports.router, prefix="/api/reports", tags=["Reports"])
+app.include_router(report_progress.router, prefix="/api/reports/progress", tags=["Report Progress"])
 app.include_router(monitor.router, prefix="/api/monitor", tags=["Monitor"])
 app.include_router(jobs.router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(linking.router, prefix="/api", tags=["Linking"])

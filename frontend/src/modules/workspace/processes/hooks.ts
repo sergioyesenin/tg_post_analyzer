@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type { ProcessesDashboardFiltersDto, ProcessesDashboardItemDto } from '@shared/dashboard/contracts';
@@ -119,5 +119,7 @@ export function useUpdateProcessReportAction(processId: number | null) {
         queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.graph.process(processId) }),
       ]);
     },
+    progress: { mode: 'report-build', entityType: 'process', entityId: processId },
   });
 }
+

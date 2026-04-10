@@ -24,6 +24,7 @@ from db.models import (
 from schemas.query_params import CsvIntList, CsvStrList
 from schemas.report import ReportOut
 from services.auth import AuthUser
+from services.jobs import build_report_request_dedupe_key, find_blocking_report_duplicate
 from services.orchestration import (
     enqueue_event_report_job,
     enqueue_post_report_job,
@@ -49,6 +50,19 @@ def _job_accepted_response(*, job_id: int, job_type: str) -> JSONResponse:
                 "job_type": job_type,
                 "status_url": f"/api/jobs/{job_id}",
                 "result_url": f"/api/jobs/{job_id}/result",
+            }
+        ),
+    )
+
+
+def _duplicate_blocked_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content=jsonable_encoder(
+            {
+                "status": "blocked",
+                "reason": "duplicate_request",
+                "message": "Отчет уже формируется или был недавно построен",
             }
         ),
     )
@@ -130,16 +144,27 @@ async def get_report(
 @router.post("/post/{post_id}/update")
 async def update_report(
     post_id: int,
-    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    current_user: AuthUser = Depends(require_roles("admin", "analyst")),
     session: AsyncSession = Depends(get_session),
 ):
     post = await session.get(Post, post_id)
     if post is None:
         raise HTTPException(status_code=404, detail="Post not found")
-    job = await enqueue_post_report_job(session, post_id=post_id, source="api")
+
+    duplicate = await find_blocking_report_duplicate(session, entity_type="post", entity_id=post_id)
+    if duplicate is not None:
+        return _duplicate_blocked_response()
+
+    job = await enqueue_post_report_job(
+        session,
+        post_id=post_id,
+        source="api",
+        requested_by_user_id=current_user.id,
+        dedupe_key=build_report_request_dedupe_key(entity_type="post", entity_id=post_id),
+    )
     await session.commit()
     if job is None:
-        raise HTTPException(status_code=500, detail="Failed to enqueue build_post_report job")
+        return _duplicate_blocked_response()
     return _job_accepted_response(job_id=job.id, job_type=job.type)
 
 
@@ -418,30 +443,52 @@ async def generate_post_reports_by_filter(
 @router.post("/events/{event_id}/update")
 async def update_event_report(
     event_id: int,
-    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    current_user: AuthUser = Depends(require_roles("admin", "analyst")),
     session: AsyncSession = Depends(get_session),
 ):
     event = await session.get(Event, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    job = await enqueue_event_report_job(session, event_id=event_id, source="api")
+
+    duplicate = await find_blocking_report_duplicate(session, entity_type="event", entity_id=event_id)
+    if duplicate is not None:
+        return _duplicate_blocked_response()
+
+    job = await enqueue_event_report_job(
+        session,
+        event_id=event_id,
+        source="api",
+        requested_by_user_id=current_user.id,
+        dedupe_key=build_report_request_dedupe_key(entity_type="event", entity_id=event_id),
+    )
     await session.commit()
     if job is None:
-        raise HTTPException(status_code=500, detail="Failed to enqueue build_event_report job")
+        return _duplicate_blocked_response()
     return _job_accepted_response(job_id=job.id, job_type=job.type)
 
 
 @router.post("/processes/{process_id}/update")
 async def update_process_report(
     process_id: int,
-    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    current_user: AuthUser = Depends(require_roles("admin", "analyst")),
     session: AsyncSession = Depends(get_session),
 ):
     process = await session.get(Process, process_id)
     if process is None:
         raise HTTPException(status_code=404, detail="Process not found")
-    job = await enqueue_process_report_job(session, process_id=process_id, source="api")
+
+    duplicate = await find_blocking_report_duplicate(session, entity_type="process", entity_id=process_id)
+    if duplicate is not None:
+        return _duplicate_blocked_response()
+
+    job = await enqueue_process_report_job(
+        session,
+        process_id=process_id,
+        source="api",
+        requested_by_user_id=current_user.id,
+        dedupe_key=build_report_request_dedupe_key(entity_type="process", entity_id=process_id),
+    )
     await session.commit()
     if job is None:
-        raise HTTPException(status_code=500, detail="Failed to enqueue build_process_report job")
+        return _duplicate_blocked_response()
     return _job_accepted_response(job_id=job.id, job_type=job.type)

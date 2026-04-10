@@ -4,7 +4,7 @@ import asyncio
 import logging
 import random
 from collections import deque
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from telethon.errors import FloodWaitError, RPCError
 from telethon.errors.rpcerrorlist import MsgIdInvalidError
@@ -21,6 +21,7 @@ from services.ingest import (
     set_post_comments_count,
     set_post_involvement,
     set_post_last_comments_scan_at,
+    set_post_reactions_json,
     set_post_views,
     upsert_comment,
 )
@@ -29,6 +30,52 @@ from services.settings_defaults import get_default_setting
 from services.settings_store import get_all_settings
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_iso_datetime(raw_value: object) -> datetime | None:
+    if not isinstance(raw_value, str) or not raw_value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw_value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _is_recent_reactions_payload(payload: dict | None, *, now: datetime, ttl_seconds: int) -> bool:
+    if ttl_seconds <= 0 or not isinstance(payload, dict):
+        return False
+    collected_at = _parse_iso_datetime(payload.get("collected_at"))
+    if collected_at is None:
+        return False
+    return (now - collected_at).total_seconds() < ttl_seconds
+
+
+def _comment_reactions_resume_counts(payload: dict | None) -> tuple[int, int]:
+    if not isinstance(payload, dict):
+        return 0, 0
+    comment_meta = payload.get("comment_reactions")
+    if not isinstance(comment_meta, dict):
+        return 0, 0
+    try:
+        comments_scanned = max(0, int(comment_meta.get("comments_scanned") or 0))
+    except (TypeError, ValueError):
+        comments_scanned = 0
+    try:
+        visible = max(0, int(comment_meta.get("comments_with_visible_reactions") or 0))
+    except (TypeError, ValueError):
+        visible = 0
+    return comments_scanned, visible
+
+
+def _comment_reactions_status(*, is_complete: bool, comments_scanned: int, comments_with_visible_reactions: int) -> str:
+    if not is_complete:
+        return "partial"
+    if comments_scanned <= 0 or comments_with_visible_reactions <= 0:
+        return "no_reactions"
+    return "complete"
 
 
 async def polite_sleep(base: float, jitter: float) -> None:
@@ -63,6 +110,97 @@ def _build_existing_commenter_keys(rows: list[tuple[int | None, str | None]]) ->
 
 def _legacy_comment_peer_id(channel_id: int) -> int:
     return int(channel_id)
+
+
+def _serialize_message_reactions(message, *, top_n: int) -> dict:
+    reactions = getattr(message, "reactions", None)
+    if reactions is None:
+        return {
+            "supported": True,
+            "present": False,
+            "state": "no_reactions",
+            "results": [],
+            "results_total_count": 0,
+            "results_truncated": False,
+            "recent_reactions_count": 0,
+            "recent_reactions": [],
+            "raw_type": None,
+            "can_see_list": None,
+            "reactions_as_tags": None,
+            "min": None,
+        }
+
+    reaction_results = []
+    for item in list(getattr(reactions, "results", []) or []):
+        reaction_obj = getattr(item, "reaction", None)
+        reaction_results.append(
+            {
+                "count": getattr(item, "count", None),
+                "chosen_order": getattr(item, "chosen_order", None),
+                "reaction_type": None if reaction_obj is None else type(reaction_obj).__name__,
+                "reaction": None if reaction_obj is None else reaction_obj.to_dict(),
+            }
+        )
+
+    reaction_results = sorted(
+        reaction_results,
+        key=lambda item: (-int(item.get("count") or 0), str(item.get("reaction_type") or "")),
+    )
+    limited_results = reaction_results[:top_n]
+    recent = [item.to_dict() for item in list(getattr(reactions, "recent_reactions", []) or [])]
+    return {
+        "supported": True,
+        "present": bool(reaction_results),
+        "state": "available" if reaction_results else "no_reactions",
+        "raw_type": type(reactions).__name__,
+        "can_see_list": getattr(reactions, "can_see_list", None),
+        "reactions_as_tags": getattr(reactions, "reactions_as_tags", None),
+        "min": getattr(reactions, "min", None),
+        "results": limited_results,
+        "results_total_count": len(reaction_results),
+        "results_truncated": len(limited_results) < len(reaction_results),
+        "recent_reactions_count": len(recent),
+        "recent_reactions": recent,
+    }
+
+
+def _build_comment_reactions_payload(*, message, collected_at, top_n: int) -> dict:
+    return {
+        "source": "telegram_refresh",
+        "collected_at": collected_at.isoformat(),
+        "is_complete": True,
+        **_serialize_message_reactions(message, top_n=top_n),
+    }
+
+
+def _build_post_reactions_payload(
+    *,
+    message,
+    collected_at,
+    top_n: int,
+    is_complete: bool,
+    comment_status: str,
+    comments_scanned: int,
+    comments_with_visible_reactions: int,
+    thread_entity_type: str | None = None,
+    reason: str | None = None,
+) -> dict:
+    return {
+        "source": "telegram_refresh",
+        "collected_at": collected_at.isoformat(),
+        "is_complete": bool(is_complete),
+        "post_reactions": _serialize_message_reactions(message, top_n=top_n),
+        "comment_reactions": {
+            "source": "telegram_refresh",
+            "collected_at": collected_at.isoformat(),
+            "is_complete": bool(is_complete),
+            "status": comment_status,
+            "comments_scanned": int(comments_scanned),
+            "comments_with_visible_reactions": int(comments_with_visible_reactions),
+            "thread_entity_type": thread_entity_type,
+            "reason": reason,
+        },
+    }
 
 
 async def _reconcile_confirmed_comment_snapshot(
@@ -134,7 +272,7 @@ async def _resolve_discussion_with_fallback(
             if candidate_msg_id != original_message_id:
                 if original_grouped_id:
                     if candidate_grouped_id != original_grouped_id:
-                        logger.info(
+                        logger.debug(
                             "discussion fallback candidate rejected by album identity requested_msg_id=%s candidate_msg_id=%s original_grouped_id=%s candidate_grouped_id=%s",
                             original_message_id,
                             candidate_msg_id,
@@ -147,7 +285,7 @@ async def _resolve_discussion_with_fallback(
                         getattr(candidate_msg, "date", None) != original_message_date
                         or getattr(candidate_msg, "message", None) != original_message_text
                     ):
-                        logger.info(
+                        logger.debug(
                             "discussion fallback candidate rejected by non_album identity requested_msg_id=%s candidate_msg_id=%s",
                             original_message_id,
                             candidate_msg_id,
@@ -237,7 +375,7 @@ async def _load_top_level_thread_comments(
             seen_source.add(value)
             source_entity_roots.append(value)
 
-    logger.info(
+    logger.debug(
         "thread root candidates discussion_chat_roots=%s source_entity_roots=%s",
         discussion_chat_roots,
         source_entity_roots,
@@ -272,7 +410,7 @@ async def _load_top_level_thread_comments(
             )
             items = []
 
-        logger.info(
+        logger.debug(
             "top-level scan discussion_chat root_id=%s found=%s",
             root_id,
             len(items),
@@ -286,7 +424,7 @@ async def _load_top_level_thread_comments(
             and getattr(c, "id", None) != root_id
         ]
 
-        logger.info(
+        logger.debug(
             "top-level scan discussion_chat root_id=%s filtered=%s",
             root_id,
             len(filtered),
@@ -313,7 +451,7 @@ async def _load_top_level_thread_comments(
                 )
                 items = []
 
-            logger.info(
+            logger.debug(
                 "top-level scan source entity root_id=%s found=%s",
                 root_id,
                 len(items),
@@ -326,7 +464,7 @@ async def _load_top_level_thread_comments(
                 and getattr(c, "id", None) != root_id
             ]
 
-            logger.info(
+            logger.debug(
                 "top-level scan source entity root_id=%s filtered=%s",
                 root_id,
                 len(filtered),
@@ -426,12 +564,35 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             )
         ),
     )
+    reactions_refresh_ttl_seconds = max(
+        0,
+        int(
+            comments_settings.get(
+                "reactions_refresh_ttl_seconds",
+                getattr(
+                    settings,
+                    "COMMENTS_REACTIONS_REFRESH_TTL_SECONDS",
+                    get_default_setting("comments", "reactions_refresh_ttl_seconds"),
+                ),
+            )
+        ),
+    )
+    reactions_top_n = max(
+        1,
+        int(
+            comments_settings.get(
+                "reactions_top_n",
+                getattr(settings, "COMMENTS_REACTIONS_TOP_N", get_default_setting("comments", "reactions_top_n")),
+            )
+        ),
+    )
 
     row = await get_post_with_channel_by_post_id(session, post_id)
     if row is None:
         return {"status": "not_found", "post_id": post_id, "comments_saved": 0, "commenters_count": 0}
 
     post, channel = row
+    reactions_collected_at = datetime.now(timezone.utc)
 
     if channel.username.startswith("id_") and channel.username[3:].isdigit():
         peer = PeerChannel(int(channel.username[3:]))
@@ -519,6 +680,32 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
     head_views = None
     head_msg = None
 
+    async def persist_post_reactions(
+        *,
+        is_complete: bool,
+        comment_status: str,
+        comments_scanned: int = 0,
+        comments_with_visible_reactions: int = 0,
+        thread_entity_type: str | None = None,
+        reason: str | None = None,
+    ) -> dict | None:
+        if head_msg is None:
+            return None
+        payload = _build_post_reactions_payload(
+            message=head_msg,
+            collected_at=reactions_collected_at,
+            top_n=reactions_top_n,
+            is_complete=is_complete,
+            comment_status=comment_status,
+            comments_scanned=comments_scanned,
+            comments_with_visible_reactions=comments_with_visible_reactions,
+            thread_entity_type=thread_entity_type,
+            reason=reason,
+        )
+        await set_post_reactions_json(session, post_id=post.id, reactions_json=payload)
+        post.reactions_json = payload
+        return payload
+
     try:
         head_msg = await tg_client.get_messages(entity, ids=post.tg_message_id)
         if isinstance(head_msg, list):
@@ -571,11 +758,19 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             post.views = head_views
 
         # Для альбомов не выходим раньше времени, even if counts look unchanged.
+        existing_reactions_payload = post.reactions_json if isinstance(getattr(post, "reactions_json", None), dict) else None
+        recent_reactions_payload = _is_recent_reactions_payload(
+            existing_reactions_payload,
+            now=reactions_collected_at,
+            ttl_seconds=reactions_refresh_ttl_seconds,
+        )
+
         if (
             not is_album
-            and telegram_replies_count > 0
+            and telegram_replies_count >= 0
             and telegram_replies_count <= existing_comments_count
             and not has_non_legacy_comment_peers
+            and recent_reactions_payload
             and (not reconciliation_enabled or telegram_replies_count == existing_comments_count)
         ):
             await set_post_comments_count(
@@ -618,6 +813,11 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
 
     if discussion is None:
         if discussion_status == "flood_wait":
+            await persist_post_reactions(
+                is_complete=False,
+                comment_status="partial",
+                reason="discussion_resolve_flood_wait",
+            )
             return {
                 "status": "flood_wait",
                 "post_id": post_id,
@@ -629,6 +829,11 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 "discussion_source_msg_id": discussion_source_msg_id,
             }
         if discussion_status == "rpc_error":
+            post_reactions_payload = await persist_post_reactions(
+                is_complete=False,
+                comment_status="unavailable",
+                reason="discussion_resolve_rpc_error",
+            )
             return {
                 "status": "rpc_error",
                 "post_id": post_id,
@@ -636,9 +841,15 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 "commenters_count": 0,
                 "album_grouped_id": getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
                 "discussion_source_msg_id": discussion_source_msg_id,
+                "reactions": post_reactions_payload,
             }
         if discussion_status == "no_discussion":
             if isinstance(telegram_replies_count, int) and telegram_replies_count > 0:
+                post_reactions_payload = await persist_post_reactions(
+                    is_complete=False,
+                    comment_status="unavailable",
+                    reason="discussion_not_resolved_with_positive_replies",
+                )
                 return {
                     "status": "discussion_error",
                     "post_id": post_id,
@@ -648,7 +859,13 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                     "album_grouped_id": getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
                     "discussion_source_msg_id": discussion_source_msg_id,
                     "error": "discussion_not_resolved_with_positive_replies",
+                    "reactions": post_reactions_payload,
                 }
+            post_reactions_payload = await persist_post_reactions(
+                is_complete=True,
+                comment_status="no_reactions",
+                reason="no_discussion",
+            )
             return {
                 "status": "no_discussion",
                 "post_id": post_id,
@@ -656,7 +873,13 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 "commenters_count": 0,
                 "album_grouped_id": getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
                 "discussion_source_msg_id": discussion_source_msg_id,
+                "reactions": post_reactions_payload,
             }
+        post_reactions_payload = await persist_post_reactions(
+            is_complete=False,
+            comment_status="unavailable",
+            reason="discussion_resolution_failed",
+        )
         return {
             "status": "discussion_error",
             "post_id": post_id,
@@ -664,15 +887,27 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             "commenters_count": 0,
             "album_grouped_id": getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
             "discussion_source_msg_id": discussion_source_msg_id,
+            "reactions": post_reactions_payload,
         }
 
     if not discussion.chats or not discussion.messages:
-        return {"status": "no_discussion", "post_id": post_id, "comments_saved": 0, "commenters_count": 0}
+        post_reactions_payload = await persist_post_reactions(
+            is_complete=False,
+            comment_status="unavailable",
+            reason="discussion_payload_empty",
+        )
+        return {
+            "status": "no_discussion",
+            "post_id": post_id,
+            "comments_saved": 0,
+            "commenters_count": 0,
+            "reactions": post_reactions_payload,
+        }
 
     discussion_chat = discussion.chats[0]
     discussion_root = discussion.messages[0]
 
-    logger.info(
+    logger.debug(
         "discussion root resolved post_id=%s discussion_msg_id=%s discussion_root_id=%s discussion_chat_id=%s grouped_id=%s",
         post.id,
         discussion_msg_id,
@@ -693,9 +928,15 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         tg_to_comment_id[comment_key] = comment_id
         tg_to_depth[comment_key] = depth
 
-    commenters: set[str] = set()
+    existing_commenter_rows = await session.execute(
+        select(Comment.author_id, Comment.author_username).where(Comment.post_id == post.id)
+    )
+    commenters: set[str] = _build_existing_commenter_keys(existing_commenter_rows.all())
     sender_meta_cache: dict[int, tuple[bool, str | None]] = {}
     comments_saved = 0
+    comments_scanned, comments_with_visible_reactions = _comment_reactions_resume_counts(
+        post.reactions_json if isinstance(getattr(post, "reactions_json", None), dict) else None
+    )
     k = 0
     seen_comment_ids: set[tuple[int, int]] = set()
     persisted_comment_keys: set[tuple[int, int]] = set()
@@ -712,6 +953,11 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
 )
 
     if thread_entity is None:
+        post_reactions_payload = await persist_post_reactions(
+            is_complete=False,
+            comment_status="partial",
+            reason="discussion_resolved_but_top_level_thread_unconfirmed",
+        )
         logger.warning(
             "no top-level thread comments resolved post_id=%s discussion_msg_id=%s discussion_root_id=%s telegram_replies_count=%s",
             post.id,
@@ -730,10 +976,12 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             "commenters_count": len(commenters),
             "telegram_replies_count": telegram_replies_count,
             "error": "discussion_resolved_but_top_level_thread_unconfirmed",
+            "reactions": post_reactions_payload,
         }
 
     queue: deque[tuple[int, int]] = deque()
     active_comment_peer_id = legacy_peer_id
+    thread_entity_type = type(thread_entity).__name__
 
     try:
         # Сначала сохраняем top-level comments
@@ -775,24 +1023,35 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             if commenter_key is not None:
                 commenters.add(commenter_key)
 
-            saved_comment = await upsert_comment(
-                session,
-                channel_id=channel.id,
-                post_id=post.id,
-                tg_peer_id=active_comment_peer_id,
-                tg_message_id=c.id,
-                parent_tg_message_id=top_level_root_id,
-                parent_comment_id=None,
-                thread_root_tg_message_id=top_level_root_id,
-                depth=0,
-                date=c.date,
-                author_id=author_id,
-                author_username=author_username,
-                text=c.message,
-            )
-            tg_to_comment_id[comment_key] = saved_comment.id
-            tg_to_depth[comment_key] = 0
-            comments_saved += 1
+            if comment_key not in tg_to_comment_id:
+                comment_reactions_payload = _build_comment_reactions_payload(
+                    message=c,
+                    collected_at=reactions_collected_at,
+                    top_n=reactions_top_n,
+                )
+                comments_scanned += 1
+                if bool(comment_reactions_payload.get("present")):
+                    comments_with_visible_reactions += 1
+
+                saved_comment = await upsert_comment(
+                    session,
+                    channel_id=channel.id,
+                    post_id=post.id,
+                    tg_peer_id=active_comment_peer_id,
+                    tg_message_id=c.id,
+                    parent_tg_message_id=top_level_root_id,
+                    parent_comment_id=None,
+                    thread_root_tg_message_id=top_level_root_id,
+                    depth=0,
+                    date=c.date,
+                    author_id=author_id,
+                    author_username=author_username,
+                    text=c.message,
+                    reactions_json=comment_reactions_payload,
+                )
+                tg_to_comment_id[comment_key] = saved_comment.id
+                tg_to_depth[comment_key] = 0
+                comments_saved += 1
             persisted_comment_keys.add(comment_key)
 
             comment_replies_obj = getattr(c, "replies", None)
@@ -853,24 +1112,35 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 if commenter_key is not None:
                     commenters.add(commenter_key)
 
-                saved_comment = await upsert_comment(
-                    session,
-                    channel_id=channel.id,
-                    post_id=post.id,
-                    tg_peer_id=active_comment_peer_id,
-                    tg_message_id=c.id,
-                    parent_tg_message_id=effective_parent_tg,
-                    parent_comment_id=tg_to_comment_id.get(parent_comment_key),
-                    thread_root_tg_message_id=top_level_root_id or getattr(discussion_root, "id", None),
-                    depth=depth,
-                    date=c.date,
-                    author_id=author_id,
-                    author_username=author_username,
-                    text=c.message,
-                )
-                tg_to_comment_id[comment_key] = saved_comment.id
-                tg_to_depth[comment_key] = depth
-                comments_saved += 1
+                if comment_key not in tg_to_comment_id:
+                    comment_reactions_payload = _build_comment_reactions_payload(
+                        message=c,
+                        collected_at=reactions_collected_at,
+                        top_n=reactions_top_n,
+                    )
+                    comments_scanned += 1
+                    if bool(comment_reactions_payload.get("present")):
+                        comments_with_visible_reactions += 1
+
+                    saved_comment = await upsert_comment(
+                        session,
+                        channel_id=channel.id,
+                        post_id=post.id,
+                        tg_peer_id=active_comment_peer_id,
+                        tg_message_id=c.id,
+                        parent_tg_message_id=effective_parent_tg,
+                        parent_comment_id=tg_to_comment_id.get(parent_comment_key),
+                        thread_root_tg_message_id=top_level_root_id or getattr(discussion_root, "id", None),
+                        depth=depth,
+                        date=c.date,
+                        author_id=author_id,
+                        author_username=author_username,
+                        text=c.message,
+                        reactions_json=comment_reactions_payload,
+                    )
+                    tg_to_comment_id[comment_key] = saved_comment.id
+                    tg_to_depth[comment_key] = depth
+                    comments_saved += 1
                 persisted_comment_keys.add(comment_key)
 
                 comment_replies_obj = getattr(c, "replies", None)
@@ -883,6 +1153,14 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                     await polite_sleep(comments_sleep_base_sec, comments_sleep_jitter_sec)
 
     except FloodWaitError as e:
+        await persist_post_reactions(
+            is_complete=False,
+            comment_status="partial",
+            comments_scanned=comments_scanned,
+            comments_with_visible_reactions=comments_with_visible_reactions,
+            thread_entity_type=thread_entity_type,
+            reason="iter_comments_flood_wait",
+        )
         return {
             "status": "flood_wait",
             "post_id": post_id,
@@ -892,13 +1170,30 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             "commenters_count": len(commenters),
         }
     except MsgIdInvalidError:
+        post_reactions_payload = await persist_post_reactions(
+            is_complete=False,
+            comment_status="partial",
+            comments_scanned=comments_scanned,
+            comments_with_visible_reactions=comments_with_visible_reactions,
+            thread_entity_type=thread_entity_type,
+            reason="iter_comments_msg_id_invalid",
+        )
         return {
             "status": "no_discussion",
             "post_id": post_id,
             "comments_saved": comments_saved,
             "commenters_count": len(commenters),
+            "reactions": post_reactions_payload,
         }
     except RPCError as exc:
+        post_reactions_payload = await persist_post_reactions(
+            is_complete=False,
+            comment_status="partial",
+            comments_scanned=comments_scanned,
+            comments_with_visible_reactions=comments_with_visible_reactions,
+            thread_entity_type=thread_entity_type,
+            reason="iter_comments_rpc_error",
+        )
         logger.warning(
             "telegram rpc while iterating comments op=iter_comments post_id=%s channel_id=%s err=%r",
             post_id,
@@ -911,8 +1206,17 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             "comments_saved": comments_saved,
             "commenters_count": len(commenters),
             "error": repr(exc),
+            "reactions": post_reactions_payload,
         }
     except Exception:
+        post_reactions_payload = await persist_post_reactions(
+            is_complete=False,
+            comment_status="partial",
+            comments_scanned=comments_scanned,
+            comments_with_visible_reactions=comments_with_visible_reactions,
+            thread_entity_type=thread_entity_type,
+            reason="unexpected_iter_comments_error",
+        )
         logger.exception(
             "unexpected comments iteration failure marker=iter_comments_unexpected op=iter_comments post_id=%s channel_id=%s",
             post_id,
@@ -924,6 +1228,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             "comments_saved": comments_saved,
             "commenters_count": len(commenters),
             "error": "unexpected_iter_comments_error",
+            "reactions": post_reactions_payload,
         }
 
     if reconciliation_enabled or has_non_legacy_comment_peers:
@@ -940,6 +1245,14 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         except FloodWaitError:
             raise
         except Exception:
+            post_reactions_payload = await persist_post_reactions(
+                is_complete=False,
+                comment_status="partial",
+                comments_scanned=comments_scanned,
+                comments_with_visible_reactions=comments_with_visible_reactions,
+                thread_entity_type=thread_entity_type,
+                reason="comment_reconciliation_incomplete",
+            )
             logger.exception(
                 "comment reconciliation failed marker=comments_reconciliation op=reconcile_comments post_id=%s thread_root_tg_message_id=%s",
                 post.id,
@@ -955,6 +1268,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 "commenters_count": len(commenters),
                 "telegram_replies_count": telegram_replies_count,
                 "error": "comment_reconciliation_incomplete",
+                "reactions": post_reactions_payload,
             }
 
     actual_comments_count = int(
@@ -969,6 +1283,14 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         and telegram_replies_count > 0
         and actual_comments_count == 0
     ):
+        post_reactions_payload = await persist_post_reactions(
+            is_complete=False,
+            comment_status="partial",
+            comments_scanned=comments_scanned,
+            comments_with_visible_reactions=comments_with_visible_reactions,
+            thread_entity_type=thread_entity_type,
+            reason="discussion_resolved_but_no_comments_persisted",
+        )
         logger.warning(
             "comments scan produced zero persisted rows despite positive telegram replies "
             "post_id=%s discussion_msg_id=%s discussion_source_msg_id=%s telegram_replies_count=%s grouped_id=%s",
@@ -989,6 +1311,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             "commenters_count": len(commenters),
             "telegram_replies_count": telegram_replies_count,
             "error": "discussion_resolved_but_no_comments_persisted",
+            "reactions": post_reactions_payload,
         }
 
     await set_post_comments_count(
@@ -1003,6 +1326,17 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
 
     await set_post_involvement(session, post_id=post.id, involvement=involvement)
     await set_post_last_comments_scan_at(session, post_id=post.id)
+    post_reactions_payload = await persist_post_reactions(
+        is_complete=True,
+        comment_status=_comment_reactions_status(
+            is_complete=True,
+            comments_scanned=comments_scanned,
+            comments_with_visible_reactions=comments_with_visible_reactions,
+        ),
+        comments_scanned=comments_scanned,
+        comments_with_visible_reactions=comments_with_visible_reactions,
+        thread_entity_type=thread_entity_type,
+    )
 
     return {
         "status": "ok",
@@ -1015,6 +1349,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         "commenters_count": len(commenters),
         "involvement": involvement,
         "telegram_replies_count": telegram_replies_count,
+        "reactions": post_reactions_payload,
     }
 
 async def _resolve_discussion_for_post_or_album(
@@ -1058,7 +1393,7 @@ async def _resolve_discussion_for_post_or_album(
 
         candidate_ids = ordered
 
-    logger.info(
+    logger.debug(
         "album discussion candidates head_msg_id=%s grouped_id=%s candidate_ids=%s",
         head_msg_id,
         grouped_id,
@@ -1082,7 +1417,7 @@ async def _resolve_discussion_for_post_or_album(
         )
 
         if discussion is not None:
-            logger.info(
+            logger.debug(
                 "album discussion resolved source_msg_id=%s discussion_msg_id=%s grouped_id=%s",
                 resolved_source_msg_id,
                 discussion_msg_id,
@@ -1099,7 +1434,7 @@ async def _resolve_discussion_for_post_or_album(
             )
             return None, None, status, wait_seconds, resolved_source_msg_id
 
-        logger.info(
+        logger.debug(
             "album discussion miss source_msg_id=%s grouped_id=%s status=%s",
             candidate_msg_id,
             grouped_id,

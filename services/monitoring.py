@@ -6,11 +6,11 @@ import time
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select, text
+from sqlalchemy import Float, cast, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
-from db.models import Comment, Job, JobDeadLetter, Post
+from db.models import Comment, EventReport, Job, JobDeadLetter, Post, ProcessReport, Report
 from services.jobs import JobType
 from services.runtime_heartbeat import HEARTBEAT_TIMEOUT_SECONDS, get_runtime_heartbeat
 from services.runtime_topology import (
@@ -32,8 +32,39 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _safe_ratio(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return round(numerator / denominator, 4)
+
+
 def _window_start(*, now: datetime, hours: int) -> datetime:
     return now - timedelta(hours=max(1, int(hours)))
+
+
+async def _coverage_factor_metrics(
+    session: AsyncSession,
+    *,
+    model,
+    window_since: datetime,
+) -> tuple[int, float | None]:
+    coverage_expr = model.report_json["meta"]["coverage_factor"].astext
+    count_value = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(model)
+            .where(model.created_at >= window_since)
+            .where(coverage_expr.is_not(None))
+        )
+        or 0
+    )
+    avg_value = await session.scalar(
+        select(func.avg(cast(coverage_expr, Float)))
+        .select_from(model)
+        .where(model.created_at >= window_since)
+        .where(coverage_expr.is_not(None))
+    )
+    return count_value, (round(float(avg_value), 4) if avg_value is not None else None)
 
 
 def _scheduled_run_bounds(*, now: datetime, hour: int, minute: int, tz_name: str) -> tuple[datetime, datetime]:
@@ -308,6 +339,105 @@ async def pipeline_snapshot(session: AsyncSession, *, retention_days: int = 30, 
     if last_archive_job_at is not None:
         archive_job_lag_seconds = max(0.0, (now - last_archive_job_at).total_seconds())
 
+    report_latency_avg_seconds = await session.scalar(
+        select(func.avg(func.extract("epoch", Job.updated_at - Job.created_at)))
+        .where(Job.type == JobType.BUILD_POST_REPORT)
+        .where(Job.status == "done")
+        .where(Job.updated_at >= window_since)
+    )
+    dependency_latency_avg_seconds = await session.scalar(
+        select(func.avg(func.extract("epoch", Job.updated_at - Job.created_at)))
+        .where(Job.type.in_((JobType.COLLECT_COMMENTS, JobType.REFRESH_COMMENTS)))
+        .where(Job.status.in_(("done", "failed")))
+        .where(Job.updated_at >= window_since)
+    )
+    post_coverage_count, post_coverage_avg = await _coverage_factor_metrics(
+        session,
+        model=Report,
+        window_since=window_since,
+    )
+    event_coverage_count, event_coverage_avg = await _coverage_factor_metrics(
+        session,
+        model=EventReport,
+        window_since=window_since,
+    )
+    process_coverage_count, process_coverage_avg = await _coverage_factor_metrics(
+        session,
+        model=ProcessReport,
+        window_since=window_since,
+    )
+
+    reactions_payload_count = int(
+        await session.scalar(
+            select(func.count()).select_from(Post).where(Post.reactions_json.is_not(None))
+        )
+        or 0
+    )
+    reactions_complete_count = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(Post)
+            .where(Post.reactions_json.is_not(None))
+            .where(Post.reactions_json["comment_reactions"]["status"].astext == "complete")
+        )
+        or 0
+    )
+    reactions_partial_count = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(Post)
+            .where(Post.reactions_json.is_not(None))
+            .where(Post.reactions_json["comment_reactions"]["status"].astext == "partial")
+        )
+        or 0
+    )
+    reactions_unavailable_count = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(Post)
+            .where(Post.reactions_json.is_not(None))
+            .where(Post.reactions_json["comment_reactions"]["status"].astext == "unavailable")
+        )
+        or 0
+    )
+    reactions_no_reactions_count = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(Post)
+            .where(Post.reactions_json.is_not(None))
+            .where(Post.reactions_json["comment_reactions"]["status"].astext == "no_reactions")
+        )
+        or 0
+    )
+
+    recent_deduped_jobs = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(Job)
+            .where(Job.created_at >= window_since)
+            .where(Job.dedupe_key.is_not(None))
+        )
+        or 0
+    )
+    active_deduped_jobs = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(Job)
+            .where(Job.status.in_(("pending", "running")))
+            .where(Job.dedupe_key.is_not(None))
+        )
+        or 0
+    )
+    active_dedupe_keys = int(
+        await session.scalar(
+            select(func.count(func.distinct(Job.dedupe_key)))
+            .select_from(Job)
+            .where(Job.status.in_(("pending", "running")))
+            .where(Job.dedupe_key.is_not(None))
+        )
+        or 0
+    )
+
     return {
         "ingest": {
             "last_ingested_at": last_ingested_at.isoformat() if last_ingested_at else None,
@@ -334,6 +464,39 @@ async def pipeline_snapshot(session: AsyncSession, *, retention_days: int = 30, 
             "archive_lag_seconds": archive_lag_seconds,
             "last_archive_job_at": last_archive_job_at.isoformat() if last_archive_job_at else None,
             "archive_job_lag_seconds": archive_job_lag_seconds,
+        },
+        "latency": {
+            "window_since": window_since.isoformat(),
+            "on_demand_report_avg_seconds": round(float(report_latency_avg_seconds or 0.0), 4) if report_latency_avg_seconds is not None else None,
+            "dependency_completion_avg_seconds": round(float(dependency_latency_avg_seconds or 0.0), 4)
+            if dependency_latency_avg_seconds is not None
+            else None,
+        },
+        "reactions": {
+            "posts_with_payload": reactions_payload_count,
+            "complete_count": reactions_complete_count,
+            "partial_count": reactions_partial_count,
+            "unavailable_count": reactions_unavailable_count,
+            "no_reactions_count": reactions_no_reactions_count,
+            "complete_input_rate": _safe_ratio(
+                reactions_complete_count + reactions_no_reactions_count,
+                reactions_payload_count,
+            ),
+        },
+        "coverage": {
+            "window_since": window_since.isoformat(),
+            "post_reports_with_factor": post_coverage_count,
+            "event_reports_with_factor": event_coverage_count,
+            "process_reports_with_factor": process_coverage_count,
+            "post_report_avg_factor": post_coverage_avg,
+            "event_report_avg_factor": event_coverage_avg,
+            "process_report_avg_factor": process_coverage_avg,
+        },
+        "dedupe": {
+            "window_since": window_since.isoformat(),
+            "recent_deduped_jobs": recent_deduped_jobs,
+            "active_deduped_jobs": active_deduped_jobs,
+            "active_dedupe_keys": active_dedupe_keys,
         },
         "runtime": {
             TELEGRAM_PIPELINE_RUNTIME.runtime_name: telegram_runtime,
@@ -499,7 +662,10 @@ def runtime_topology_expectations() -> dict:
             "api": "Use HTTP/API health and process manager checks; API does not persist runtime heartbeats.",
             "scheduler": f"Expect heartbeat key runtime.{SCHEDULER_RUNTIME.runtime_name} when scheduler mode is enabled.",
             "telegram_pipeline": f"Expect heartbeat key runtime.{TELEGRAM_PIPELINE_RUNTIME.runtime_name} while ingestion worker is running.",
-            "ai_pipeline": f"Expect heartbeat key runtime.{AI_PIPELINE_RUNTIME.runtime_name} while AI worker is running.",
+            "ai_pipeline": (
+                f"Expect heartbeat key runtime.{AI_PIPELINE_RUNTIME.runtime_name} while AI worker is running. "
+                "AI worker is a passive consumer of queued report jobs and must not create new BUILD_*_REPORT jobs."
+            ),
         },
     }
 

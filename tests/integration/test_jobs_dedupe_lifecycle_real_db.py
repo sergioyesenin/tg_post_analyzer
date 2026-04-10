@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
 
 from db.models import Job
@@ -185,3 +187,109 @@ async def test_job_dedupe_keeps_retrying_job_blocked_but_allows_reenqueue_after_
     with integration_sync_session_factory() as session:
         jobs = session.query(Job).filter(Job.dedupe_key == dedupe_key).order_by(Job.id.asc()).all()
         assert [job.status for job in jobs] == ["failed", "pending"]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_fetch_and_lock_jobs_orders_due_jobs_by_priority_then_effective_due_time(
+    integration_async_session_factory,
+) -> None:
+    now = datetime.now(timezone.utc)
+
+    async with integration_async_session_factory() as session:
+        low_priority_early = await enqueue_job(
+            session,
+            job_type=JobType.BUILD_POST_REPORT,
+            payload={"post_id": 1, "source": "test"},
+            priority=50,
+            run_at=now - timedelta(minutes=10),
+        )
+        high_priority_later = await enqueue_job(
+            session,
+            job_type=JobType.BUILD_POST_REPORT,
+            payload={"post_id": 2, "source": "test"},
+            priority=10,
+            run_at=now - timedelta(minutes=1),
+        )
+        same_priority_due_earlier = await enqueue_job(
+            session,
+            job_type=JobType.BUILD_POST_REPORT,
+            payload={"post_id": 3, "source": "test"},
+            priority=20,
+            run_at=now - timedelta(minutes=20),
+        )
+        same_priority_due_later = await enqueue_job(
+            session,
+            job_type=JobType.BUILD_POST_REPORT,
+            payload={"post_id": 4, "source": "test"},
+            priority=20,
+            run_at=now - timedelta(minutes=5),
+        )
+        await session.commit()
+
+    assert low_priority_early is not None
+    assert high_priority_later is not None
+    assert same_priority_due_earlier is not None
+    assert same_priority_due_later is not None
+
+    async with integration_async_session_factory() as session:
+        locked = await fetch_and_lock_jobs(
+            session,
+            worker_id="worker-ordering",
+            limit=10,
+            allowed_types={JobType.BUILD_POST_REPORT},
+        )
+        await session.commit()
+
+    assert [job.id for job in locked] == [
+        high_priority_later.id,
+        same_priority_due_earlier.id,
+        same_priority_due_later.id,
+        low_priority_early.id,
+    ]
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_fetch_and_lock_jobs_orders_retryable_jobs_by_retry_at_not_original_run_at(
+    integration_async_session_factory,
+) -> None:
+    now = datetime.now(timezone.utc)
+
+    async with integration_async_session_factory() as session:
+        retrying_due_later = await enqueue_job(
+            session,
+            job_type=JobType.BUILD_EVENT_REPORT,
+            payload={"event_id": 101, "source": "test"},
+            priority=20,
+            run_at=now - timedelta(hours=2),
+        )
+        retrying_due_earlier = await enqueue_job(
+            session,
+            job_type=JobType.BUILD_EVENT_REPORT,
+            payload={"event_id": 102, "source": "test"},
+            priority=20,
+            run_at=now - timedelta(hours=1),
+        )
+        await session.flush()
+
+        retrying_due_later.retry_at = now - timedelta(minutes=1)
+        retrying_due_earlier.retry_at = now - timedelta(minutes=5)
+        await session.commit()
+
+    assert retrying_due_later is not None
+    assert retrying_due_earlier is not None
+
+    async with integration_async_session_factory() as session:
+        locked = await fetch_and_lock_jobs(
+            session,
+            worker_id="worker-retry-ordering",
+            limit=10,
+            allowed_types={JobType.BUILD_EVENT_REPORT},
+        )
+        await session.commit()
+
+    assert [job.id for job in locked] == [
+        retrying_due_earlier.id,
+        retrying_due_later.id,
+    ]

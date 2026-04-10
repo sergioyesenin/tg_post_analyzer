@@ -4,6 +4,7 @@ import asyncio
 import logging
 import random
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from services.channel_management import resolve_and_upsert_channel
 from services.events.build_events import rebuild_events
 from services.ingestion_core import IngestionCore, IngestionContext, IngestionOptions
 from services.jobs import (
+    JOB_STATUS_FAILED,
     JOB_STATUS_PENDING,
     JobType,
     defer_locked_job,
@@ -80,12 +82,9 @@ from services.pipeline_runtime_support import (
 from services import reporting as reporting_module
 from services.reporting import (
     REPORT_STATUS_DEFERRED,
-    REPORT_STATUS_STALE,
     build_event_report_draft,
     build_post_report,
     build_process_report_draft,
-    mark_report_payload_stale,
-    sync_post_report_staleness,
 )
 from services.scheduler_dispatch import enqueue_daily_retention_jobs, retention_scheduler_enabled
 from services.settings_defaults import get_default_setting
@@ -123,6 +122,8 @@ AI_JOB_TYPES = {
     JobType.BUILD_EVENT_REPORT,
     JobType.BUILD_PROCESS_REPORT,
 }
+TELEGRAM_PREEMPTION_MAX_PRIORITY = PRIORITY_REBUILD_PROCESSES
+LINK_PREEMPTION_MAX_PRIORITY = PRIORITY_BUILD_POST_LINKS - 1
 
 SKIP_CHANNEL_IDS: dict[int, str] = {}
 
@@ -130,6 +131,10 @@ SKIP_CHANNEL_IDS: dict[int, str] = {}
 TelegramPipelineClient = TelegramClientHandle
 _clamp_positive_int = clamp_positive_int
 _resolve_setting_value = resolve_setting_value
+
+
+def _elapsed_ms(started_at: float) -> float:
+    return round((time.perf_counter() - started_at) * 1000.0, 2)
 
 
 async def _persist_job_failure_after_exception(
@@ -182,6 +187,7 @@ async def enqueue_event_report_job(
     event_id: int,
     priority: int = PRIORITY_API_REPORT,
     source: str = "api",
+    requested_by_user_id: int | None = None,
     dedupe_key: str | None = None,
 ) -> Job | None:
     return await enqueue_event_report_job_impl(
@@ -189,6 +195,7 @@ async def enqueue_event_report_job(
         event_id=event_id,
         priority=priority,
         source=source,
+        requested_by_user_id=requested_by_user_id,
         dedupe_key=dedupe_key,
     )
 
@@ -199,6 +206,7 @@ async def enqueue_process_report_job(
     process_id: int,
     priority: int = PRIORITY_API_REPORT,
     source: str = "api",
+    requested_by_user_id: int | None = None,
     dedupe_key: str | None = None,
 ) -> Job | None:
     return await enqueue_process_report_job_impl(
@@ -206,6 +214,7 @@ async def enqueue_process_report_job(
         process_id=process_id,
         priority=priority,
         source=source,
+        requested_by_user_id=requested_by_user_id,
         dedupe_key=dedupe_key,
     )
 
@@ -216,6 +225,7 @@ async def enqueue_post_report_job(
     post_id: int,
     priority: int = PRIORITY_API_POST_REPORT,
     source: str = "api",
+    requested_by_user_id: int | None = None,
     dedupe_key: str | None = None,
 ) -> Job | None:
     return await enqueue_post_report_job_impl(
@@ -223,6 +233,7 @@ async def enqueue_post_report_job(
         post_id=post_id,
         priority=priority,
         source=source,
+        requested_by_user_id=requested_by_user_id,
         dedupe_key=dedupe_key,
     )
 
@@ -365,6 +376,111 @@ async def _mark_related_process_reports_stale(
     return await mark_related_process_reports_stale_impl(session, event_id=event_id)
 
 
+async def _has_active_dependency_job(
+    session: AsyncSession,
+    *,
+    job_type: str,
+    payload_key: str,
+    entity_id: int,
+) -> bool:
+    job_id = await session.scalar(
+        text(
+            "SELECT id FROM jobs "
+            "WHERE type = :job_type "
+            "AND status IN ('pending', 'running') "
+            "AND payload_json->>:payload_key = :entity_id "
+            "LIMIT 1"
+        ),
+        {
+            "job_type": job_type,
+            "payload_key": payload_key,
+            "entity_id": str(entity_id),
+        },
+    )
+    return job_id is not None
+
+
+async def _enqueue_ai_job_dependencies(
+    session: AsyncSession,
+    *,
+    parent_job: Job,
+    dependencies: list[dict],
+) -> dict:
+    enqueued = 0
+    active = 0
+    seen: set[tuple[str, int]] = set()
+    source = f"{parent_job.type}:dependency"
+
+    for dependency in dependencies:
+        job_type = str(dependency.get("job_type") or "")
+        entity_id = dependency.get("post_id")
+        payload_key = "post_id"
+        enqueue_coro = None
+        kwargs: dict = {"source": source}
+
+        if job_type == JobType.REFRESH_COMMENTS:
+            entity_id = dependency.get("post_id")
+            payload_key = "post_id"
+            enqueue_coro = enqueue_comment_refresh_job
+            kwargs["post_id"] = int(entity_id)
+        elif job_type == JobType.BUILD_POST_REPORT:
+            entity_id = dependency.get("post_id")
+            payload_key = "post_id"
+            enqueue_coro = enqueue_post_report_job
+            kwargs["post_id"] = int(entity_id)
+            kwargs["dedupe_key"] = f"{job_type}:{int(entity_id)}"
+        elif job_type == JobType.BUILD_EVENT_REPORT:
+            entity_id = dependency.get("event_id")
+            payload_key = "event_id"
+            enqueue_coro = enqueue_event_report_job
+            kwargs["event_id"] = int(entity_id)
+            kwargs["dedupe_key"] = f"{job_type}:{int(entity_id)}"
+        elif job_type == JobType.BUILD_PROCESS_REPORT:
+            entity_id = dependency.get("process_id")
+            payload_key = "process_id"
+            enqueue_coro = enqueue_process_report_job
+            kwargs["process_id"] = int(entity_id)
+            kwargs["dedupe_key"] = f"{job_type}:{int(entity_id)}"
+        else:
+            continue
+
+        key = (job_type, int(entity_id))
+        if key in seen:
+            continue
+        seen.add(key)
+
+        if await _has_active_dependency_job(
+            session,
+            job_type=job_type,
+            payload_key=payload_key,
+            entity_id=int(entity_id),
+        ):
+            active += 1
+            continue
+
+        job = await enqueue_coro(session, **kwargs)
+        if job is None:
+            active += 1
+        else:
+            enqueued += 1
+
+    if seen:
+        logger.debug(
+            "AI dependency enqueue summary parent_job_type=%s parent_job_id=%s requested=%s enqueued=%s already_active=%s",
+            parent_job.type,
+            parent_job.id,
+            len(seen),
+            enqueued,
+            active,
+        )
+
+    return {
+        "requested": len(seen),
+        "enqueued": enqueued,
+        "already_active": active,
+    }
+
+
 async def _get_active_channels() -> list[Channel]:
     return await get_active_channels()
 
@@ -413,6 +529,7 @@ async def _run_link_job(*, job: Job, worker_id: str) -> int:
         if db_job is None:
             return 0
         payload = db_job.payload_json or {}
+        started_at = time.perf_counter()
         post = await session.get(Post, int(payload.get("post_id")))
         if post is None:
             await mark_job_done(session, job=db_job)
@@ -442,11 +559,12 @@ async def _run_link_job(*, job: Job, worker_id: str) -> int:
             await mark_job_done(session, job=db_job)
             await session.commit()
             logger.info(
-                "Job build_post_links post_id=%s verified=%s rejected=%s candidates=%s worker_id=%s",
+                "Job build_post_links post_id=%s verified=%s rejected=%s candidates=%s latency_ms=%s worker_id=%s",
                 post.id,
                 result.links_verified,
                 result.links_rejected,
                 result.candidates_checked,
+                _elapsed_ms(started_at),
                 worker_id,
             )
             return 1
@@ -471,6 +589,7 @@ async def _run_rebuild_events_job(*, job: Job, worker_id: str) -> int:
         if db_job is None:
             return 0
         payload = db_job.payload_json or {}
+        started_at = time.perf_counter()
         try:
             date_from = datetime.fromisoformat(str(payload.get("date_from")))
             date_to = datetime.fromisoformat(str(payload.get("date_to")))
@@ -507,10 +626,11 @@ async def _run_rebuild_events_job(*, job: Job, worker_id: str) -> int:
             await mark_job_done(session, job=db_job)
             await session.commit()
             logger.info(
-                "Job rebuild_events rebuilt=%s date_from=%s date_to=%s worker_id=%s",
+                "Job rebuild_events rebuilt=%s date_from=%s date_to=%s latency_ms=%s worker_id=%s",
                 rebuilt,
                 result["date_from"],
                 result["date_to"],
+                _elapsed_ms(started_at),
                 worker_id,
             )
             return 1
@@ -535,6 +655,7 @@ async def _run_rebuild_processes_job(*, job: Job, worker_id: str) -> int:
         if db_job is None:
             return 0
         payload = db_job.payload_json or {}
+        started_at = time.perf_counter()
         try:
             date_from = datetime.fromisoformat(str(payload.get("date_from")))
             date_to = datetime.fromisoformat(str(payload.get("date_to")))
@@ -571,10 +692,11 @@ async def _run_rebuild_processes_job(*, job: Job, worker_id: str) -> int:
             await mark_job_done(session, job=db_job)
             await session.commit()
             logger.info(
-                "Job rebuild_processes rebuilt_edges=%s date_from=%s date_to=%s worker_id=%s",
+                "Job rebuild_processes rebuilt_edges=%s date_from=%s date_to=%s latency_ms=%s worker_id=%s",
                 rebuilt,
                 result["date_from"],
                 result["date_to"],
+                _elapsed_ms(started_at),
                 worker_id,
             )
             return 1
@@ -601,6 +723,7 @@ async def _run_add_channel_job(*, job: Job, tg_client: TelegramPipelineClient, w
         payload = db_job.payload_json or {}
         requested_username = str(payload.get("username") or "").strip()
         actor_user_id = payload.get("requested_by_user_id")
+        started_at = time.perf_counter()
         try:
             async with tg_client.operation_lock:
                 channel, result = await resolve_and_upsert_channel(
@@ -620,10 +743,11 @@ async def _run_add_channel_job(*, job: Job, tg_client: TelegramPipelineClient, w
             await mark_job_done(session, job=db_job)
             await session.commit()
             logger.info(
-                "Job add_channel username=@%s status=%s channel_id=%s worker_id=%s",
+                "Job add_channel username=@%s status=%s channel_id=%s latency_ms=%s worker_id=%s",
                 channel.username,
                 result["status"],
                 channel.id,
+                _elapsed_ms(started_at),
                 worker_id,
             )
             return 1
@@ -667,6 +791,7 @@ async def _run_maintenance_job(*, job: Job, worker_id: str) -> int:
         if db_job is None:
             return 0
         payload = db_job.payload_json or {}
+        started_at = time.perf_counter()
         try:
             if db_job.type == JobType.ARCHIVE_RETENTION:
                 result = await run_archive_retention(
@@ -687,7 +812,7 @@ async def _run_maintenance_job(*, job: Job, worker_id: str) -> int:
                 raise ValueError(f"Unsupported maintenance job type: {db_job.type}")
             await mark_job_done(session, job=db_job)
             await session.commit()
-            logger.info("Job %s status=ok details=%s worker_id=%s", db_job.type, result, worker_id)
+            logger.debug("Job %s status=ok details=%s latency_ms=%s worker_id=%s", db_job.type, result, _elapsed_ms(started_at), worker_id)
             return 1
         except Exception as exc:
             await _persist_job_failure_after_exception(
@@ -702,6 +827,37 @@ async def _run_maintenance_job(*, job: Job, worker_id: str) -> int:
                 exc,
             )
             return 0
+
+
+async def _has_due_telegram_preemption_job(*, max_priority: int) -> bool:
+    if max_priority < 0:
+        return False
+    return await has_due_priority_job(
+        allowed_types=TELEGRAM_JOB_TYPES,
+        max_priority=max_priority,
+    )
+
+
+async def _run_telegram_preemption_burst(
+    *,
+    job_batch_size: int,
+    worker_id: str,
+    collect_comments_quota_per_run: int,
+    tg_client: TelegramPipelineClient,
+    job_worker_concurrency: int,
+    max_priority: int = TELEGRAM_PREEMPTION_MAX_PRIORITY,
+) -> int:
+    if not await _has_due_telegram_preemption_job(max_priority=max_priority):
+        return 0
+    return await run_telegram_jobs(
+        job_batch_size=job_batch_size,
+        worker_id=worker_id,
+        collect_comments_quota_per_run=collect_comments_quota_per_run,
+        tg_client=tg_client,
+        job_worker_concurrency=job_worker_concurrency,
+        allowed_types=TELEGRAM_JOB_TYPES,
+        max_priority=max_priority,
+    )
 
 
 async def _run_comment_job(
@@ -725,6 +881,7 @@ async def _run_comment_job(
         try:
             payload = db_job.payload_json or {}
             source = str(payload.get("source") or "scheduler")
+            started_at = time.perf_counter()
             if collect_comments_processed >= collect_comments_quota_per_run:
                 await defer_locked_job(
                     session,
@@ -745,7 +902,16 @@ async def _run_comment_job(
             async with tg_client.operation_lock:
                 result = await update_post_comments(session, post_id, tg_client=tg_client)
             status = str(result.get("status") or "unknown")
-            logger.info("Job %s post_id=%s status=%s worker_id=%s", db_job.type, post_id, status, worker_id)
+            refresh_latency_ms = _elapsed_ms(started_at)
+            logger.debug(
+                "Job %s post_id=%s status=%s comments_saved=%s latency_ms=%s worker_id=%s",
+                db_job.type,
+                post_id,
+                status,
+                result.get("comments_saved"),
+                refresh_latency_ms,
+                worker_id,
+            )
             if status == "discussion_error" and result.get("error") == "comment_reconciliation_incomplete":
                 await session.rollback()
                 db_job = await session.get(Job, job.id)
@@ -754,13 +920,6 @@ async def _run_comment_job(
 
             if status in {"ok", "unchanged"}:
                 collect_comments_flood_streak = 0
-                result["post_report_sync"] = await sync_post_report_staleness(
-                    session,
-                    post_id=post_id,
-                    source=f"{source}:comments_refresh",
-                    dependency_type="comments_refresh",
-                    dependency_id=post_id,
-                )
                 set_job_result(db_job, result)
                 await mark_job_done(session, job=db_job)
                 await session.commit()
@@ -875,14 +1034,17 @@ async def run_telegram_link_jobs_until_idle(
     job_worker_concurrency: int,
 ) -> int:
     executed = 0
-    parallelism = _clamp_positive_int(job_worker_concurrency, default=2, minimum=1, maximum=16)
+    del job_batch_size, job_worker_concurrency
 
     while True:
+        if await _has_due_telegram_preemption_job(max_priority=LINK_PREEMPTION_MAX_PRIORITY):
+            return executed
+
         async with AsyncSessionLocal() as session:
             jobs = await fetch_and_lock_jobs(
                 session,
                 worker_id=worker_id,
-                limit=job_batch_size,
+                limit=1,
                 allowed_types={JobType.BUILD_POST_LINKS},
             )
             await session.commit()
@@ -890,13 +1052,7 @@ async def run_telegram_link_jobs_until_idle(
         if not jobs:
             return executed
 
-        semaphore = asyncio.Semaphore(parallelism)
-
-        async def _run_one(job: Job) -> int:
-            async with semaphore:
-                return await _run_link_job(job=job, worker_id=worker_id)
-
-        executed += sum(await asyncio.gather(*[_run_one(job) for job in jobs]))
+        executed += await _run_link_job(job=jobs[0], worker_id=worker_id)
 
 
 async def count_incomplete_link_jobs() -> int:
@@ -917,21 +1073,17 @@ async def run_telegram_jobs(
     collect_comments_quota_per_run: int,
     tg_client: TelegramPipelineClient,
     job_worker_concurrency: int,
+    allowed_types: set[str] | None = None,
+    max_priority: int | None = None,
 ) -> int:
     executed = 0
+    processed_units = 0
     collect_comments_global_cooldown_until: datetime | None = None
     collect_comments_processed = 0
     collect_comments_flood_streak = 0
 
     async with AsyncSessionLocal() as session:
         effective_settings = await get_all_settings(session)
-        jobs = await fetch_and_lock_jobs(
-            session,
-            worker_id=worker_id,
-            limit=job_batch_size,
-            allowed_types=TELEGRAM_JOB_TYPES,
-        )
-        await session.commit()
 
     ingest_settings = effective_settings.get("ingest", {})
     cc_sleep_min_ms = int(ingest_settings.get("collect_comments_sleep_min_ms", get_default_setting("ingest", "collect_comments_sleep_min_ms")))
@@ -939,42 +1091,54 @@ async def run_telegram_jobs(
     if cc_sleep_max_ms < cc_sleep_min_ms:
         cc_sleep_max_ms = cc_sleep_min_ms
 
-    comment_jobs, other_jobs = split_jobs_for_telegram_worker(jobs)
+    del job_worker_concurrency
+    effective_allowed_types = TELEGRAM_JOB_TYPES if allowed_types is None else set(allowed_types)
 
-    if other_jobs:
-        parallelism = _clamp_positive_int(job_worker_concurrency, default=2, minimum=1, maximum=16)
-        semaphore = asyncio.Semaphore(parallelism)
+    while processed_units < max(0, int(job_batch_size)):
+        async with AsyncSessionLocal() as session:
+            jobs = await fetch_and_lock_jobs(
+                session,
+                worker_id=worker_id,
+                limit=1,
+                allowed_types=effective_allowed_types,
+                max_priority=max_priority,
+            )
+            await session.commit()
 
-        async def _run_other(job: Job) -> int:
-            async with semaphore:
-                if job.type == JobType.ADD_CHANNEL:
-                    return await _run_add_channel_job(job=job, tg_client=tg_client, worker_id=worker_id)
-                if job.type == JobType.BUILD_POST_LINKS:
-                    return await _run_link_job(job=job, worker_id=worker_id)
-                if job.type == JobType.REBUILD_EVENTS:
-                    return await _run_rebuild_events_job(job=job, worker_id=worker_id)
-                if job.type == JobType.REBUILD_PROCESSES:
-                    return await _run_rebuild_processes_job(job=job, worker_id=worker_id)
-                return await _run_maintenance_job(job=job, worker_id=worker_id)
-
-        executed += sum(await asyncio.gather(*[_run_other(job) for job in other_jobs]))
-
-    for job in comment_jobs:
-        result = await _run_comment_job(
-            job=job,
-            tg_client=tg_client,
-            worker_id=worker_id,
-            cc_sleep_min_ms=cc_sleep_min_ms,
-            cc_sleep_max_ms=cc_sleep_max_ms,
-            collect_comments_processed=collect_comments_processed,
-            collect_comments_quota_per_run=collect_comments_quota_per_run,
-            collect_comments_global_cooldown_until=collect_comments_global_cooldown_until,
-            collect_comments_flood_streak=collect_comments_flood_streak,
-        )
-        delta, collect_comments_processed, collect_comments_global_cooldown_until, collect_comments_flood_streak, should_break = result
-        executed += delta
-        if should_break:
+        if not jobs:
             break
+
+        job = jobs[0]
+        processed_units += 1
+
+        if job.type in {JobType.COLLECT_COMMENTS, JobType.REFRESH_COMMENTS}:
+            result = await _run_comment_job(
+                job=job,
+                tg_client=tg_client,
+                worker_id=worker_id,
+                cc_sleep_min_ms=cc_sleep_min_ms,
+                cc_sleep_max_ms=cc_sleep_max_ms,
+                collect_comments_processed=collect_comments_processed,
+                collect_comments_quota_per_run=collect_comments_quota_per_run,
+                collect_comments_global_cooldown_until=collect_comments_global_cooldown_until,
+                collect_comments_flood_streak=collect_comments_flood_streak,
+            )
+            delta, collect_comments_processed, collect_comments_global_cooldown_until, collect_comments_flood_streak, should_break = result
+            executed += delta
+            if should_break:
+                break
+            continue
+
+        if job.type == JobType.ADD_CHANNEL:
+            executed += await _run_add_channel_job(job=job, tg_client=tg_client, worker_id=worker_id)
+        elif job.type == JobType.BUILD_POST_LINKS:
+            executed += await _run_link_job(job=job, worker_id=worker_id)
+        elif job.type == JobType.REBUILD_EVENTS:
+            executed += await _run_rebuild_events_job(job=job, worker_id=worker_id)
+        elif job.type == JobType.REBUILD_PROCESSES:
+            executed += await _run_rebuild_processes_job(job=job, worker_id=worker_id)
+        else:
+            executed += await _run_maintenance_job(job=job, worker_id=worker_id)
 
     return executed
 
@@ -982,13 +1146,6 @@ async def run_telegram_jobs(
 async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurrency: int) -> int:
     async with AsyncSessionLocal() as session:
         effective_settings = await get_all_settings(session)
-        jobs = await fetch_and_lock_jobs(
-            session,
-            worker_id=worker_id,
-            limit=job_batch_size,
-            allowed_types=AI_JOB_TYPES,
-        )
-        await session.commit()
 
     report_project = get_report_project()
     report_config = report_config_from_settings(effective_settings)
@@ -1003,44 +1160,103 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
             )
         ),
     )
-    parallelism = _clamp_positive_int(job_worker_concurrency, default=2, minimum=1, maximum=16)
-    semaphore = asyncio.Semaphore(parallelism)
+    del job_worker_concurrency
+    executed = 0
+    processed_units = 0
 
-    async def _run_one(job: Job) -> int:
-        async with semaphore:
-            async with AsyncSessionLocal() as session:
-                db_job = await session.get(Job, job.id)
-                if db_job is None:
-                    return 0
-                job_type = str(db_job.type)
-                job_id = int(db_job.id)
-                payload = db_job.payload_json or {}
-                try:
-                    logger.info("AI job start type=%s job_id=%s worker_id=%s", job_type, job_id, worker_id)
-                    if db_job.type == JobType.BUILD_POST_REPORT:
-                        job_coro = build_post_report(
+    while processed_units < max(0, int(job_batch_size)):
+        async with AsyncSessionLocal() as session:
+            jobs = await fetch_and_lock_jobs(
+                session,
+                worker_id=worker_id,
+                limit=1,
+                allowed_types=AI_JOB_TYPES,
+            )
+            await session.commit()
+
+        if not jobs:
+            break
+
+        processed_units += 1
+        job = jobs[0]
+
+        async with AsyncSessionLocal() as session:
+            db_job = await session.get(Job, job.id)
+            if db_job is None:
+                continue
+            job_type = str(db_job.type)
+            job_id = int(db_job.id)
+            payload = db_job.payload_json or {}
+            try:
+                logger.debug("AI job start type=%s job_id=%s worker_id=%s", job_type, job_id, worker_id)
+                started_at = time.perf_counter()
+                if db_job.type == JobType.BUILD_POST_REPORT:
+                    job_coro = build_post_report(
+                        session,
+                        post_id=int(payload.get("post_id")),
+                        report_project=report_project,
+                        report_config=report_config,
+                    )
+                elif db_job.type == JobType.BUILD_POST_REPORT_BATCH:
+                    result = {
+                        "status": "failed",
+                        "reason": "passive_ai_worker_no_batch_dispatch",
+                        "message": "AI worker passive mode does not expand batch report jobs into build_post_report jobs.",
+                        "filters": dict(payload.get("filters") or {}),
+                    }
+                    set_job_result(db_job, result)
+                    db_job.status = JOB_STATUS_FAILED
+                    db_job.retry_at = None
+                    db_job.locked_by = None
+                    db_job.locked_at = None
+                    db_job.heartbeat_at = None
+                    db_job.last_error = f"{db_job.type}:passive_mode_batch_dispatch_disabled"
+                    await session.commit()
+                    logger.warning(
+                        "AI job type=%s job_id=%s worker_id=%s skipped reason=%s",
+                        job_type,
+                        job_id,
+                        worker_id,
+                        result["reason"],
+                    )
+                    continue
+                elif db_job.type == JobType.BUILD_EVENT_REPORT:
+                    job_coro = build_event_report_draft(session, event_id=int(payload.get("event_id")))
+                elif db_job.type == JobType.BUILD_PROCESS_REPORT:
+                    job_coro = build_process_report_draft(session, process_id=int(payload.get("process_id")))
+                else:
+                    raise ValueError(f"Unsupported AI job type: {db_job.type}")
+
+                result = await asyncio.wait_for(job_coro, timeout=ai_job_timeout_seconds)
+
+                result_status = str(result.get("status") or "")
+                if result_status == REPORT_STATUS_DEFERRED:
+                    dependency_result = await _enqueue_ai_job_dependencies(
+                        session,
+                        parent_job=db_job,
+                        dependencies=list(result.get("dependencies") or []),
+                    )
+                    set_job_result(
+                        db_job,
+                        {
+                            **result,
+                            "dependency_enqueue": dependency_result,
+                        },
+                    )
+                    if int(db_job.attempts or 0) >= int(db_job.max_attempts or 0):
+                        await mark_job_failed(
                             session,
-                            post_id=int(payload.get("post_id")),
-                            report_project=report_project,
-                            report_config=report_config,
+                            job=db_job,
+                            error=f"{db_job.type}:waiting_dependencies:{result.get('reason')}",
                         )
-                    elif db_job.type == JobType.BUILD_POST_REPORT_BATCH:
-                        job_coro = dispatch_post_report_batch(
-                            session,
-                            filters=dict(payload.get("filters") or {}),
+                        await session.commit()
+                        logger.warning(
+                            "Job %s exhausted dependency wait budget reason=%s worker_id=%s",
+                            db_job.type,
+                            result.get("reason"),
+                            worker_id,
                         )
-                    elif db_job.type == JobType.BUILD_EVENT_REPORT:
-                        job_coro = build_event_report_draft(session, event_id=int(payload.get("event_id")))
-                    elif db_job.type == JobType.BUILD_PROCESS_REPORT:
-                        job_coro = build_process_report_draft(session, process_id=int(payload.get("process_id")))
                     else:
-                        raise ValueError(f"Unsupported AI job type: {db_job.type}")
-
-                    result = await asyncio.wait_for(job_coro, timeout=ai_job_timeout_seconds)
-
-                    result_status = str(result.get("status") or "")
-                    if result_status == REPORT_STATUS_DEFERRED:
-                        set_job_result(db_job, result)
                         await requeue_job(
                             session,
                             job=db_job,
@@ -1048,80 +1264,75 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
                             error=f"{db_job.type}:waiting_dependencies",
                         )
                         await session.commit()
-                        logger.info(
-                            "Job %s deferred reason=%s worker_id=%s",
+                        logger.debug(
+                            "Job %s deferred reason=%s enqueued=%s active=%s worker_id=%s",
                             db_job.type,
                             result.get("reason"),
+                            dependency_result.get("enqueued"),
+                            dependency_result.get("already_active"),
                             worker_id,
                         )
-                        return 0
+                    continue
 
-                    source = str(payload.get("source") or "ai")
-                    if db_job.type == JobType.BUILD_POST_REPORT and result_status in {reporting_module.REPORT_STATUS_READY, "skipped_min_comments"}:
-                        if result_status == reporting_module.REPORT_STATUS_READY:
-                            await _mark_related_event_reports_stale(
-                                session,
-                                post_id=int(payload.get("post_id")),
-                            )
-                        await _enqueue_related_event_report_jobs(
+                if db_job.type == JobType.BUILD_POST_REPORT and result_status in {reporting_module.REPORT_STATUS_READY, "skipped_min_comments"}:
+                    if result_status == reporting_module.REPORT_STATUS_READY:
+                        await _mark_related_event_reports_stale(
                             session,
                             post_id=int(payload.get("post_id")),
-                            source=f"{source}:cascade",
                         )
-                    elif db_job.type == JobType.BUILD_EVENT_REPORT and result_status in {reporting_module.REPORT_STATUS_READY, reporting_module.REPORT_STATUS_DRAFT}:
-                        await _mark_related_process_reports_stale(
-                            session,
-                            event_id=int(payload.get("event_id")),
-                        )
-                        await _enqueue_related_process_report_jobs(
-                            session,
-                            event_id=int(payload.get("event_id")),
-                            source=f"{source}:cascade",
-                        )
-
-                    set_job_result(db_job, result)
-                    await mark_job_done(session, job=db_job)
-                    await session.commit()
-                    logger.info("Job %s status=%s worker_id=%s", job_type, result.get("status"), worker_id)
-                    return 1
-                except asyncio.TimeoutError:
-                    await session.rollback()
-                    await session.execute(
-                        update(Job)
-                            .where(Job.id == job_id)
-                            .values(
-                            last_error=f"job_timeout:{job_type}:{ai_job_timeout_seconds}s",
-                            status=JOB_STATUS_PENDING,
-                            retry_at=datetime.now(timezone.utc) + timedelta(seconds=30),
-                            locked_by=None,
-                            locked_at=None,
-                            heartbeat_at=None,
-                        )
-                    )
-                    await session.commit()
-                    logger.error(
-                        "Job failed marker=job_timeout op=ai_job job_id=%s worker_id=%s timeout=%ss",
-                        job_id,
-                        worker_id,
-                        ai_job_timeout_seconds,
-                    )
-                    return 0
-                except Exception as exc:
-                    await session.rollback()
-                    await _persist_job_failure_after_exception(
+                elif db_job.type == JobType.BUILD_EVENT_REPORT and result_status in {reporting_module.REPORT_STATUS_READY, reporting_module.REPORT_STATUS_DRAFT}:
+                    await _mark_related_process_reports_stale(
                         session,
-                        job_id=job_id,
-                        error=f"job_unexpected:{job_type}:{type(exc).__name__}:{exc}",
+                        event_id=int(payload.get("event_id")),
                     )
-                    logger.exception(
-                        "Job failed marker=job_unexpected op=ai_job job_id=%s worker_id=%s err=%r",
-                        job_id,
-                        worker_id,
-                        exc,
-                    )
-                    return 0
 
-    return sum(await asyncio.gather(*[_run_one(job) for job in jobs]))
+                set_job_result(db_job, result)
+                await mark_job_done(session, job=db_job)
+                await session.commit()
+                logger.info(
+                    "Job %s status=%s latency_ms=%s worker_id=%s",
+                    job_type,
+                    result.get("status"),
+                    _elapsed_ms(started_at),
+                    worker_id,
+                )
+                executed += 1
+            except asyncio.TimeoutError:
+                await session.rollback()
+                await session.execute(
+                    update(Job)
+                        .where(Job.id == job_id)
+                        .values(
+                        last_error=f"job_timeout:{job_type}:{ai_job_timeout_seconds}s",
+                        status=JOB_STATUS_PENDING,
+                        retry_at=datetime.now(timezone.utc) + timedelta(seconds=30),
+                        locked_by=None,
+                        locked_at=None,
+                        heartbeat_at=None,
+                    )
+                )
+                await session.commit()
+                logger.error(
+                    "Job failed marker=job_timeout op=ai_job job_id=%s worker_id=%s timeout=%ss",
+                    job_id,
+                    worker_id,
+                    ai_job_timeout_seconds,
+                )
+            except Exception as exc:
+                await session.rollback()
+                await _persist_job_failure_after_exception(
+                    session,
+                    job_id=job_id,
+                    error=f"job_unexpected:{job_type}:{type(exc).__name__}:{exc}",
+                )
+                logger.exception(
+                    "Job failed marker=job_unexpected op=ai_job job_id=%s worker_id=%s err=%r",
+                    job_id,
+                    worker_id,
+                    exc,
+                )
+
+    return executed
 
 
 async def run_telegram_cycle(
@@ -1224,6 +1435,7 @@ async def run_telegram_cycle(
 
     channels = await _get_active_channels()
     total_processed_posts = 0
+    telegram_jobs_executed = 0
     if not channels:
         logger.warning("No active channels found.")
     else:
@@ -1246,23 +1458,54 @@ async def run_telegram_cycle(
                     channel.username,
                     exc,
                 )
+            telegram_jobs_executed += await _run_telegram_preemption_burst(
+                job_batch_size=job_batch_size,
+                worker_id=worker_id,
+                collect_comments_quota_per_run=collect_comments_quota_per_run,
+                tg_client=client,
+                job_worker_concurrency=job_worker_concurrency,
+            )
 
-    link_jobs_executed = await run_telegram_link_jobs_until_idle(
-        job_batch_size=job_batch_size,
-        worker_id=worker_id,
-        job_worker_concurrency=job_worker_concurrency,
-    )
+    link_jobs_executed = 0
+    while True:
+        link_jobs_executed += await run_telegram_link_jobs_until_idle(
+            job_batch_size=job_batch_size,
+            worker_id=worker_id,
+            job_worker_concurrency=job_worker_concurrency,
+        )
+        preempted = await _run_telegram_preemption_burst(
+            job_batch_size=job_batch_size,
+            worker_id=worker_id,
+            collect_comments_quota_per_run=collect_comments_quota_per_run,
+            tg_client=client,
+            job_worker_concurrency=job_worker_concurrency,
+            max_priority=LINK_PREEMPTION_MAX_PRIORITY,
+        )
+        telegram_jobs_executed += preempted
+        if preempted <= 0:
+            break
+
     incomplete_link_jobs = await count_incomplete_link_jobs()
 
+    if not skip_rebuild_graphs and incomplete_link_jobs <= 0:
+        telegram_jobs_executed += await _run_telegram_preemption_burst(
+            job_batch_size=job_batch_size,
+            worker_id=worker_id,
+            collect_comments_quota_per_run=collect_comments_quota_per_run,
+            tg_client=client,
+            job_worker_concurrency=job_worker_concurrency,
+        )
+        incomplete_link_jobs = await count_incomplete_link_jobs()
+
     if not skip_rebuild_graphs and incomplete_link_jobs > 0:
-        logger.info(
+        logger.debug(
             "Skip rebuild: build_post_links queue is not drained yet incomplete_link_jobs=%s",
             incomplete_link_jobs,
         )
     elif not skip_rebuild_graphs and (total_processed_posts > 0 or link_jobs_executed > 0):
         await _rebuild_event_process_graphs(date_from=since_utc, date_to=datetime.now(timezone.utc))
     elif not skip_rebuild_graphs:
-        logger.info("Skip rebuild: no new posts or completed link jobs in this cycle.")
+        logger.debug("Skip rebuild: no new posts or completed link jobs in this cycle.")
 
     if not retention_scheduler_enabled(effective_settings):
         async with AsyncSessionLocal() as session:
@@ -1286,7 +1529,7 @@ async def run_telegram_cycle(
     )
     return TelegramCycleMetrics(
         processed_posts=total_processed_posts,
-        executed_jobs=link_jobs_executed + executed_jobs,
+        executed_jobs=link_jobs_executed + telegram_jobs_executed + executed_jobs,
     )
 
 
@@ -1295,7 +1538,6 @@ async def run_ai_cycle(*, worker_id: str, job_batch_size_arg: int, job_worker_co
         effective_settings = await get_all_settings(session)
 
     jobs_settings = effective_settings.get("jobs", {})
-    reports_settings = effective_settings.get("reports", {})
     job_batch_size = int(_resolve_setting_value(
         settings_value=jobs_settings.get("job_batch_size"),
         cli_value=job_batch_size_arg,
@@ -1311,21 +1553,9 @@ async def run_ai_cycle(*, worker_id: str, job_batch_size_arg: int, job_worker_co
         minimum=1,
         maximum=1,
     )
-    post_report_age_hours = int(_resolve_setting_value(
-        settings_value=reports_settings.get("post_report_delay_hours"),
-        cli_value=post_report_age_hours_arg,
-        fallback=get_default_setting("reports", "post_report_delay_hours"),
-    ))
-    scheduler_limit = max(1, int(_resolve_setting_value(
-        settings_value=jobs_settings.get("ai_scheduler_limit"),
-        cli_value=scheduler_limit_arg,
-        fallback=get_default_setting("jobs", "ai_scheduler_limit"),
-    )))
+    del post_report_age_hours_arg, scheduler_limit_arg
 
-    queued = await schedule_due_post_report_jobs(
-        min_age_hours=post_report_age_hours,
-        limit=scheduler_limit,
-    )
+    queued = 0
     executed = await run_ai_jobs(
         job_batch_size=job_batch_size,
         worker_id=worker_id,

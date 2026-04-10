@@ -1641,7 +1641,7 @@ async def test_rebuild_processes_nonempty_scope_without_verified_update_edges_is
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_run_ai_jobs_cascades_stale_and_rebuilds_reports_against_real_db(
+async def test_run_ai_jobs_marks_downstream_stale_without_auto_cascade_against_real_db(
     integration_async_session_factory,
     integration_sync_session_factory,
     monkeypatch: pytest.MonkeyPatch,
@@ -1677,7 +1677,7 @@ async def test_run_ai_jobs_cascades_stale_and_rebuilds_reports_against_real_db(
     second = await pipeline_runtime.run_ai_jobs(job_batch_size=10, worker_id="ai-int-2", job_worker_concurrency=1)
     third = await pipeline_runtime.run_ai_jobs(job_batch_size=10, worker_id="ai-int-3", job_worker_concurrency=1)
 
-    assert (first, second, third) == (1, 1, 1)
+    assert (first, second, third) == (1, 0, 0)
 
     with integration_sync_session_factory() as session:
         post_report = session.execute(select(Report).where(Report.post_id == 1)).scalar_one()
@@ -1688,22 +1688,15 @@ async def test_run_ai_jobs_cascades_stale_and_rebuilds_reports_against_real_db(
         jobs = session.execute(select(Job).order_by(Job.id.asc())).scalars().all()
 
         PostReportPayload.model_validate(post_report.report_json)
-        EventReportPayload.model_validate(event_reports[-1].report_json)
-        ProcessReportPayload.model_validate(process_reports[-1].report_json)
-
         assert post_report.report_json["summary"] == "fresh post report"
         assert post_report.report_json["meta"]["input_signature"]
-        assert len(event_reports) == 2
+        assert len(event_reports) == 1
+        EventReportPayload.model_validate(event_reports[0].report_json)
         assert event_reports[0].report_json["status"] == "stale"
-        assert event_reports[-1].report_json["status"] == "ready"
-        assert len(process_reports) == 2
+        assert len(process_reports) == 1
+        ProcessReportPayload.model_validate(process_reports[0].report_json)
         assert process_reports[0].report_json["status"] == "stale"
-        assert process_reports[-1].report_json["status"] == "ready"
-        assert [job.type for job in jobs] == [
-            JobType.BUILD_POST_REPORT,
-            JobType.BUILD_EVENT_REPORT,
-            JobType.BUILD_PROCESS_REPORT,
-        ]
+        assert [job.type for job in jobs] == [JobType.BUILD_POST_REPORT]
         assert all(job.status == "done" for job in jobs)
 
 
@@ -1714,8 +1707,8 @@ async def test_run_ai_jobs_contains_invalid_post_report_output_without_false_dow
     integration_sync_session_factory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Given a real post -> event -> process report chain that was marked stale and queued
-    # for rebuild after the post inputs changed.
+    # Given a real post -> event -> process report chain that was marked stale after the post inputs changed,
+    # and a report build was manually queued.
     _seed_cascade_fixture(integration_sync_session_factory)
 
     async with integration_async_session_factory() as session:
@@ -1728,10 +1721,21 @@ async def test_run_ai_jobs_contains_invalid_post_report_output_without_false_dow
         )
         await session.commit()
 
-    assert staleness_result["status"] == "queued"
-    assert staleness_result["enqueued"] is True
+    assert staleness_result["status"] == "stale_marked"
+    assert staleness_result["enqueued"] is False
     assert staleness_result["event_reports_marked_stale"] == 1
     assert staleness_result["process_reports_marked_stale"] == 1
+
+    async with integration_async_session_factory() as session:
+        queued_job = await enqueue_job(
+            session,
+            job_type=JobType.BUILD_POST_REPORT,
+            payload={"post_id": 1, "source": "integration:invalid_ai_output"},
+            dedupe_key="build_post_report:1",
+        )
+        await session.commit()
+
+    assert queued_job is not None
 
     async def _fake_acompletion(**_kwargs):
         return type(
@@ -1812,8 +1816,7 @@ async def test_sync_post_report_staleness_is_idempotent_when_rebuild_job_is_alre
     integration_async_session_factory,
     integration_sync_session_factory,
 ) -> None:
-    # Given a real post/event/process cascade where the first staleness sync already marked descendants stale
-    # and queued a build_post_report job for the changed post.
+    # Given a real post/event/process cascade where the first staleness sync already marked descendants stale.
     _seed_cascade_fixture(integration_sync_session_factory)
 
     async with integration_async_session_factory() as session:
@@ -1826,8 +1829,8 @@ async def test_sync_post_report_staleness_is_idempotent_when_rebuild_job_is_alre
         )
         await session.commit()
 
-    assert first_result["status"] == "queued"
-    assert first_result["enqueued"] is True
+    assert first_result["status"] == "stale_marked"
+    assert first_result["enqueued"] is False
     assert first_result["stale_marked"] is True
     assert first_result["event_reports_marked_stale"] == 1
     assert first_result["process_reports_marked_stale"] == 1
@@ -1838,9 +1841,7 @@ async def test_sync_post_report_staleness_is_idempotent_when_rebuild_job_is_alre
         event_reports_before = session.execute(select(EventReport).where(EventReport.event_id == 10)).scalars().all()
         process_reports_before = session.execute(select(ProcessReport).where(ProcessReport.process_id == 20)).scalars().all()
 
-        assert len(jobs_before) == 1
-        assert jobs_before[0].type == JobType.BUILD_POST_REPORT
-        assert jobs_before[0].status == "pending"
+        assert jobs_before == []
         assert post_report_before.report_json["status"] == "stale"
         assert event_reports_before[0].report_json["status"] == "stale"
         assert process_reports_before[0].report_json["status"] == "stale"
@@ -1849,7 +1850,7 @@ async def test_sync_post_report_staleness_is_idempotent_when_rebuild_job_is_alre
         event_report_stale_marked_at_before = event_reports_before[0].report_json["meta"]["stale_marked_at"]
         process_report_stale_marked_at_before = process_reports_before[0].report_json["meta"]["stale_marked_at"]
 
-    # When the same staleness sync is triggered again for the same effective input state while the build job is still pending.
+    # When the same staleness sync is triggered again for the same effective input state.
     async with integration_async_session_factory() as session:
         second_result = await sync_post_report_staleness(
             session,
@@ -1872,9 +1873,7 @@ async def test_sync_post_report_staleness_is_idempotent_when_rebuild_job_is_alre
         event_reports_after = session.execute(select(EventReport).where(EventReport.event_id == 10)).scalars().all()
         process_reports_after = session.execute(select(ProcessReport).where(ProcessReport.process_id == 20)).scalars().all()
 
-        assert len(jobs_after) == 1
-        assert [job.type for job in jobs_after] == [JobType.BUILD_POST_REPORT]
-        assert jobs_after[0].status == "pending"
+        assert jobs_after == []
 
         assert len(event_reports_after) == 1
         assert len(process_reports_after) == 1
@@ -1890,11 +1889,11 @@ async def test_sync_post_report_staleness_is_idempotent_when_rebuild_job_is_alre
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_sync_post_report_staleness_returns_already_queued_for_changed_input_when_rebuild_job_is_pending_against_real_db(
+async def test_sync_post_report_staleness_re_marks_current_report_without_creating_job_against_real_db(
     integration_async_session_factory,
     integration_sync_session_factory,
 ) -> None:
-    # Given the first real cascade already marked descendants stale and created a pending rebuild job.
+    # Given the first real cascade already marked descendants stale without creating a rebuild job.
     _seed_cascade_fixture(integration_sync_session_factory)
 
     async with integration_async_session_factory() as session:
@@ -1907,8 +1906,8 @@ async def test_sync_post_report_staleness_returns_already_queued_for_changed_inp
         )
         await session.commit()
 
-    assert first_result["status"] == "queued"
-    assert first_result["enqueued"] is True
+    assert first_result["status"] == "stale_marked"
+    assert first_result["enqueued"] is False
 
     with integration_sync_session_factory() as session:
         post = session.get(Post, 1)
@@ -1919,12 +1918,10 @@ async def test_sync_post_report_staleness_returns_already_queued_for_changed_inp
         process_report_before = session.execute(select(ProcessReport).where(ProcessReport.process_id == 20)).scalar_one()
         event_stale_marked_at_before = event_report_before.report_json["meta"]["stale_marked_at"]
         process_stale_marked_at_before = process_report_before.report_json["meta"]["stale_marked_at"]
-        assert len(jobs_before) == 1
-        assert jobs_before[0].type == JobType.BUILD_POST_REPORT
-        assert jobs_before[0].status == "pending"
+        assert jobs_before == []
         session.commit()
 
-    # When inputs change again before the pending rebuild job is processed.
+    # When inputs change again before any manual rebuild request is made.
     async with integration_async_session_factory() as session:
         second_result = await sync_post_report_staleness(
             session,
@@ -1935,8 +1932,8 @@ async def test_sync_post_report_staleness_returns_already_queued_for_changed_inp
         )
         await session.commit()
 
-    # Then no duplicate job is created, descendants are not stale-marked again, and the public result reflects already-queued behavior.
-    assert second_result["status"] == "already_queued"
+    # Then no job is created, descendants are not stale-marked again, and the current report is re-marked against the new input signature.
+    assert second_result["status"] == "stale_marked"
     assert second_result["changed"] is True
     assert second_result["enqueued"] is False
     assert second_result["event_reports_marked_stale"] == 0
@@ -1948,9 +1945,7 @@ async def test_sync_post_report_staleness_returns_already_queued_for_changed_inp
         event_report_after = session.execute(select(EventReport).where(EventReport.event_id == 10)).scalar_one()
         process_report_after = session.execute(select(ProcessReport).where(ProcessReport.process_id == 20)).scalar_one()
 
-        assert len(jobs_after) == 1
-        assert jobs_after[0].type == JobType.BUILD_POST_REPORT
-        assert jobs_after[0].status == "pending"
+        assert jobs_after == []
         assert post_report_after.report_json["status"] == "stale"
         assert event_report_after.report_json["status"] == "stale"
         assert process_report_after.report_json["status"] == "stale"

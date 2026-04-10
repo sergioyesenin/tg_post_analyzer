@@ -41,9 +41,10 @@ def test_update_post_report_returns_202_with_job_links(monkeypatch):
     session = _FakeSession({(reports.Post, 42): SimpleNamespace(id=42)})
     client = _build_client(session)
 
-    async def _fake_enqueue(_session, *, post_id: int, source: str):
+    async def _fake_enqueue(_session, *, post_id: int, source: str, requested_by_user_id: int):
         assert post_id == 42
         assert source == "api"
+        assert requested_by_user_id == 1
         return SimpleNamespace(id=101, type="build_post_report")
 
     monkeypatch.setattr(reports, "enqueue_post_report_job", _fake_enqueue)
@@ -65,9 +66,10 @@ def test_update_event_report_returns_202_with_job_links(monkeypatch):
     session = _FakeSession({(reports.Event, 5): SimpleNamespace(id=5)})
     client = _build_client(session)
 
-    async def _fake_enqueue(_session, *, event_id: int, source: str):
+    async def _fake_enqueue(_session, *, event_id: int, source: str, requested_by_user_id: int):
         assert event_id == 5
         assert source == "api"
+        assert requested_by_user_id == 1
         return SimpleNamespace(id=102, type="build_event_report")
 
     monkeypatch.setattr(reports, "enqueue_event_report_job", _fake_enqueue)
@@ -83,9 +85,10 @@ def test_update_process_report_returns_202_with_job_links(monkeypatch):
     session = _FakeSession({(reports.Process, 6): SimpleNamespace(id=6)})
     client = _build_client(session)
 
-    async def _fake_enqueue(_session, *, process_id: int, source: str):
+    async def _fake_enqueue(_session, *, process_id: int, source: str, requested_by_user_id: int):
         assert process_id == 6
         assert source == "api"
+        assert requested_by_user_id == 1
         return SimpleNamespace(id=103, type="build_process_report")
 
     monkeypatch.setattr(reports, "enqueue_process_report_job", _fake_enqueue)

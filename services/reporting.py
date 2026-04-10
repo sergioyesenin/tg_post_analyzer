@@ -9,7 +9,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents.reporter import ReportConfig, TgReportProject
-from db.models import Channel, Comment, Event, EventPost, EventReport, Post, Process, ProcessEvent, ProcessReport, Report
+from db.models import Channel, Comment, Event, EventPost, EventReport, Job, Post, Process, ProcessEvent, ProcessReport, Report
+from services.jobs import JOB_STATUS_DONE, JobType
 from services.ingest import upsert_report
 from services.report_aggregation import build_event_report_payload, build_process_report_payload
 
@@ -22,6 +23,27 @@ REPORT_STATUS_FAILED = "failed"
 REPORT_STATUS_DEFERRED = "deferred_waiting_dependencies"
 REPORT_STATUS_STALE = "stale"
 POST_REPORT_REBUILD_PRIORITY = 40
+
+
+def _build_dependency(job_type: str, *, entity_id: int, reason: str) -> dict:
+    entity_key = {
+        JobType.REFRESH_COMMENTS: "post_id",
+        JobType.BUILD_POST_REPORT: "post_id",
+        JobType.BUILD_EVENT_REPORT: "event_id",
+        JobType.BUILD_PROCESS_REPORT: "process_id",
+    }.get(job_type)
+    if entity_key is None:
+        raise ValueError(f"Unsupported dependency job type: {job_type}")
+    return {
+        "job_type": job_type,
+        entity_key: int(entity_id),
+        "reason": reason,
+    }
+
+
+def _is_payload_dependency_ready(payload: dict | None) -> bool:
+    status = report_status_from_payload(payload, fallback="")
+    return status not in {"", REPORT_STATUS_STALE, REPORT_STATUS_FAILED, REPORT_STATUS_DEFERRED}
 
 
 def _serialize_report_payload(payload: dict) -> str:
@@ -171,6 +193,13 @@ def _render_legacy_report_text(
         *[f"- {item}" for item in examples[:5]],
         "Итог",
         conclusion,
+        "",
+        "8) Reactions и позиция аудитории",
+        _format_reactions_summary_line("Post reactions", payload.get("post_reactions") or {}),
+        _format_reactions_summary_line("Comment reactions", payload.get("comment_reactions") or {}),
+        _format_reactions_coverage_line(payload),
+        f"- Audience stance: {(payload.get('audience_stance') or {}).get('label') or 'unclear'} ({(payload.get('audience_stance') or {}).get('confidence') or 'low'}).",
+        f"- Обоснование stance: {_trim_sentence((payload.get('audience_stance') or {}).get('reason'), fallback='Позиция аудитории определена по сочетанию тональности комментариев и reactions coverage.')}",
     ]
     return "\n".join(lines).strip()
 
@@ -197,6 +226,7 @@ def _build_post_report_input_signature(
             "text": post.text or "",
             "views": int(post.views) if post.views is not None else None,
             "comments_count": int(post.comments_count or 0),
+            "reactions_json": post.reactions_json if isinstance(post.reactions_json, dict) else None,
         },
         "comments": [
             {
@@ -206,8 +236,9 @@ def _build_post_report_input_signature(
                 "depth": int(depth or 0),
                 "date": _signature_timestamp(date),
                 "text": text or "",
+                "reactions_json": reactions_json if isinstance(reactions_json, dict) else None,
             }
-            for tg_message_id, parent_tg_message_id, thread_root_tg_message_id, depth, date, text in comment_rows
+            for tg_message_id, parent_tg_message_id, thread_root_tg_message_id, depth, date, text, reactions_json in comment_rows
         ],
     }
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -224,6 +255,7 @@ async def _load_post_comment_rows_for_signature(session: AsyncSession, *, post_i
                 Comment.depth,
                 Comment.date,
                 Comment.text,
+                Comment.reactions_json,
             )
             .where(Comment.post_id == post_id)
             .order_by(Comment.date.asc(), Comment.id.asc())
@@ -242,6 +274,60 @@ async def compute_post_report_input_signature(
         return None
     comment_rows = await _load_post_comment_rows_for_signature(session, post_id=post_row.id)
     return _build_post_report_input_signature(post=post_row, comment_rows=comment_rows)
+
+
+async def _load_post_refresh_attempt_info(session: AsyncSession, *, post_id: int) -> dict | None:
+    row = (
+        await session.execute(
+            select(Job.type, Job.updated_at)
+            .where(Job.type.in_((JobType.COLLECT_COMMENTS, JobType.REFRESH_COMMENTS)))
+            .where(Job.status == JOB_STATUS_DONE)
+            .where(Job.payload_json["post_id"].astext == str(post_id))
+            .order_by(Job.updated_at.desc(), Job.id.desc())
+            .limit(1)
+        )
+    ).first()
+    if row is None:
+        return None
+    job_type, updated_at = row
+    return {
+        "source": str(job_type),
+        "collected_at": updated_at.isoformat() if updated_at is not None else None,
+        "is_complete": False,
+    }
+
+
+async def _post_report_readiness(session: AsyncSession, *, post: Post) -> dict:
+    if not (post.text or "").strip():
+        return {
+            "ready": False,
+            "reason": "missing_post_text",
+            "dependencies": [],
+            "terminal": True,
+        }
+
+    refresh_attempt = await _load_post_refresh_attempt_info(session, post_id=int(post.id))
+    if refresh_attempt is None:
+        return {
+            "ready": False,
+            "reason": "waiting_refresh_post_data",
+            "dependencies": [
+                _build_dependency(
+                    JobType.REFRESH_COMMENTS,
+                    entity_id=int(post.id),
+                    reason="waiting_refresh_post_data",
+                )
+            ],
+            "terminal": False,
+        }
+
+    return {
+        "ready": True,
+        "reason": "ready",
+        "dependencies": [],
+        "terminal": False,
+        "refresh_attempt": refresh_attempt,
+    }
 
 
 def _obsolete_render_post_report_text_v1(payload: dict) -> str:
@@ -434,6 +520,220 @@ def _build_post_thematic_classification(payload: dict) -> str:
     return "Тематическая классификация выражена слабо: заметны только отдельные смысловые линии без устойчивых кластеров."
 
 
+def _safe_int(value: object) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _safe_float(value: object) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _extract_reaction_items(payload: dict | None) -> list[dict]:
+    if not isinstance(payload, dict):
+        return []
+    results = payload.get("results")
+    if not isinstance(results, list):
+        return []
+    items: list[dict] = []
+    for item in results:
+        if not isinstance(item, dict):
+            continue
+        reaction_obj = item.get("reaction")
+        label = None
+        if isinstance(reaction_obj, dict):
+            label = _clean_list_text(reaction_obj.get("emoticon") or reaction_obj.get("title") or reaction_obj.get("_"))
+        if not label:
+            label = _clean_list_text(item.get("reaction_type"))
+        if not label:
+            continue
+        items.append({"label": label, "count": _safe_int(item.get("count"))})
+    return items
+
+
+def _summarize_reaction_items(items: list[dict], *, limit: int = 5) -> dict:
+    total_count = sum(_safe_int(item.get("count")) for item in items)
+    ordered = sorted(items, key=lambda item: (-_safe_int(item.get("count")), str(item.get("label") or "")))
+    return {
+        "total_count": total_count,
+        "distinct_count": len([item for item in ordered if _safe_int(item.get("count")) > 0]),
+        "top_reactions": [
+            {
+                "label": str(item.get("label") or ""),
+                "count": _safe_int(item.get("count")),
+                "share": round((_safe_int(item.get("count")) / total_count), 4) if total_count > 0 else 0.0,
+            }
+            for item in ordered[:limit]
+        ],
+    }
+
+
+def _post_reactions_enrichment(*, post: Post, comment_rows: list[tuple]) -> dict:
+    post_payload = post.reactions_json if isinstance(post.reactions_json, dict) else {}
+    comment_meta = post_payload.get("comment_reactions") if isinstance(post_payload, dict) else {}
+    post_reactions = _summarize_reaction_items(
+        _extract_reaction_items(post_payload.get("post_reactions") if isinstance(post_payload, dict) else None)
+    )
+    comment_reactions = _summarize_reaction_items(
+        [
+            item
+            for _tg_message_id, _parent_tg_message_id, _thread_root_tg_message_id, _depth, _date, _text, reactions_json in comment_rows
+            for item in _extract_reaction_items(reactions_json if isinstance(reactions_json, dict) else None)
+        ]
+    )
+    expected_comments = max(
+        _safe_int(post.comments_count),
+        len(comment_rows),
+        _safe_int(comment_meta.get("comments_scanned") if isinstance(comment_meta, dict) else 0),
+    )
+    comments_scanned = _safe_int(comment_meta.get("comments_scanned") if isinstance(comment_meta, dict) else 0)
+    is_complete = bool(post_payload.get("is_complete")) if isinstance(post_payload, dict) else False
+    comment_status = str(comment_meta.get("status") or "") if isinstance(comment_meta, dict) else ""
+    factor = 1.0 if is_complete else 0.0
+    if expected_comments > 0 and comments_scanned > 0:
+        factor = max(factor, min(1.0, comments_scanned / expected_comments))
+    if comment_status == "no_reactions":
+        factor = 1.0
+    elif comment_status == "partial":
+        factor = min(factor, 0.7) if factor > 0 else 0.5
+    elif comment_status == "unavailable":
+        factor = min(factor, 0.35) if factor > 0 else 0.2
+    return {
+        "post_reactions": post_reactions,
+        "comment_reactions": comment_reactions,
+        "reactions_coverage": {
+            "source": post_payload.get("source") if isinstance(post_payload, dict) else None,
+            "collected_at": post_payload.get("collected_at") if isinstance(post_payload, dict) else None,
+            "is_complete": is_complete,
+            "factor": round(max(0.0, min(1.0, factor)), 4),
+            "comment_status": comment_status or None,
+            "comments_scanned": comments_scanned,
+            "comments_with_visible_reactions": _safe_int(comment_meta.get("comments_with_visible_reactions") if isinstance(comment_meta, dict) else 0),
+            "expected_comments": expected_comments,
+        },
+    }
+
+
+def _build_audience_stance(payload: dict) -> dict:
+    sentiment = payload.get("sentiment") or payload.get("overall_sentiment") or {}
+    distribution = sentiment.get("distribution") or {}
+    positive = _safe_float(distribution.get("positive"))
+    negative = _safe_float(distribution.get("negative"))
+    neutral = _safe_float(distribution.get("neutral"))
+    positive_reaction_count = 0
+    critical_reaction_count = 0
+    for source_payload in (payload.get("post_reactions") or {}, payload.get("comment_reactions") or {}):
+        for item in list(source_payload.get("top_reactions") or []):
+            label = str(item.get("label") or "")
+            count = _safe_int(item.get("count"))
+            if label in {"👍", "❤", "❤️", "🔥", "👏", "🙏", "😁", "👌", "💯"}:
+                positive_reaction_count += count
+            elif label in {"👎", "🤬", "😡", "💩", "🤮", "😢", "😭"}:
+                critical_reaction_count += count
+    if max(positive, negative) < 0.2 and neutral >= 0.6:
+        label = "neutral"
+    elif abs(positive - negative) <= 0.15 and positive >= 0.2 and negative >= 0.2:
+        label = "mixed"
+    elif positive > negative:
+        label = "supportive"
+    elif negative > positive:
+        label = "critical"
+    else:
+        label = "unclear"
+    if positive_reaction_count > critical_reaction_count * 1.5 and positive_reaction_count >= 3:
+        label = "supportive"
+    elif critical_reaction_count > positive_reaction_count * 1.5 and critical_reaction_count >= 3:
+        label = "critical"
+    coverage_factor = _safe_float((payload.get("reactions_coverage") or {}).get("factor"))
+    confidence = "high" if coverage_factor >= 0.85 else "medium" if coverage_factor >= 0.45 else "low"
+    return {
+        "label": label,
+        "confidence": confidence,
+        "reason": (
+            f"Тональность: позитив {_share_to_percent(positive)}, негатив {_share_to_percent(negative)}, нейтрально {_share_to_percent(neutral)}. "
+            f"Поддерживающих reactions: {positive_reaction_count}, критических: {critical_reaction_count}."
+        ),
+    }
+
+
+def _format_reactions_summary_line(title: str, summary: dict) -> str:
+    top = list(summary.get("top_reactions") or [])
+    if not top:
+        return f"- {title}: выраженных reactions нет."
+    return f"- {title}: " + ", ".join(f"{item.get('label')} {_safe_int(item.get('count'))}" for item in top[:5]) + "."
+
+
+def _format_reactions_coverage_line(payload: dict) -> str:
+    coverage = payload.get("reactions_coverage") or {}
+    return (
+        f"- Покрытие reactions: {_share_to_percent(coverage.get('factor'))}; "
+        f"comment reactions status={coverage.get('comment_status') or 'unknown'}; "
+        f"scanned={_safe_int(coverage.get('comments_scanned'))}/{_safe_int(coverage.get('expected_comments'))}."
+    )
+
+
+def _enrich_post_report_payload(*, payload: dict, post: Post, comment_rows: list[tuple]) -> dict:
+    enriched = dict(payload)
+    reactions = _post_reactions_enrichment(post=post, comment_rows=comment_rows)
+    enriched["post_reactions"] = reactions["post_reactions"]
+    enriched["comment_reactions"] = reactions["comment_reactions"]
+    enriched["reactions_coverage"] = reactions["reactions_coverage"]
+    enriched["audience_stance"] = _build_audience_stance(enriched)
+    meta = dict(enriched.get("meta") or {})
+    meta["coverage_factor"] = reactions["reactions_coverage"]["factor"]
+    enriched["meta"] = meta
+    return enriched
+
+
+def _aggregate_child_coverage(payloads: list[dict]) -> tuple[dict, dict]:
+    if not payloads:
+        return (
+            {
+                "source": "child_reports",
+                "collected_at": None,
+                "is_complete": False,
+                "factor": 0.0,
+                "comment_status": None,
+                "comments_scanned": 0,
+                "comments_with_visible_reactions": 0,
+                "expected_comments": 0,
+            },
+            {
+                "label": "unclear",
+                "confidence": "low",
+                "reason": "Недостаточно дочерних отчетов для оценки позиции аудитории.",
+            },
+        )
+    factor = round(sum(_safe_float((item.get("reactions_coverage") or {}).get("factor")) for item in payloads) / len(payloads), 4)
+    stance_counts = {"supportive": 0, "critical": 0, "mixed": 0, "neutral": 0, "unclear": 0}
+    for item in payloads:
+        stance_counts[str((item.get("audience_stance") or {}).get("label") or "unclear")] += 1
+    label = max(stance_counts.items(), key=lambda pair: pair[1])[0]
+    confidence = "high" if factor >= 0.85 else "medium" if factor >= 0.45 else "low"
+    return (
+        {
+            "source": "child_reports",
+            "collected_at": None,
+            "is_complete": factor >= 0.99,
+            "factor": factor,
+            "comment_status": "aggregated",
+            "comments_scanned": 0,
+            "comments_with_visible_reactions": 0,
+            "expected_comments": 0,
+        },
+        {
+            "label": label,
+            "confidence": confidence,
+            "reason": f"Агрегация по дочерним отчетам: supportive={stance_counts['supportive']}, critical={stance_counts['critical']}, mixed={stance_counts['mixed']}, neutral={stance_counts['neutral']}.",
+        },
+    )
+
+
 def _render_post_report_text(payload: dict) -> str:
     title = _clean_list_text(payload.get("title")) or "Заголовок: Отчет по посту"
     if not title.lower().startswith("заголовок:"):
@@ -502,6 +802,13 @@ def _render_post_report_text(payload: dict) -> str:
         "",
         "7) Риски/сигналы",
         *[f"- {item}" for item in risks[:5]],
+        "",
+        "8) Reactions и позиция аудитории",
+        _format_reactions_summary_line("Post reactions", payload.get("post_reactions") or {}),
+        _format_reactions_summary_line("Comment reactions", payload.get("comment_reactions") or {}),
+        _format_reactions_coverage_line(payload),
+        f"- Audience stance: {(payload.get('audience_stance') or {}).get('label') or 'unclear'} ({(payload.get('audience_stance') or {}).get('confidence') or 'low'}).",
+        f"- Обоснование stance: {_trim_sentence((payload.get('audience_stance') or {}).get('reason'), fallback='Позиция аудитории определена по сочетанию тональности комментариев и reactions coverage.')}",
     ]
     return "\n".join(lines).strip()
 
@@ -613,8 +920,6 @@ async def sync_post_report_staleness(
     dependency_type: str = "post_inputs",
     dependency_id: int | None = None,
 ) -> dict:
-    from services.jobs import JobType, enqueue_job
-
     post = await session.get(Post, post_id)
     if post is None:
         return {"status": "not_found", "post_id": post_id}
@@ -666,25 +971,17 @@ async def sync_post_report_staleness(
         event_reports_marked, event_ids = await _mark_related_event_reports_stale_for_post(session, post_id=post_id)
         process_reports_marked = await _mark_related_process_reports_stale_for_events(session, event_ids=event_ids)
 
-    job = await enqueue_job(
-        session,
-        job_type=JobType.BUILD_POST_REPORT,
-        payload={"post_id": post_id, "source": source},
-        run_at=datetime.now(timezone.utc),
-        priority=POST_REPORT_REBUILD_PRIORITY,
-        max_attempts=5,
-        dedupe_key=f"build_post_report:{post_id}",
-    )
     return {
-        "status": "queued" if job is not None else "already_queued",
+        "status": "stale_marked" if stale_marked else "changed",
         "post_id": post_id,
         "changed": True,
         "stale_marked": stale_marked,
         "event_reports_marked_stale": event_reports_marked,
         "process_reports_marked_stale": process_reports_marked,
-        "enqueued": job is not None,
-        "job_id": int(job.id) if job is not None else None,
+        "enqueued": False,
+        "job_id": None,
         "input_signature": current_signature,
+        "source": source,
     }
 
 
@@ -705,6 +1002,17 @@ async def build_post_report(
         return {"status": "not_found", "post_id": post_id}
 
     post, channel = row
+    readiness = await _post_report_readiness(session, post=post)
+    if not readiness.get("ready"):
+        status = REPORT_STATUS_FAILED if readiness.get("terminal") else REPORT_STATUS_DEFERRED
+        return {
+            "status": status,
+            "post_id": post.id,
+            "reason": readiness.get("reason"),
+            "readiness": readiness,
+            "dependencies": list(readiness.get("dependencies") or []),
+        }
+
     comments_result = await session.execute(
         select(
             Comment.tg_message_id,
@@ -713,6 +1021,7 @@ async def build_post_report(
             Comment.depth,
             Comment.date,
             Comment.text,
+            Comment.reactions_json,
         )
         .where(Comment.post_id == post.id)
         .order_by(Comment.date.asc(), Comment.id.asc())
@@ -722,7 +1031,7 @@ async def build_post_report(
 
     comments: list[str] = []
     thread_comments: list[dict] = []
-    for tg_message_id, parent_tg_message_id, thread_root_tg_message_id, depth, date, text in comment_rows:
+    for tg_message_id, parent_tg_message_id, thread_root_tg_message_id, depth, date, text, _reactions_json in comment_rows:
         if not text or not text.strip():
             continue
         comments.append(text)
@@ -754,12 +1063,14 @@ async def build_post_report(
             config=report_config,
         )
         status = report_status_from_payload(report_json, fallback=REPORT_STATUS_READY)
+        report_json = _enrich_post_report_payload(payload=report_json, post=post, comment_rows=comment_rows)
         report_json.setdefault("post_id", post.id)
         report_json.setdefault("published_at", post.date.isoformat())
         report_json["meta"] = {
             **dict(report_json.get("meta") or {}),
             "input_signature": input_signature,
             "generated_at": datetime.now(timezone.utc).isoformat(),
+            "refresh_attempt": readiness.get("refresh_attempt"),
         }
         if status == REPORT_STATUS_FAILED:
             content = REPORT_GENERATION_FAILED_CONTENT
@@ -821,7 +1132,7 @@ async def _event_report_readiness(session: AsyncSession, *, event_id: int) -> di
     min_comments = ReportConfig().min_comments
     rows = (
         await session.execute(
-            select(EventPost.post_id, EventPost.role, Post.comments_count, Report.report_json)
+            select(EventPost.post_id, EventPost.role, Post.comments_count, Post.text, Report.report_json)
             .join(Post, Post.id == EventPost.post_id)
             .outerjoin(Report, Report.post_id == EventPost.post_id)
             .where(EventPost.event_id == event_id)
@@ -842,16 +1153,27 @@ async def _event_report_readiness(session: AsyncSession, *, event_id: int) -> di
     eligible_posts = 0
     ready_post_reports = 0
     root_ready = False
-    for _post_id, role, comments_count, report_json in rows:
+    dependencies: list[dict] = []
+    blocked_posts = 0
+    for post_id, role, comments_count, post_text, report_json in rows:
         eligible = int(comments_count or 0) >= min_comments
-        has_report = (
-            isinstance(report_json, dict)
-            and report_status_from_payload(report_json, fallback="") != REPORT_STATUS_STALE
-        )
+        has_text = bool(str(post_text or "").strip())
+        has_report = _is_payload_dependency_ready(report_json if isinstance(report_json, dict) else None)
+        status = report_status_from_payload(report_json if isinstance(report_json, dict) else None, fallback="")
         if eligible:
             eligible_posts += 1
             if has_report:
                 ready_post_reports += 1
+            elif has_text and status in {"", REPORT_STATUS_STALE}:
+                dependencies.append(
+                    _build_dependency(
+                        JobType.BUILD_POST_REPORT,
+                        entity_id=int(post_id),
+                        reason="waiting_post_reports",
+                    )
+                )
+            else:
+                blocked_posts += 1
         if role == "root":
             root_ready = has_report or not eligible
 
@@ -870,12 +1192,14 @@ async def _event_report_readiness(session: AsyncSession, *, event_id: int) -> di
     ready = root_ready and ready_post_reports >= required_ready
     return {
         "ready": ready,
-        "reason": "ready" if ready else "waiting_post_reports",
+        "reason": "ready" if ready else ("blocked_post_reports" if blocked_posts > 0 and not dependencies else "waiting_post_reports"),
         "total_posts": total_posts,
         "eligible_posts": eligible_posts,
         "ready_post_reports": ready_post_reports,
         "required_ready_post_reports": required_ready,
         "root_ready": root_ready,
+        "blocked_post_reports": blocked_posts,
+        "dependencies": dependencies,
     }
 
 
@@ -895,6 +1219,7 @@ async def build_event_report_draft(
             "event_id": event_id,
             "reason": readiness.get("reason"),
             "readiness": readiness,
+            "dependencies": list(readiness.get("dependencies") or []),
         }
 
     post_payloads = await _load_post_report_payloads_for_event(session, event_id=event_id)
@@ -917,6 +1242,13 @@ async def build_event_report_draft(
             post_reports=post_payloads,
         )
         status = report_status_from_payload(payload, fallback=REPORT_STATUS_READY)
+    coverage, stance = _aggregate_child_coverage(post_payloads)
+    payload["reactions_coverage"] = coverage
+    payload["audience_stance"] = stance
+    payload["meta"] = {
+        **dict(payload.get("meta") or {}),
+        "coverage_factor": coverage.get("factor"),
+    }
 
     last_version = (
         await session.execute(
@@ -938,7 +1270,7 @@ async def build_event_report_draft(
     return {"status": status, "event_id": event_id, "report_id": report.id}
 
 
-async def _load_latest_event_report_payloads_for_process(session: AsyncSession, *, process_id: int) -> list[dict]:
+async def _load_latest_event_report_snapshots_for_process(session: AsyncSession, *, process_id: int) -> list[tuple[int, str | None, dict | None, str]]:
     event_rows = (
         await session.execute(
             select(ProcessEvent.event_id, Event.title)
@@ -963,42 +1295,33 @@ async def _load_latest_event_report_payloads_for_process(session: AsyncSession, 
             .order_by(EventReport.event_id.asc(), EventReport.version.desc(), EventReport.id.desc())
         )
     ).all()
-    report_rows_by_event_id: dict[int, list[tuple[dict | None, int, int]]] = {}
-    for event_id, report_json, version, report_id in rows:
-        report_rows_by_event_id.setdefault(int(event_id), []).append((report_json, int(version or 0), int(report_id)))
+    latest_by_event_id: dict[int, dict | None] = {}
+    for event_id, report_json, _version, _report_id in rows:
+        latest_by_event_id.setdefault(int(event_id), report_json if isinstance(report_json, dict) else None)
 
-    payloads: list[dict] = []
-    fallback_events: list[tuple[int, str | None]] = []
+    snapshots: list[tuple[int, str | None, dict | None, str]] = []
     for event_id, event_title in event_rows:
-        selected_payload: dict | None = None
-        for report_json, _version, _report_id in report_rows_by_event_id.get(int(event_id), []):
-            if not isinstance(report_json, dict):
-                continue
-            if report_status_from_payload(report_json, fallback="") == REPORT_STATUS_STALE:
-                continue
-            selected_payload = dict(report_json)
-            break
-        if selected_payload is not None:
-            selected_payload.setdefault("event_id", int(event_id))
-            selected_payload.setdefault("event_title", event_title)
-            payloads.append(selected_payload)
-            continue
-        fallback_events.append((int(event_id), event_title))
-
-    for event_id, event_title in fallback_events:
-        post_payloads = await _load_post_report_payloads_for_event(session, event_id=event_id)
-        if not post_payloads:
-            continue
-        payload = build_event_report_payload(
-            event_id=event_id,
-            event_title=event_title,
-            post_reports=post_payloads,
+        payload = latest_by_event_id.get(int(event_id))
+        snapshots.append(
+            (
+                int(event_id),
+                event_title,
+                dict(payload) if isinstance(payload, dict) else None,
+                report_status_from_payload(payload, fallback=""),
+            )
         )
-        if report_status_from_payload(payload, fallback="") == REPORT_STATUS_STALE:
+    return snapshots
+
+
+async def _load_latest_event_report_payloads_for_process(session: AsyncSession, *, process_id: int) -> list[dict]:
+    payloads: list[dict] = []
+    for event_id, event_title, payload, _status in await _load_latest_event_report_snapshots_for_process(session, process_id=process_id):
+        if not _is_payload_dependency_ready(payload):
             continue
-        payload.setdefault("event_id", event_id)
-        payload.setdefault("event_title", event_title)
-        payloads.append(payload)
+        selected_payload = dict(payload or {})
+        selected_payload.setdefault("event_id", int(event_id))
+        selected_payload.setdefault("event_title", event_title)
+        payloads.append(selected_payload)
     return payloads
 
 
@@ -1018,7 +1341,8 @@ async def _resolve_process_event_payloads(session: AsyncSession, *, process_id: 
 
 
 async def _process_report_readiness(session: AsyncSession, *, process_id: int) -> dict:
-    payloads, total_events = await _resolve_process_event_payloads(session, process_id=process_id)
+    snapshots = await _load_latest_event_report_snapshots_for_process(session, process_id=process_id)
+    total_events = len(snapshots)
     if total_events == 0:
         return {
             "ready": True,
@@ -1027,15 +1351,32 @@ async def _process_report_readiness(session: AsyncSession, *, process_id: int) -
             "ready_event_reports": 0,
             "required_ready_event_reports": 0,
         }
-    ready_event_reports = len(payloads)
+    ready_event_reports = 0
+    blocked_events = 0
+    dependencies: list[dict] = []
+    for event_id, _event_title, payload, status in snapshots:
+        if _is_payload_dependency_ready(payload):
+            ready_event_reports += 1
+        elif status in {"", REPORT_STATUS_STALE}:
+            dependencies.append(
+                _build_dependency(
+                    JobType.BUILD_EVENT_REPORT,
+                    entity_id=int(event_id),
+                    reason="waiting_event_reports",
+                )
+            )
+        else:
+            blocked_events += 1
     required_ready = max(1, math.ceil(total_events * 0.7))
     ready = ready_event_reports >= required_ready
     return {
         "ready": ready,
-        "reason": "ready" if ready else "waiting_event_reports",
+        "reason": "ready" if ready else ("blocked_event_reports" if blocked_events > 0 and not dependencies else "waiting_event_reports"),
         "total_events": total_events,
         "ready_event_reports": ready_event_reports,
         "required_ready_event_reports": required_ready,
+        "blocked_event_reports": blocked_events,
+        "dependencies": dependencies,
     }
 
 
@@ -1055,6 +1396,7 @@ async def build_process_report_draft(
             "process_id": process_id,
             "reason": readiness.get("reason"),
             "readiness": readiness,
+            "dependencies": list(readiness.get("dependencies") or []),
         }
 
     event_payloads = await _load_latest_event_report_payloads_for_process(session, process_id=process_id)
@@ -1077,6 +1419,13 @@ async def build_process_report_draft(
             event_reports=event_payloads,
         )
         status = report_status_from_payload(payload, fallback=REPORT_STATUS_READY)
+    coverage, stance = _aggregate_child_coverage(event_payloads)
+    payload["reactions_coverage"] = coverage
+    payload["audience_stance"] = stance
+    payload["meta"] = {
+        **dict(payload.get("meta") or {}),
+        "coverage_factor": coverage.get("factor"),
+    }
 
     last_version = (
         await session.execute(

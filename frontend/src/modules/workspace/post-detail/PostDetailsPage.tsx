@@ -41,7 +41,7 @@ function ActionPanel({
       status={status}
       jobId={jobId}
       resultSummary={resultSummary}
-      tone={isFailure ? 'danger' : status === 'done' ? 'success' : 'default'}
+      tone={isFailure ? 'danger' : status === 'done' || status === 'completed' ? 'success' : 'default'}
     />
   );
 }
@@ -217,3 +217,4 @@ export function PostDetailsPage() {
     </div>
   );
 }
+

@@ -40,5 +40,7 @@ export function useUpdateEventDetailReportAction(eventId: number) {
         queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.mode('events') }),
       ]);
     },
+    progress: { mode: 'report-build', entityType: 'event', entityId: eventId },
   });
 }
+

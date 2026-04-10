@@ -46,12 +46,13 @@ async def enqueue_event_report_job(
     event_id: int,
     priority: int,
     source: str,
+    requested_by_user_id: int | None,
     dedupe_key: str | None,
 ):
     return await enqueue_job(
         session,
         job_type=JobType.BUILD_EVENT_REPORT,
-        payload={"event_id": event_id, "source": source},
+        payload={"event_id": event_id, "source": source, "requested_by_user_id": requested_by_user_id},
         run_at=datetime.now(timezone.utc),
         priority=priority,
         max_attempts=5,
@@ -65,12 +66,13 @@ async def enqueue_process_report_job(
     process_id: int,
     priority: int,
     source: str,
+    requested_by_user_id: int | None,
     dedupe_key: str | None,
 ):
     return await enqueue_job(
         session,
         job_type=JobType.BUILD_PROCESS_REPORT,
-        payload={"process_id": process_id, "source": source},
+        payload={"process_id": process_id, "source": source, "requested_by_user_id": requested_by_user_id},
         run_at=datetime.now(timezone.utc),
         priority=priority,
         max_attempts=5,
@@ -84,12 +86,13 @@ async def enqueue_post_report_job(
     post_id: int,
     priority: int,
     source: str,
+    requested_by_user_id: int | None,
     dedupe_key: str | None,
 ):
     return await enqueue_job(
         session,
         job_type=JobType.BUILD_POST_REPORT,
-        payload={"post_id": post_id, "source": source},
+        payload={"post_id": post_id, "source": source, "requested_by_user_id": requested_by_user_id},
         run_at=datetime.now(timezone.utc),
         priority=priority,
         max_attempts=5,

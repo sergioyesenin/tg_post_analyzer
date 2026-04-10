@@ -53,6 +53,8 @@ CANONICAL_SETTINGS_DEFAULTS: dict[str, dict] = {
         "sleep_jitter_sec": 0.4,
         "reconciliation_enabled": False,
         "album_discussion_expansion_steps": 6,
+        "reactions_refresh_ttl_seconds": 900,
+        "reactions_top_n": 10,
     },
     "monitor": {
         "disk_used_percent_warn": 80,

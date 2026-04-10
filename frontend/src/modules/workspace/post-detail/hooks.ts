@@ -75,5 +75,7 @@ export function useUpdateReportAction(postId: number) {
         queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.mode('posts') }),
       ]);
     },
+    progress: { mode: 'report-build', entityType: 'post', entityId: postId },
   });
 }
+

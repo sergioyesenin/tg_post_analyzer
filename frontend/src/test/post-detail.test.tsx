@@ -275,6 +275,109 @@ describe('Post detail screen', () => {
     });
   });
 
+  it('shows building_report and completes report update from websocket progress', async () => {
+    const user = userEvent.setup();
+    let reportVersion = 0;
+    const originalWebSocket = globalThis.WebSocket;
+
+    class FakeWebSocket {
+      static instances: FakeWebSocket[] = [];
+      url: string;
+      onmessage: ((event: { data: string }) => void) | null = null;
+
+      constructor(url: string) {
+        this.url = url;
+        FakeWebSocket.instances.push(this);
+      }
+
+      emit(payload: unknown) {
+        this.onmessage?.({ data: JSON.stringify(payload) });
+      }
+
+      close() {
+        return undefined;
+      }
+    }
+
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/posts/42') {
+        return createPostDetailResponse();
+      }
+
+      if (path === '/api/posts/42/comments') {
+        return createCommentsResponse();
+      }
+
+      if (path === '/api/reports/post/42') {
+        return reportVersion === 0
+          ? null
+          : createReportResponse({
+              id: 15,
+              status: 'draft',
+              content: 'WebSocket completed draft report.',
+            });
+      }
+
+      if (path === '/api/posts/42/links') {
+        return createLinksResponse();
+      }
+
+      if (path === '/api/jobs/501') {
+        return createJobStatusResponse({ status: 'running', type: 'build_post_report' });
+      }
+
+      if (path === '/api/jobs/501/result') {
+        return createJobResultResponse({ status: 'running', job_id: 501 });
+      }
+
+      if (path.startsWith('/api/dashboard/posts')) {
+        return createPostsDashboardResponse();
+      }
+
+      throw new Error(`Unhandled GET path in test: ${path}`);
+    });
+
+    vi.spyOn(apiClient, 'post').mockResolvedValue(
+      createAcceptedJobResponse({ job_id: 501, job_type: 'build_post_report' }),
+    );
+
+    renderPostDetail();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043e\u0442\u0447\u0435\u0442') })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043e\u0442\u0447\u0435\u0442') }));
+
+    await waitFor(() => {
+      expect(screen.getByText(ru('\u041e\u0442\u0447\u0435\u0442 \u0444\u043e\u0440\u043c\u0438\u0440\u0443\u0435\u0442\u0441\u044f'))).toBeInTheDocument();
+    });
+
+    expect(FakeWebSocket.instances[0]?.url).toContain('/api/reports/progress/ws');
+
+    reportVersion = 1;
+    FakeWebSocket.instances[0]?.emit({
+      type: 'report_build_completed',
+      entity_type: 'post',
+      entity_id: 42,
+      request_id: 501,
+      status: 'completed',
+      timestamp: '2026-04-09T12:00:00Z',
+      result: { report_id: 15 },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/report_id: 15/i)).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/WebSocket completed draft report/i)).toBeInTheDocument();
+    });
+
+    globalThis.WebSocket = originalWebSocket;
+  });
   it('hides mutation actions for viewer', async () => {
     installDetailGetMock();
 
@@ -311,3 +414,6 @@ describe('Post detail screen', () => {
     });
   });
 });
+
+
+

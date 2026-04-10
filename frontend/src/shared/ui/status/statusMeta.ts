@@ -19,6 +19,9 @@ const reportStatusMeta: Record<string, StatusMeta> = {
 const jobStatusMeta: Record<string, StatusMeta> = {
   pending: { label: i18n.t('statusLabels.pending'), tone: 'warning' },
   running: { label: i18n.t('statusLabels.running'), tone: 'info' },
+  building_report: { label: i18n.t('statusLabels.building_report'), tone: 'info' },
+  completed: { label: i18n.t('statusLabels.completed'), tone: 'success' },
+  blocked: { label: i18n.t('statusLabels.blocked'), tone: 'warning' },
   done: { label: i18n.t('statusLabels.done'), tone: 'success' },
   failed: { label: i18n.t('statusLabels.failed'), tone: 'danger' },
 };
@@ -59,3 +62,4 @@ export function resolveJobStatusMeta(status: string | null | undefined) {
 export function resolveMonitorStatusMeta(status: string | null | undefined) {
   return monitorStatusMeta[normalizeStatus(status)] ?? fallbackStatusMeta(status);
 }
+

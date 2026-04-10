@@ -55,6 +55,43 @@ class TrendSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ReactionItem(BaseModel):
+    label: str
+    count: int = 0
+    share: float | None = Field(default=None, ge=0.0, le=1.0)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ReactionsSummary(BaseModel):
+    total_count: int = 0
+    distinct_count: int = 0
+    top_reactions: list[ReactionItem] = Field(default_factory=list)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ReactionsCoverage(BaseModel):
+    source: str | None = None
+    collected_at: str | None = None
+    is_complete: bool = False
+    factor: float = Field(default=0.0, ge=0.0, le=1.0)
+    comment_status: str | None = None
+    comments_scanned: int = 0
+    comments_with_visible_reactions: int = 0
+    expected_comments: int = 0
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AudienceStance(BaseModel):
+    label: Literal["supportive", "critical", "mixed", "neutral", "unclear"] = "unclear"
+    confidence: Literal["low", "medium", "high"] = "low"
+    reason: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class PostReportPayload(BaseModel):
     type: Literal["post_report_v2"] = "post_report_v2"
     status: Literal["ready", "skipped_min_comments", "failed"] = "ready"
@@ -70,6 +107,10 @@ class PostReportPayload(BaseModel):
     risks: list[str] = Field(default_factory=list)
     anomalies: list[str] = Field(default_factory=list)
     representative_quotes: list[str] = Field(default_factory=list)
+    post_reactions: ReactionsSummary = Field(default_factory=ReactionsSummary)
+    comment_reactions: ReactionsSummary = Field(default_factory=ReactionsSummary)
+    reactions_coverage: ReactionsCoverage = Field(default_factory=ReactionsCoverage)
+    audience_stance: AudienceStance = Field(default_factory=AudienceStance)
     confidence: ConfidenceSummary = Field(default_factory=ConfidenceSummary)
     meta: dict = Field(default_factory=dict)
 
@@ -90,6 +131,8 @@ class EventReportPayload(BaseModel):
     risks: list[str] = Field(default_factory=list)
     anomalies: list[str] = Field(default_factory=list)
     summary: str
+    reactions_coverage: ReactionsCoverage = Field(default_factory=ReactionsCoverage)
+    audience_stance: AudienceStance = Field(default_factory=AudienceStance)
     confidence: ConfidenceSummary = Field(default_factory=ConfidenceSummary)
     meta: dict = Field(default_factory=dict)
 
@@ -107,6 +150,8 @@ class ProcessReportPayload(BaseModel):
     bottlenecks: list[str] = Field(default_factory=list)
     risks: list[str] = Field(default_factory=list)
     summary: str
+    reactions_coverage: ReactionsCoverage = Field(default_factory=ReactionsCoverage)
+    audience_stance: AudienceStance = Field(default_factory=AudienceStance)
     confidence: ConfidenceSummary = Field(default_factory=ConfidenceSummary)
     meta: dict = Field(default_factory=dict)
 

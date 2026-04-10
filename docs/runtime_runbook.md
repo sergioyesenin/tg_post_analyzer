@@ -1,6 +1,6 @@
-# Runbook по runtime
+# Runtime runbook
 
-## Запуск ролей по отдельности
+## Role startup
 
 API:
 
@@ -26,35 +26,44 @@ AI worker:
 python scripts/run_ai_pipeline.py --daemon
 ```
 
-## Диагностика по ролям
+## Role diagnostics
 
 API:
 
-- проверить process manager / container status
-- запросить `/api/monitor/health`
-- убедиться в доступности frontend/API
+- check process manager or container status
+- query `/api/monitor/health`
+- verify frontend and API availability
 
 Scheduler:
 
-- запросить `/api/monitor/scheduler`
-- запросить `/api/monitor/runtime-topology`
-- проверить `runtime.scheduler`
+- query `/api/monitor/scheduler`
+- query `/api/monitor/runtime-topology`
+- verify `runtime.scheduler`
 
 Telegram ingestion:
 
-- запросить `/api/monitor/pipeline`
-- проверить `runtime.telegram_pipeline`
-- проверить backlog telegram/comment jobs
+- query `/api/monitor/pipeline`
+- verify `runtime.telegram_pipeline`
+- verify backlog of telegram and comment jobs
 
 AI worker:
 
-- запросить `/api/monitor/pipeline`
-- проверить `runtime.ai_pipeline`
-- проверить backlog report jobs
+- query `/api/monitor/pipeline`
+- verify `runtime.ai_pipeline`
+- verify backlog of report jobs
+- expect passive-consumer behavior only
 
-## Ожидаемое поведение heartbeat
+## Report operating mode
 
-- `api`: DB-backed heartbeat не используется; диагностика идет через HTTP health и process manager
-- `scheduler`: heartbeat обязателен только когда включен scheduler retention mode
-- `telegram_pipeline`: heartbeat обязателен, пока работает ingestion worker
-- `ai_pipeline`: heartbeat обязателен, пока работает AI worker
+- Automatic background enqueue for `BUILD_POST_REPORT`, `BUILD_EVENT_REPORT`, and `BUILD_PROCESS_REPORT` is disabled.
+- Telegram ingest, comment refresh, and AI runtime flows may still mark existing reports as `stale`.
+- New report jobs must appear only after an explicit user or API request.
+- AI worker must not expand `BUILD_POST_REPORT_BATCH` into child `BUILD_POST_REPORT` jobs.
+- If `jobs` contains new `BUILD_*_REPORT` rows without a matching API-triggered request, treat that as a runtime regression.
+
+## Expected heartbeat behavior
+
+- `api`: no DB-backed heartbeat is expected; use HTTP health plus process-manager checks
+- `scheduler`: heartbeat is required only when scheduler retention mode is enabled
+- `telegram_pipeline`: heartbeat is required while the ingestion worker is running
+- `ai_pipeline`: heartbeat is required while the AI worker is running

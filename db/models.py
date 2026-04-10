@@ -238,6 +238,7 @@ class Post(Base):
     lang: Mapped[str | None] = mapped_column(String(16), nullable=True)
     topic: Mapped[str | None] = mapped_column(String(255), nullable=True)
     analyzer_version: Mapped[str] = mapped_column(String(64), default="v1")
+    reactions_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # для логики "собрать через 10-15 мин + дособор 24 часа"
     last_comments_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -288,6 +289,7 @@ class Comment(Base):
     author_username: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reactions_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 

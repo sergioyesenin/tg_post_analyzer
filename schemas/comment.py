@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 class CommentOut(BaseModel):
     id: int
@@ -12,5 +12,6 @@ class CommentOut(BaseModel):
     depth: int
     text: str
     date: datetime
+    reactions: dict | None = Field(default=None, alias="reactions_json")
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)

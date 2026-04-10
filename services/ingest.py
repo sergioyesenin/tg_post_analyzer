@@ -108,6 +108,7 @@ async def upsert_comment(
     author_id: Optional[int],
     author_username: Optional[str],
     text: Optional[str],
+    reactions_json: dict | None = None,
 ) -> Comment:
     resolved_tg_peer_id = int(tg_peer_id) if isinstance(tg_peer_id, int) else int(channel_id)
     stmt = (
@@ -125,6 +126,7 @@ async def upsert_comment(
             author_id=author_id,
             author_username=author_username,
             text=text,
+            reactions_json=reactions_json,
             created_at=datetime.utcnow(),
         )
         .on_conflict_do_update(
@@ -140,6 +142,7 @@ async def upsert_comment(
                 "author_id": author_id,
                 "author_username": author_username,
                 "text": text,
+                "reactions_json": reactions_json,
             },
         )
         .returning(Comment.id)
@@ -188,6 +191,19 @@ async def set_post_last_comments_scan_at(
         Post.__table__.update()
         .where(Post.id == post_id)
         .values(last_comments_scan_at=ts)
+    )
+
+
+async def set_post_reactions_json(
+    session: AsyncSession,
+    *,
+    post_id: int,
+    reactions_json: dict | None,
+) -> None:
+    await session.execute(
+        Post.__table__.update()
+        .where(Post.id == post_id)
+        .values(reactions_json=reactions_json)
     )
 
 async def upsert_report(

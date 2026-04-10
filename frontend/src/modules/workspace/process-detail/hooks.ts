@@ -40,5 +40,7 @@ export function useUpdateProcessDetailReportAction(processId: number) {
         queryClient.invalidateQueries({ queryKey: dashboardQueryKeys.mode('processes') }),
       ]);
     },
+    progress: { mode: 'report-build', entityType: 'process', entityId: processId },
   });
 }
+

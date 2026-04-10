@@ -140,6 +140,11 @@ async def test_run_telegram_cycle_serializes_channel_ingest_with_shared_telethon
     monkeypatch.setattr(pipeline_runtime, "get_all_settings", _fake_get_all_settings)
     monkeypatch.setattr(pipeline_runtime, "_get_active_channels", lambda: asyncio.sleep(0, result=channels))
     monkeypatch.setattr(pipeline_runtime, "_process_channel", _fake_process_channel)
+    monkeypatch.setattr(
+        pipeline_runtime,
+        "_has_due_telegram_preemption_job",
+        lambda **_kwargs: asyncio.sleep(0, result=False),
+    )
     monkeypatch.setattr(pipeline_runtime, "run_telegram_link_jobs_until_idle", lambda **_kwargs: asyncio.sleep(0, result=0))
     monkeypatch.setattr(pipeline_runtime, "count_incomplete_link_jobs", lambda: asyncio.sleep(0, result=0))
     monkeypatch.setattr(pipeline_runtime, "run_telegram_jobs", lambda **_kwargs: asyncio.sleep(0, result=0))
@@ -172,3 +177,118 @@ async def test_run_telegram_cycle_serializes_channel_ingest_with_shared_telethon
     assert result.executed_jobs == 0
     assert concurrent["max"] == 1
 
+
+@pytest.mark.asyncio
+async def test_run_telegram_cycle_processes_urgent_jobs_between_channels_and_resumes(monkeypatch):
+    channels = [
+        SimpleNamespace(id=1, username="one"),
+        SimpleNamespace(id=2, username="two"),
+    ]
+    call_order: list[str] = []
+    preemption_checks = {"count": 0}
+    client = object()
+
+    async def _fake_get_all_settings(_session):
+        return {
+            "ingest": {
+                "lookback_days": 3,
+                "max_posts_per_channel": 10,
+                "comment_first_delay_hours": 2,
+                "comment_interval_hours": 2,
+                "comment_window_hours": 24,
+                "comment_schedule_jitter_seconds": 0,
+            },
+            "jobs": {
+                "job_batch_size": 10,
+                "collect_comments_quota_per_run": 1,
+                "done_retention_days": 14,
+                "dead_letter_retention_days": 90,
+                "cleanup_batch_size": 1000,
+                "job_worker_concurrency": 2,
+            },
+            "retention": {
+                "retention_days": 30,
+                "archive_batch_size": 1000,
+            },
+        }
+
+    async def _fake_process_channel(_client, channel, **_kwargs):
+        call_order.append(f"channel:{channel.id}")
+        return 1
+
+    async def _fake_has_due_telegram_preemption_job(*, max_priority: int):
+        assert max_priority in {
+            pipeline_runtime.TELEGRAM_PREEMPTION_MAX_PRIORITY,
+            pipeline_runtime.LINK_PREEMPTION_MAX_PRIORITY,
+        }
+        if max_priority == pipeline_runtime.TELEGRAM_PREEMPTION_MAX_PRIORITY:
+            preemption_checks["count"] += 1
+            return preemption_checks["count"] == 1
+        return False
+
+    async def _fake_run_telegram_jobs(
+        *,
+        job_batch_size: int,
+        worker_id: str,
+        collect_comments_quota_per_run: int,
+        tg_client,
+        job_worker_concurrency: int,
+        allowed_types=None,
+        max_priority=None,
+    ):
+        assert job_batch_size == 10
+        assert worker_id == "worker-1"
+        assert collect_comments_quota_per_run == 1
+        assert tg_client is client
+        assert job_worker_concurrency == 2
+        if max_priority == pipeline_runtime.TELEGRAM_PREEMPTION_MAX_PRIORITY:
+            call_order.append("urgent-burst")
+            return 1
+        call_order.append("telegram-backlog")
+        return 0
+
+    async def _fake_run_telegram_link_jobs_until_idle(**_kwargs):
+        call_order.append("link-drain")
+        return 0
+
+    monkeypatch.setattr(pipeline_runtime, "get_all_settings", _fake_get_all_settings)
+    monkeypatch.setattr(pipeline_runtime, "_get_active_channels", lambda: asyncio.sleep(0, result=channels))
+    monkeypatch.setattr(pipeline_runtime, "_process_channel", _fake_process_channel)
+    monkeypatch.setattr(pipeline_runtime, "_has_due_telegram_preemption_job", _fake_has_due_telegram_preemption_job)
+    monkeypatch.setattr(pipeline_runtime, "run_telegram_jobs", _fake_run_telegram_jobs)
+    monkeypatch.setattr(pipeline_runtime, "run_telegram_link_jobs_until_idle", _fake_run_telegram_link_jobs_until_idle)
+    monkeypatch.setattr(pipeline_runtime, "count_incomplete_link_jobs", lambda: asyncio.sleep(0, result=0))
+    monkeypatch.setattr(pipeline_runtime, "retention_scheduler_enabled", lambda _settings: True)
+
+    class _FakeSessionContext:
+        async def __aenter__(self):
+            return object()
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    monkeypatch.setattr(pipeline_runtime, "AsyncSessionLocal", _FakeSessionContext)
+
+    result = await pipeline_runtime.run_telegram_cycle(
+        client=client,
+        days=3,
+        max_posts_per_channel_arg=10,
+        comment_first_delay_hours_arg=2,
+        comment_interval_hours_arg=2,
+        comment_window_hours_arg=24,
+        job_batch_size_arg=10,
+        retention_days_arg=30,
+        archive_batch_size_arg=1000,
+        skip_rebuild_graphs=True,
+        worker_id="worker-1",
+    )
+
+    assert result.processed_posts == 2
+    assert result.executed_jobs == 1
+    assert call_order == [
+        "channel:1",
+        "urgent-burst",
+        "channel:2",
+        "link-drain",
+        "telegram-backlog",
+    ]

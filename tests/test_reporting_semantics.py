@@ -169,6 +169,7 @@ def test_build_post_report_sanitizes_internal_error(monkeypatch):
         text="post",
         views=5,
         comments_count=0,
+        reactions_json=None,
     )
     session = _FakeSession(
         execute_results=[
@@ -188,6 +189,11 @@ def test_build_post_report_sanitizes_internal_error(monkeypatch):
         return SimpleNamespace(id=91)
 
     monkeypatch.setattr(reporting, "upsert_report", _fake_upsert_report)
+    monkeypatch.setattr(
+        reporting,
+        "_post_report_readiness",
+        lambda _session, *, post: asyncio.sleep(0, result={"ready": True, "refresh_attempt": None}),
+    )
 
     result = asyncio.run(
         reporting.build_post_report(
@@ -207,6 +213,69 @@ def test_build_post_report_sanitizes_internal_error(monkeypatch):
     }
 
 
+def test_build_post_report_defers_until_refresh_work_unit_completed(monkeypatch):
+    channel = SimpleNamespace(id=7, username="test_channel")
+    post = SimpleNamespace(
+        id=11,
+        date=reporting.datetime(2026, 3, 11, 12, 0, tzinfo=reporting.timezone.utc),
+        text="post",
+        views=5,
+        comments_count=2,
+        reactions_json=None,
+    )
+    session = _FakeSession(
+        execute_results=[
+            type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
+        ]
+    )
+
+    async def _fake_post_readiness(_session, *, post):
+        assert post.id == 11
+        return {
+            "ready": False,
+            "reason": "waiting_refresh_post_data",
+            "dependencies": [{"job_type": "refresh_comments", "post_id": 11, "reason": "waiting_refresh_post_data"}],
+            "terminal": False,
+        }
+
+    monkeypatch.setattr(reporting, "_post_report_readiness", _fake_post_readiness)
+
+    result = asyncio.run(
+        reporting.build_post_report(
+            session,
+            post_id=11,
+            report_project=SimpleNamespace(),
+        )
+    )
+
+    assert result["status"] == reporting.REPORT_STATUS_DEFERRED
+    assert result["reason"] == "waiting_refresh_post_data"
+    assert result["dependencies"] == [{"job_type": "refresh_comments", "post_id": 11, "reason": "waiting_refresh_post_data"}]
+    assert session.added == []
+
+
+def test_post_reactions_enrichment_treats_no_reactions_as_complete_signal():
+    post = SimpleNamespace(
+        comments_count=0,
+        reactions_json={
+            "source": "telegram_refresh",
+            "collected_at": "2026-04-09T12:00:00+00:00",
+            "is_complete": True,
+            "post_reactions": {"results": [], "state": "no_reactions"},
+            "comment_reactions": {
+                "status": "no_reactions",
+                "comments_scanned": 0,
+                "comments_with_visible_reactions": 0,
+            },
+        },
+    )
+
+    payload = reporting._post_reactions_enrichment(post=post, comment_rows=[])
+
+    assert payload["reactions_coverage"]["comment_status"] == "no_reactions"
+    assert payload["reactions_coverage"]["factor"] == 1.0
+
+
 def test_build_post_report_persists_input_signature(monkeypatch):
     channel = SimpleNamespace(id=7, username="test_channel")
     post = SimpleNamespace(
@@ -215,11 +284,12 @@ def test_build_post_report_persists_input_signature(monkeypatch):
         text="post",
         views=5,
         comments_count=2,
+        reactions_json=None,
     )
     session = _FakeSession(
         execute_results=[
             type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
-            _FakeRowsResult([(1, None, None, 0, None, "hello")]),
+            _FakeRowsResult([(1, None, None, 0, None, "hello", None)]),
         ]
     )
 
@@ -234,6 +304,11 @@ def test_build_post_report_persists_input_signature(monkeypatch):
         return SimpleNamespace(id=92)
 
     monkeypatch.setattr(reporting, "upsert_report", _fake_upsert_report)
+    monkeypatch.setattr(
+        reporting,
+        "_post_report_readiness",
+        lambda _session, *, post: asyncio.sleep(0, result={"ready": True, "refresh_attempt": None}),
+    )
 
     result = asyncio.run(
         reporting.build_post_report(
@@ -256,11 +331,12 @@ def test_build_post_report_marks_status_failed_for_valid_failed_payload(monkeypa
         text="post",
         views=5,
         comments_count=2,
+        reactions_json=None,
     )
     session = _FakeSession(
         execute_results=[
             type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
-            _FakeRowsResult([(1, None, None, 0, None, "hello")]),
+            _FakeRowsResult([(1, None, None, 0, None, "hello", None)]),
         ]
     )
 
@@ -295,6 +371,11 @@ def test_build_post_report_marks_status_failed_for_valid_failed_payload(monkeypa
         return SimpleNamespace(id=93)
 
     monkeypatch.setattr(reporting, "upsert_report", _fake_upsert_report)
+    monkeypatch.setattr(
+        reporting,
+        "_post_report_readiness",
+        lambda _session, *, post: asyncio.sleep(0, result={"ready": True, "refresh_attempt": None}),
+    )
 
     result = asyncio.run(
         reporting.build_post_report(
@@ -338,7 +419,6 @@ def test_build_process_report_draft_returns_draft_status_when_no_event_reports()
             _FakeRowsResult([]),
             _FakeRowsResult([]),
             _FakeRowsResult([]),
-            _FakeRowsResult([]),
             _FakeScalarResult(None),
         ],
     )
@@ -356,7 +436,13 @@ def test_build_event_report_draft_defers_when_dependencies_are_not_ready(monkeyp
 
     async def _fake_readiness(_session, *, event_id):
         assert event_id == 7
-        return {"ready": False, "reason": "waiting_post_reports", "total_posts": 4, "ready_post_reports": 1}
+        return {
+            "ready": False,
+            "reason": "waiting_post_reports",
+            "total_posts": 4,
+            "ready_post_reports": 1,
+            "dependencies": [{"job_type": "build_post_report", "post_id": 11, "reason": "waiting_post_reports"}],
+        }
 
     monkeypatch.setattr(reporting, "_event_report_readiness", _fake_readiness)
 
@@ -365,6 +451,7 @@ def test_build_event_report_draft_defers_when_dependencies_are_not_ready(monkeyp
     assert result["status"] == reporting.REPORT_STATUS_DEFERRED
     assert result["event_id"] == 7
     assert result["reason"] == "waiting_post_reports"
+    assert result["dependencies"] == [{"job_type": "build_post_report", "post_id": 11, "reason": "waiting_post_reports"}]
     assert session.added == []
 
 
@@ -374,7 +461,13 @@ def test_build_process_report_draft_defers_when_dependencies_are_not_ready(monke
 
     async def _fake_readiness(_session, *, process_id):
         assert process_id == 9
-        return {"ready": False, "reason": "waiting_event_reports", "total_events": 3, "ready_event_reports": 1}
+        return {
+            "ready": False,
+            "reason": "waiting_event_reports",
+            "total_events": 3,
+            "ready_event_reports": 1,
+            "dependencies": [{"job_type": "build_event_report", "event_id": 21, "reason": "waiting_event_reports"}],
+        }
 
     monkeypatch.setattr(reporting, "_process_report_readiness", _fake_readiness)
 
@@ -383,36 +476,45 @@ def test_build_process_report_draft_defers_when_dependencies_are_not_ready(monke
     assert result["status"] == reporting.REPORT_STATUS_DEFERRED
     assert result["process_id"] == 9
     assert result["reason"] == "waiting_event_reports"
+    assert result["dependencies"] == [{"job_type": "build_event_report", "event_id": 21, "reason": "waiting_event_reports"}]
     assert session.added == []
 
 
-def test_process_report_readiness_ignores_latest_stale_event_reports():
+def test_process_report_readiness_requires_rebuild_for_stale_event_reports():
     session = _FakeSession()
 
-    async def _fake_resolve(_session, *, process_id):
+    async def _fake_snapshots(_session, *, process_id):
         assert process_id == 55
-        return ([{"event_id": 101}, {"event_id": 103}], 3)
+        return [
+            (101, "Event 101", {"status": "ready"}, "ready"),
+            (102, "Event 102", {"status": "stale"}, "stale"),
+            (103, "Event 103", {"status": "ready"}, "ready"),
+        ]
 
-    reporting._resolve_process_event_payloads, original = _fake_resolve, reporting._resolve_process_event_payloads
+    reporting._load_latest_event_report_snapshots_for_process, original = (
+        _fake_snapshots,
+        reporting._load_latest_event_report_snapshots_for_process,
+    )
     try:
         result = asyncio.run(reporting._process_report_readiness(session, process_id=55))
     finally:
-        reporting._resolve_process_event_payloads = original
+        reporting._load_latest_event_report_snapshots_for_process = original
 
     assert result["ready"] is False
     assert result["ready_event_reports"] == 2
     assert result["required_ready_event_reports"] == 3
     assert result["reason"] == "waiting_event_reports"
+    assert result["dependencies"] == [{"job_type": "build_event_report", "event_id": 102, "reason": "waiting_event_reports"}]
 
 
-def test_event_report_readiness_ignores_latest_stale_post_reports():
+def test_event_report_readiness_requires_rebuild_for_stale_post_reports():
     session = _FakeSession(
         execute_results=[
             _FakeRowsResult(
                 [
-                    (201, "root", 25, {"status": "stale"}),
-                    (202, "member", 24, {"status": "ready"}),
-                    (203, "member", 31, {"status": "ready"}),
+                    (201, "root", 25, "root text", {"status": "stale"}),
+                    (202, "member", 24, "member text", {"status": "ready"}),
+                    (203, "member", 31, "member text 2", {"status": "ready"}),
                 ]
             ),
         ]
@@ -425,9 +527,10 @@ def test_event_report_readiness_ignores_latest_stale_post_reports():
     assert result["required_ready_post_reports"] == 3
     assert result["root_ready"] is False
     assert result["reason"] == "waiting_post_reports"
+    assert result["dependencies"] == [{"job_type": "build_post_report", "post_id": 201, "reason": "waiting_post_reports"}]
 
 
-def test_process_event_loader_ignores_latest_stale_report_and_uses_previous_non_stale():
+def test_process_event_loader_requires_current_non_stale_event_reports():
     session = _FakeSession(
         execute_results=[
             _FakeRowsResult([(101, "Event 101")]),
@@ -442,10 +545,10 @@ def test_process_event_loader_ignores_latest_stale_report_and_uses_previous_non_
 
     result = asyncio.run(reporting._load_latest_event_report_payloads_for_process(session, process_id=88))
 
-    assert result == [{"status": "ready", "summary": "usable", "event_id": 101, "event_title": "Event 101"}]
+    assert result == []
 
 
-def test_process_event_loader_falls_back_to_post_reports_when_latest_event_reports_are_stale(monkeypatch):
+def test_process_event_loader_does_not_fallback_to_post_reports_when_latest_event_reports_are_stale(monkeypatch):
     session = _FakeSession(
         execute_results=[
             _FakeRowsResult([(102, "Event 102")]),
@@ -471,14 +574,7 @@ def test_process_event_loader_falls_back_to_post_reports_when_latest_event_repor
 
     result = asyncio.run(reporting._load_latest_event_report_payloads_for_process(session, process_id=89))
 
-    assert result == [
-        {
-            "status": "ready",
-            "event_id": 102,
-            "event_title": "Event 102",
-            "summary": "rebuilt from 1 posts",
-        }
-    ]
+    assert result == []
 
 
 def test_build_event_report_payload_conforms_to_schema():

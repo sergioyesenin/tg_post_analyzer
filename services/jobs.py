@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -15,6 +16,13 @@ JOB_STATUS_DONE = "done"
 JOB_STATUS_FAILED = "failed"
 ACTIVE_JOB_STATUSES = (JOB_STATUS_PENDING, JOB_STATUS_RUNNING)
 JOB_RESULT_KEY = "_job_result"
+DEFAULT_REPORT_DEDUPE_WINDOW_SECONDS = 60 * 60
+
+REPORT_JOB_TYPES_BY_ENTITY = {
+    "post": "build_post_report",
+    "event": "build_event_report",
+    "process": "build_process_report",
+}
 
 
 @dataclass(frozen=True)
@@ -35,6 +43,78 @@ class JobType:
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def build_report_request_dedupe_key(*, entity_type: str, entity_id: int) -> str:
+    normalized_entity_type = str(entity_type or "").strip().lower()
+    if normalized_entity_type not in REPORT_JOB_TYPES_BY_ENTITY:
+        raise ValueError(f"Unsupported report dedupe entity type: {entity_type}")
+    return f"{normalized_entity_type}:{int(entity_id)}"
+
+
+def get_report_dedupe_window_seconds() -> int:
+    raw_seconds = (os.getenv("REPORT_DEDUPE_WINDOW_SECONDS") or "").strip()
+    if raw_seconds:
+        try:
+            return max(0, int(raw_seconds))
+        except ValueError:
+            return DEFAULT_REPORT_DEDUPE_WINDOW_SECONDS
+
+    raw_minutes = (os.getenv("REPORT_DEDUPE_WINDOW_MINUTES") or "").strip()
+    if raw_minutes:
+        try:
+            return max(0, int(raw_minutes)) * 60
+        except ValueError:
+            return DEFAULT_REPORT_DEDUPE_WINDOW_SECONDS
+
+    return DEFAULT_REPORT_DEDUPE_WINDOW_SECONDS
+
+
+async def find_blocking_report_duplicate(
+    session: AsyncSession,
+    *,
+    entity_type: str,
+    entity_id: int,
+    dedupe_window_seconds: int | None = None,
+) -> Job | None:
+    normalized_entity_type = str(entity_type or "").strip().lower()
+    job_type = REPORT_JOB_TYPES_BY_ENTITY.get(normalized_entity_type)
+    if job_type is None:
+        raise ValueError(f"Unsupported report dedupe entity type: {entity_type}")
+
+    dedupe_key = build_report_request_dedupe_key(entity_type=normalized_entity_type, entity_id=entity_id)
+
+    active_stmt = (
+        select(Job)
+        .where(Job.type == job_type)
+        .where(Job.dedupe_key == dedupe_key)
+        .where(Job.status.in_(ACTIVE_JOB_STATUSES))
+        .order_by(Job.updated_at.desc(), Job.id.desc())
+        .limit(1)
+    )
+    active_duplicate = (await session.execute(active_stmt)).scalar_one_or_none()
+    if active_duplicate is not None:
+        return active_duplicate
+
+    effective_window_seconds = (
+        get_report_dedupe_window_seconds()
+        if dedupe_window_seconds is None
+        else max(0, int(dedupe_window_seconds))
+    )
+    if effective_window_seconds <= 0:
+        return None
+
+    completed_since = utcnow() - timedelta(seconds=effective_window_seconds)
+    completed_stmt = (
+        select(Job)
+        .where(Job.type == job_type)
+        .where(Job.dedupe_key == dedupe_key)
+        .where(Job.status == JOB_STATUS_DONE)
+        .where(Job.updated_at >= completed_since)
+        .order_by(Job.updated_at.desc(), Job.id.desc())
+        .limit(1)
+    )
+    return (await session.execute(completed_stmt)).scalar_one_or_none()
 
 
 async def enqueue_job(
@@ -93,17 +173,26 @@ def get_job_result(job: Job) -> dict | None:
     return result if isinstance(result, dict) else None
 
 
-def _job_query(now: datetime, *, limit: int, allowed_types: set[str] | None) -> Select:
+def _job_query(
+    now: datetime,
+    *,
+    limit: int,
+    allowed_types: set[str] | None,
+    max_priority: int | None = None,
+) -> Select:
+    effective_due_at = func.coalesce(Job.retry_at, Job.run_at)
     stmt = (
         select(Job)
         .where(Job.status == JOB_STATUS_PENDING)
-        .where(func.coalesce(Job.retry_at, Job.run_at) <= now)
-        .order_by(Job.priority.asc(), Job.run_at.asc(), Job.id.asc())
+        .where(effective_due_at <= now)
+        .order_by(Job.priority.asc(), effective_due_at.asc(), Job.id.asc())
         .with_for_update(skip_locked=True)
         .limit(limit)
     )
     if allowed_types:
         stmt = stmt.where(Job.type.in_(allowed_types))
+    if max_priority is not None:
+        stmt = stmt.where(Job.priority <= int(max_priority))
     return stmt
 
 
@@ -113,9 +202,19 @@ async def fetch_and_lock_jobs(
     worker_id: str,
     limit: int = 20,
     allowed_types: set[str] | None = None,
+    max_priority: int | None = None,
 ) -> list[Job]:
     now = utcnow()
-    jobs = (await session.execute(_job_query(now, limit=limit, allowed_types=allowed_types))).scalars().all()
+    jobs = (
+        await session.execute(
+            _job_query(
+                now,
+                limit=limit,
+                allowed_types=allowed_types,
+                max_priority=max_priority,
+            )
+        )
+    ).scalars().all()
     for job in jobs:
         job.status = JOB_STATUS_RUNNING
         job.locked_by = worker_id

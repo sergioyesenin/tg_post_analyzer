@@ -1,73 +1,84 @@
-# Runtime-топология
+# Runtime topology
 
-## Канонические runtime-роли
+## Canonical runtime roles
 
 ### `api`
 
-- Граница: HTTP-serving process
+- Boundary: HTTP-serving process
 - Entrypoint: `python scripts/run_api.py`
-- Зона ответственности:
-  - FastAPI-роутеры из `api/`
-  - auth/session endpoints
-  - dashboard/reporting/admin/monitor/jobs API
-  - интегрированная раздача SPA из `frontend/dist`
-- Диагностика:
-  - доступность HTTP/API
+- Responsibility:
+  - FastAPI routers from `api/`
+  - auth and session endpoints
+  - dashboard, reporting, admin, monitor, and jobs API
+  - integrated SPA serving from `frontend/dist`
+- Diagnostics:
+  - HTTP/API availability
   - `/api/monitor/health`
-  - логи и статус process manager
+  - process-manager logs and status
 - Heartbeat:
-  - для API не ожидается DB-backed runtime heartbeat
+  - no DB-backed runtime heartbeat is expected for API
 
 ### `scheduler`
 
-- Граница: control-plane process
+- Boundary: control-plane process
 - Entrypoint: `python scripts/run_scheduler.py`
-- Зона ответственности:
-  - жизненный цикл APScheduler
-  - периодический retention dispatch
-  - владение retention-режимом scheduler-а
-- Диагностика:
+- Responsibility:
+  - APScheduler lifecycle
+  - periodic retention dispatch
+  - ownership of scheduler retention mode
+- Diagnostics:
   - `/api/monitor/scheduler`
   - `/api/monitor/runtime-topology`
   - runtime heartbeat `runtime.scheduler`
 - Heartbeat:
-  - обязателен только когда включен scheduler mode
+  - required only when scheduler mode is enabled
 
 ### `telegram_pipeline`
 
-- Граница: Telegram ingestion worker
+- Boundary: Telegram ingestion worker
 - Entrypoint: `python scripts/run_telegram_pipeline.py`
-- Зона ответственности:
-  - ingest каналов
-  - jobs на сбор комментариев
+- Responsibility:
+  - channel ingest
+  - comment collection jobs
   - linking jobs
-  - retention fallback, когда scheduler mode выключен
-- Диагностика:
+  - retention fallback when scheduler mode is disabled
+- Diagnostics:
   - `/api/monitor/pipeline`
   - `/api/monitor/health`
   - runtime heartbeat `runtime.telegram_pipeline`
 - Heartbeat:
-  - обязателен, пока запущен ingestion worker
+  - required while the ingestion worker is running
 
 ### `ai_pipeline`
 
-- Граница: AI worker
+- Boundary: AI worker
 - Entrypoint: `python scripts/run_ai_pipeline.py`
-- Зона ответственности:
-  - AI-генерация отчетов
-  - AI batch scheduling/execution
-  - обработка очереди report jobs
-- Диагностика:
+- Responsibility:
+  - consume queued report jobs
+  - execute queued `BUILD_POST_REPORT`, `BUILD_EVENT_REPORT`, and `BUILD_PROCESS_REPORT`
+  - consume `BUILD_POST_REPORT_BATCH` without expanding it into child `BUILD_POST_REPORT` jobs
+  - persist report build results and stale-mark downstream reports when applicable
+- Diagnostics:
   - `/api/monitor/pipeline`
   - `/api/monitor/health`
   - runtime heartbeat `runtime.ai_pipeline`
 - Heartbeat:
-  - обязателен, пока запущен AI worker
+  - required while the AI worker is running
+- Explicit non-responsibility:
+  - does not auto-enqueue background report jobs
+  - does not fan out batch report jobs into new report jobs
 
-## Правила владения
+## Ownership rules
 
-- API не владеет периодическими scheduling loop-ами.
-- Scheduler не обслуживает HTTP-трафик и не запускает ingestion/AI workload.
-- Telegram ingestion не выполняет AI report execution.
-- AI worker не ingests Telegram channels и не запускает APScheduler.
-- Общие библиотеки из `services/` могут импортироваться разными runtime-ролями, но ownership определяется ролью entrypoint-а.
+- API does not own periodic scheduling loops.
+- Scheduler does not serve HTTP traffic and does not run ingestion or AI workloads.
+- Telegram ingestion does not execute AI reports and does not enqueue background report builds.
+- AI worker does not ingest Telegram channels, does not run APScheduler, and does not create report jobs without an explicit user or API trigger.
+- Shared libraries in `services/` may be imported by multiple runtime roles, but ownership is defined by the role entrypoint.
+
+## Report generation mode
+
+- Background creation of `BUILD_POST_REPORT`, `BUILD_EVENT_REPORT`, and `BUILD_PROCESS_REPORT` is disabled.
+- Existing reports may still become `stale` after ingest, comments refresh, or downstream dependency changes.
+- Fresh report jobs should appear only after explicit manual/API-triggered requests.
+- This topology does not promise dependency orchestration, automatic rebuild cascades, or readiness-driven background scheduling.

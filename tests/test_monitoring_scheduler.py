@@ -238,6 +238,16 @@ def test_pipeline_snapshot_uses_recent_window_for_collect_comments_rates(monkeyp
             1,
             None,
             None,
+            15.5,
+            42.25,
+            8,
+            3,
+            2,
+            1,
+            2,
+            5,
+            2,
+            2,
         ]
     )
 
@@ -260,6 +270,25 @@ def test_pipeline_snapshot_uses_recent_window_for_collect_comments_rates(monkeyp
         "rpc_count": 1,
         "flood_rate": 0.25,
         "rpc_rate": 0.25,
+    }
+    assert payload["latency"] == {
+        "window_since": "2026-03-11T10:00:00+00:00",
+        "on_demand_report_avg_seconds": 15.5,
+        "dependency_completion_avg_seconds": 42.25,
+    }
+    assert payload["reactions"] == {
+        "posts_with_payload": 8,
+        "complete_count": 3,
+        "partial_count": 2,
+        "unavailable_count": 1,
+        "no_reactions_count": 2,
+        "complete_input_rate": 0.625,
+    }
+    assert payload["dedupe"] == {
+        "window_since": "2026-03-11T10:00:00+00:00",
+        "recent_deduped_jobs": 5,
+        "active_deduped_jobs": 2,
+        "active_dedupe_keys": 2,
     }
     assert payload["runtime"]["telegram_pipeline"]["status"] == "ok"
     assert payload["runtime"]["ai_pipeline"]["status"] == "ok"

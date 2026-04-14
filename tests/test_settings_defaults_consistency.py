@@ -71,6 +71,11 @@ def test_effective_settings_endpoint_returns_expected_defaults(monkeypatch):
 
     assert response.status_code == 200
     assert response.json() == get_canonical_defaults()
+    assert response.json()["features"]["multi_agent_mode_enabled"] is False
+    assert response.json()["features"]["multi_agent_rollout_percent"] == 0
+    assert response.json()["features"]["retrieval_policy_enabled"] is False
+    assert response.json()["features"]["retrieval_rollout_percent"] == 0
+    assert response.json()["features"]["retrieval_provider_enabled"] is False
 
 
 def test_pipeline_runtime_fallbacks_match_canonical_defaults():

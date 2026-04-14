@@ -136,6 +136,51 @@ describe('Post detail screen', () => {
     expect(screen.getByText(/Report content body/i)).toBeInTheDocument();
   });
 
+  it('renders limited public report semantics without needing internal traces', async () => {
+    installDetailGetMock({
+      report: createReportResponse({
+        status: 'limited',
+        content: 'Limited report body.',
+        report_json: {
+          summary: 'Анализ ограничен: проанализировано 8 комментариев; преобладает нейтральный тон.',
+          topics: [{ name: 'бюджет' }, { name: 'регионы' }],
+        },
+      }),
+    });
+
+    renderPostDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Limited report body/i)).toBeInTheDocument();
+    });
+
+    expect(screen.getByLabelText(/Статус отчета: Ограничен/i)).toBeInTheDocument();
+    expect(screen.getByText(/Анализ ограничен:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Темы: бюджет, регионы/i)).toBeInTheDocument();
+  });
+
+  it('renders insufficient-data public report semantics as a normal detail state', async () => {
+    installDetailGetMock({
+      report: createReportResponse({
+        status: 'insufficient_data',
+        content: 'Insufficient-data report body.',
+        report_json: {
+          summary: 'Недостаточно данных для надежного вывода: проанализировано 2 комментария.',
+          topics: [],
+        },
+      }),
+    });
+
+    renderPostDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Insufficient-data report body/i)).toBeInTheDocument();
+    });
+
+    expect(screen.getByLabelText(/Статус отчета: Недостаточно данных/i)).toBeInTheDocument();
+    expect(screen.getByText(/Недостаточно данных для надежного вывода/i)).toBeInTheDocument();
+  });
+
   it('runs refresh comments async job flow and invalidates detail queries', async () => {
     const user = userEvent.setup();
     let commentsVersion = 0;

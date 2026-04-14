@@ -55,6 +55,7 @@ CANONICAL_SETTINGS_DEFAULTS: dict[str, dict] = {
         "album_discussion_expansion_steps": 6,
         "reactions_refresh_ttl_seconds": 900,
         "reactions_top_n": 10,
+        "long_comment_threshold": 100,
     },
     "monitor": {
         "disk_used_percent_warn": 80,
@@ -86,6 +87,11 @@ CANONICAL_SETTINGS_DEFAULTS: dict[str, dict] = {
     "features": {
         "keyword_graph_api_enabled": True,
         "keyword_graph_rollout_percent": 100,
+        "multi_agent_mode_enabled": False,
+        "multi_agent_rollout_percent": 0,
+        "retrieval_policy_enabled": False,
+        "retrieval_rollout_percent": 0,
+        "retrieval_provider_enabled": False,
     },
 }
 

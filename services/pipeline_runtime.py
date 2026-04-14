@@ -137,6 +137,20 @@ def _elapsed_ms(started_at: float) -> float:
     return round((time.perf_counter() - started_at) * 1000.0, 2)
 
 
+def _extract_post_report_rerun_stage(payload: dict) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    direct_value = payload.get("stage_rerun_from")
+    if isinstance(direct_value, str) and direct_value.strip():
+        return direct_value.strip()
+    nested = payload.get("multi_agent")
+    if isinstance(nested, dict):
+        nested_value = nested.get("rerun_stage")
+        if isinstance(nested_value, str) and nested_value.strip():
+            return nested_value.strip()
+    return None
+
+
 async def _persist_job_failure_after_exception(
     session: AsyncSession,
     *,
@@ -1196,6 +1210,8 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
                         post_id=int(payload.get("post_id")),
                         report_project=report_project,
                         report_config=report_config,
+                        job_timeout_seconds=ai_job_timeout_seconds,
+                        rerun_stage=_extract_post_report_rerun_stage(payload),
                     )
                 elif db_job.type == JobType.BUILD_POST_REPORT_BATCH:
                     result = {

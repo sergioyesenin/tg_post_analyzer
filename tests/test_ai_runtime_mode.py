@@ -53,6 +53,55 @@ async def test_run_ai_cycle_does_not_auto_enqueue_report_jobs(monkeypatch: pytes
     assert executed == 3
 
 
+@pytest.mark.asyncio
+async def test_run_ai_cycle_stays_passive_even_when_multi_agent_rollout_settings_are_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _fake_get_all_settings(_session):
+        return {
+            "jobs": {
+                "job_batch_size": 10,
+                "job_worker_concurrency": 1,
+                "ai_scheduler_limit": 25,
+            },
+            "reports": {
+                "post_report_delay_hours": 12,
+            },
+            "features": {
+                "multi_agent_mode_enabled": True,
+                "multi_agent_rollout_percent": 100,
+            },
+        }
+
+    async def _fake_run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurrency: int) -> int:
+        assert job_batch_size == 10
+        assert worker_id == "ai-test-worker"
+        assert job_worker_concurrency == 1
+        return 2
+
+    async def _unexpected_schedule_due_post_report_jobs(*, min_age_hours: int, limit: int) -> int:
+        raise AssertionError(
+            f"run_ai_cycle must stay passive even with rollout enabled: min_age_hours={min_age_hours} limit={limit}"
+        )
+
+    monkeypatch.setattr(pipeline_runtime, "get_all_settings", _fake_get_all_settings)
+    monkeypatch.setattr(pipeline_runtime, "run_ai_jobs", _fake_run_ai_jobs)
+    monkeypatch.setattr(
+        pipeline_runtime,
+        "schedule_due_post_report_jobs",
+        _unexpected_schedule_due_post_report_jobs,
+    )
+
+    queued, executed = await pipeline_runtime.run_ai_cycle(
+        worker_id="ai-test-worker",
+        job_batch_size_arg=None,
+        job_worker_concurrency_arg=None,
+        post_report_age_hours_arg=None,
+        scheduler_limit_arg=None,
+    )
+
+    assert queued == 0
+    assert executed == 2
+
+
 class _FakeSession:
     def __init__(self, job=None):
         self.job = job
@@ -134,11 +183,13 @@ async def test_run_ai_jobs_processes_queued_build_post_report(monkeypatch: pytes
         fetch_calls["count"] += 1
         return [process_job] if fetch_calls["count"] == 1 else []
 
-    async def _fake_build_post_report(session, *, post_id: int, report_project, report_config):
+    async def _fake_build_post_report(session, *, post_id: int, report_project, report_config, job_timeout_seconds: int, rerun_stage: str | None):
         assert session is process_session
         assert post_id == 42
         assert report_project == "fake-project"
         assert report_config == {"mode": "test"}
+        assert job_timeout_seconds == 30
+        assert rerun_stage is None
         return {"status": pipeline_runtime.reporting_module.REPORT_STATUS_READY}
 
     async def _fake_mark_job_done(_session, *, job):
@@ -178,6 +229,77 @@ async def test_run_ai_jobs_processes_queued_build_post_report(monkeypatch: pytes
     assert fetch_session.commit_calls == 1
     assert process_session.commit_calls == 1
     assert empty_fetch_session.commit_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_run_ai_jobs_passes_internal_stage_rerun_without_creating_extra_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings_session = _FakeSession()
+    fetch_session = _FakeSession()
+    empty_fetch_session = _FakeSession()
+    process_job = _report_job(
+        job_type="build_post_report",
+        payload={"post_id": 42, "stage_rerun_from": "synthesis"},
+    )
+    process_session = _FakeSession(job=process_job)
+    fetch_calls = {"count": 0}
+    mark_done_calls: list[object] = []
+
+    async def _fake_get_all_settings(_session):
+        return {"jobs": {"ai_job_timeout_seconds": 45}}
+
+    async def _fake_fetch_and_lock_jobs(_session, *, worker_id: str, limit: int, allowed_types: set[str]):
+        assert worker_id == "ai-test-worker"
+        assert limit == 1
+        assert "build_post_report" in allowed_types
+        fetch_calls["count"] += 1
+        return [process_job] if fetch_calls["count"] == 1 else []
+
+    async def _fake_build_post_report(session, *, post_id: int, report_project, report_config, job_timeout_seconds: int, rerun_stage: str | None):
+        assert session is process_session
+        assert post_id == 42
+        assert report_project == "fake-project"
+        assert report_config == {"mode": "test"}
+        assert job_timeout_seconds == 45
+        assert rerun_stage == "synthesis"
+        return {"status": pipeline_runtime.reporting_module.REPORT_STATUS_READY, "report_id": 77, "post_id": 42}
+
+    async def _fake_mark_job_done(_session, *, job):
+        mark_done_calls.append(job)
+
+    async def _unexpected_mark_related_event_reports_stale(_session, *, post_id: int):
+        assert post_id == 42
+        return 0
+
+    monkeypatch.setattr(
+        pipeline_runtime,
+        "AsyncSessionLocal",
+        _session_factory(settings_session, fetch_session, process_session, empty_fetch_session),
+    )
+    monkeypatch.setattr(pipeline_runtime, "get_all_settings", _fake_get_all_settings)
+    monkeypatch.setattr(pipeline_runtime, "fetch_and_lock_jobs", _fake_fetch_and_lock_jobs)
+    monkeypatch.setattr(pipeline_runtime, "get_report_project", lambda: "fake-project")
+    monkeypatch.setattr(pipeline_runtime, "report_config_from_settings", lambda _settings: {"mode": "test"})
+    monkeypatch.setattr(pipeline_runtime, "build_post_report", _fake_build_post_report)
+    monkeypatch.setattr(pipeline_runtime, "mark_job_done", _fake_mark_job_done)
+    monkeypatch.setattr(
+        pipeline_runtime,
+        "_mark_related_event_reports_stale",
+        _unexpected_mark_related_event_reports_stale,
+    )
+
+    executed = await pipeline_runtime.run_ai_jobs(
+        job_batch_size=10,
+        worker_id="ai-test-worker",
+        job_worker_concurrency=1,
+    )
+
+    assert executed == 1
+    assert process_job.payload_json["_job_result"] == {
+        "status": pipeline_runtime.reporting_module.REPORT_STATUS_READY,
+        "report_id": 77,
+        "post_id": 42,
+    }
+    assert mark_done_calls == [process_job]
 
 
 @pytest.mark.asyncio

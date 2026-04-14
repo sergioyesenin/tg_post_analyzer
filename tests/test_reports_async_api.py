@@ -41,13 +41,18 @@ def test_update_post_report_returns_202_with_job_links(monkeypatch):
     session = _FakeSession({(reports.Post, 42): SimpleNamespace(id=42)})
     client = _build_client(session)
 
-    async def _fake_enqueue(_session, *, post_id: int, source: str, requested_by_user_id: int):
+    async def _fake_enqueue(_session, *, post_id: int, source: str, requested_by_user_id: int, dedupe_key: str):
         assert post_id == 42
         assert source == "api"
         assert requested_by_user_id == 1
+        assert dedupe_key == "post:42"
         return SimpleNamespace(id=101, type="build_post_report")
 
+    async def _fake_no_duplicate(*args, **kwargs):
+        return None
+
     monkeypatch.setattr(reports, "enqueue_post_report_job", _fake_enqueue)
+    monkeypatch.setattr(reports, "find_blocking_report_duplicate", _fake_no_duplicate)
 
     response = client.post("/api/reports/post/42/update")
 
@@ -66,13 +71,18 @@ def test_update_event_report_returns_202_with_job_links(monkeypatch):
     session = _FakeSession({(reports.Event, 5): SimpleNamespace(id=5)})
     client = _build_client(session)
 
-    async def _fake_enqueue(_session, *, event_id: int, source: str, requested_by_user_id: int):
+    async def _fake_enqueue(_session, *, event_id: int, source: str, requested_by_user_id: int, dedupe_key: str):
         assert event_id == 5
         assert source == "api"
         assert requested_by_user_id == 1
+        assert dedupe_key == "event:5"
         return SimpleNamespace(id=102, type="build_event_report")
 
+    async def _fake_no_duplicate(*args, **kwargs):
+        return None
+
     monkeypatch.setattr(reports, "enqueue_event_report_job", _fake_enqueue)
+    monkeypatch.setattr(reports, "find_blocking_report_duplicate", _fake_no_duplicate)
 
     response = client.post("/api/reports/events/5/update")
 
@@ -85,13 +95,18 @@ def test_update_process_report_returns_202_with_job_links(monkeypatch):
     session = _FakeSession({(reports.Process, 6): SimpleNamespace(id=6)})
     client = _build_client(session)
 
-    async def _fake_enqueue(_session, *, process_id: int, source: str, requested_by_user_id: int):
+    async def _fake_enqueue(_session, *, process_id: int, source: str, requested_by_user_id: int, dedupe_key: str):
         assert process_id == 6
         assert source == "api"
         assert requested_by_user_id == 1
+        assert dedupe_key == "process:6"
         return SimpleNamespace(id=103, type="build_process_report")
 
+    async def _fake_no_duplicate(*args, **kwargs):
+        return None
+
     monkeypatch.setattr(reports, "enqueue_process_report_job", _fake_enqueue)
+    monkeypatch.setattr(reports, "find_blocking_report_duplicate", _fake_no_duplicate)
 
     response = client.post("/api/reports/processes/6/update")
 

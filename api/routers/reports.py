@@ -21,6 +21,7 @@ from db.models import (
     ProcessReport,
     Report,
 )
+from api.public_report_boundary import to_public_report_out
 from schemas.query_params import CsvIntList, CsvStrList
 from schemas.report import ReportOut
 from services.auth import AuthUser
@@ -138,7 +139,7 @@ async def get_report(
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
 
-    return report
+    return to_public_report_out(report)
 
 
 @router.post("/post/{post_id}/update")

@@ -7,6 +7,8 @@ import { apiClient } from '@shared/api/client';
 import { createPostsDashboardResponse } from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
 
+const ru = (value: string) => JSON.parse('"' + value + '"') as string;
+
 function createAuthApiMock() {
   return {
     login: vi.fn(),
@@ -46,7 +48,7 @@ describe('i18n', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: 'РћС‚С‡РµС‚С‹' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: ru('\u041e\u0442\u0447\u0435\u0442\u044b') })).toBeInTheDocument();
     });
 
     expect(screen.getByRole('button', { name: 'EN' })).toBeInTheDocument();
@@ -58,4 +60,3 @@ describe('i18n', () => {
     });
   });
 });
-

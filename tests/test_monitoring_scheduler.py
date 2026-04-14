@@ -245,6 +245,9 @@ def test_pipeline_snapshot_uses_recent_window_for_collect_comments_rates(monkeyp
             2,
             1,
             2,
+            3,
+            2,
+            1,
             5,
             2,
             2,
@@ -283,6 +286,12 @@ def test_pipeline_snapshot_uses_recent_window_for_collect_comments_rates(monkeyp
         "unavailable_count": 1,
         "no_reactions_count": 2,
         "complete_input_rate": 0.625,
+    }
+    assert payload["involvement"] == {
+        "posts_with_non_positive_views": 3,
+        "posts_with_comments_but_zero_commenters": 2,
+        "posts_with_long_comments_overflow": 1,
+        "long_comments_overflow_rate": 0.125,
     }
     assert payload["dedupe"] == {
         "window_since": "2026-03-11T10:00:00+00:00",

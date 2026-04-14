@@ -359,7 +359,3 @@ export function EventsDashboardScreen() {
     </div>
   );
 }
-
-
-
-

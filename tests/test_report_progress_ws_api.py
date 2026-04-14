@@ -105,6 +105,30 @@ def test_report_progress_ws_emits_completed_event():
     }
 
 
+def test_report_progress_ws_treats_limited_report_result_as_completed():
+    user = SimpleNamespace(id=18, username="analyst", is_active=True)
+    job = _build_job(
+        job_id=611,
+        status="done",
+        payload={"post_id": 79, "requested_by_user_id": 18, "source": "api"},
+        result={"status": "limited", "post_id": 79, "report_id": 1001},
+    )
+    session = _FakeSession({
+        (User, 18): user,
+        (Job, 611): job,
+    })
+    client = _build_client(session)
+
+    with client.websocket_connect(
+        f"/api/reports/progress/ws?access_token={_access_token(18)}&request_id=611&entity_type=post&entity_id=79"
+    ) as websocket:
+        event = websocket.receive_json()
+
+    assert event["type"] == "report_build_completed"
+    assert event["status"] == "completed"
+    assert event["result"] == {"report_id": 1001}
+
+
 def test_report_progress_ws_emits_failed_event():
     user = SimpleNamespace(id=9, username="analyst", is_active=True)
     job = _build_job(

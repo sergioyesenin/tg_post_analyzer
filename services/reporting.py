@@ -19,10 +19,13 @@ SKIPPED_MIN_COMMENTS_PREFIX = "STATUS: SKIPPED_MIN_COMMENTS"
 REPORT_GENERATION_FAILED_CONTENT = "STATUS: FAILED\nREASON: report_generation_failed"
 REPORT_STATUS_DRAFT = "draft"
 REPORT_STATUS_READY = "ready"
+REPORT_STATUS_LIMITED = "limited"
+REPORT_STATUS_INSUFFICIENT_DATA = "insufficient_data"
 REPORT_STATUS_FAILED = "failed"
 REPORT_STATUS_DEFERRED = "deferred_waiting_dependencies"
 REPORT_STATUS_STALE = "stale"
 POST_REPORT_REBUILD_PRIORITY = 40
+AGGREGATABLE_REPORT_STATUSES = {REPORT_STATUS_READY, REPORT_STATUS_LIMITED}
 
 
 def _build_dependency(job_type: str, *, entity_id: int, reason: str) -> dict:
@@ -43,11 +46,100 @@ def _build_dependency(job_type: str, *, entity_id: int, reason: str) -> dict:
 
 def _is_payload_dependency_ready(payload: dict | None) -> bool:
     status = report_status_from_payload(payload, fallback="")
-    return status not in {"", REPORT_STATUS_STALE, REPORT_STATUS_FAILED, REPORT_STATUS_DEFERRED}
+    return status in AGGREGATABLE_REPORT_STATUSES
 
 
 def _serialize_report_payload(payload: dict) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def _normalize_public_confidence(payload: dict) -> dict:
+    status = report_status_from_payload(payload, fallback=REPORT_STATUS_READY)
+    confidence = dict(payload.get("confidence") or {})
+    current_overall = str(confidence.get("overall") or "medium").strip().lower()
+    if status == REPORT_STATUS_INSUFFICIENT_DATA:
+        confidence["overall"] = "low"
+        confidence["reason"] = (
+            "Недостаточно данных для надежного итогового вывода по обсуждению."
+        )
+    elif status == REPORT_STATUS_LIMITED:
+        confidence["overall"] = "medium" if current_overall == "high" else (current_overall or "medium")
+        confidence["reason"] = (
+            "Выводы ограничены доступным объемом и устойчивостью сигналов обсуждения."
+        )
+    else:
+        confidence["overall"] = current_overall if current_overall in {"low", "medium", "high"} else "medium"
+    return confidence
+
+
+def _normalize_public_topics(payload: dict) -> list[dict]:
+    status = report_status_from_payload(payload, fallback=REPORT_STATUS_READY)
+    if status == REPORT_STATUS_INSUFFICIENT_DATA:
+        return []
+
+    topics = payload.get("topics")
+    if not isinstance(topics, list):
+        return []
+
+    normalized: list[dict] = []
+    seen: set[str] = set()
+    for item in topics:
+        if isinstance(item, dict):
+            name = _clean_list_text(item.get("name"))
+            share = item.get("share")
+        elif isinstance(item, str):
+            name = _clean_list_text(item)
+            share = None
+        else:
+            continue
+        if not name or name in seen:
+            continue
+        next_item = {"name": name}
+        try:
+            if share is not None:
+                next_item["share"] = max(0.0, min(1.0, float(share)))
+        except (TypeError, ValueError):
+            pass
+        normalized.append(next_item)
+        seen.add(name)
+        if len(normalized) >= 5:
+            break
+    return normalized
+
+
+def _build_public_post_summary(payload: dict) -> str:
+    status = report_status_from_payload(payload, fallback=REPORT_STATUS_READY)
+    comment_count = int(payload.get("comment_count") or 0)
+    dominant = _sentiment_label_ru((payload.get("sentiment") or {}).get("dominant"))
+    topic_names = [item["name"] for item in _normalize_public_topics(payload)[:3] if isinstance(item, dict) and item.get("name")]
+    topics_text = ", ".join(topic_names) if topic_names else "явные темы не выделены"
+
+    if status == REPORT_STATUS_INSUFFICIENT_DATA:
+        return (
+            f"Недостаточно данных для надежного вывода: проанализировано {comment_count} комментариев; "
+            f"уверенные темы не выделены."
+        )
+    if status == REPORT_STATUS_LIMITED:
+        return (
+            f"Анализ ограничен: проанализировано {comment_count} комментариев; "
+            f"преобладает {dominant} тон; основные темы: {topics_text}."
+        )
+    return (
+        f"Проанализировано {comment_count} комментариев; "
+        f"преобладает {dominant} тон; основные темы: {topics_text}."
+    )
+
+
+def map_internal_post_report_to_public_payload(payload: dict | None) -> dict | None:
+    if not isinstance(payload, dict):
+        return payload
+
+    public_payload = dict(payload)
+    public_payload["status"] = report_status_from_payload(public_payload, fallback=REPORT_STATUS_READY)
+    public_payload["topics"] = _normalize_public_topics(public_payload)
+    public_payload["confidence"] = _normalize_public_confidence(public_payload)
+    public_payload["summary"] = _build_public_post_summary(public_payload)
+    return public_payload
 
 
 def _sentiment_label_ru(value: str | None) -> str:
@@ -991,6 +1083,8 @@ async def build_post_report(
     post_id: int,
     report_project: TgReportProject,
     report_config: ReportConfig | None = None,
+    job_timeout_seconds: int | None = None,
+    rerun_stage: str | None = None,
 ) -> dict:
     post_result = await session.execute(
         select(Post, Channel)
@@ -1061,7 +1155,10 @@ async def build_post_report(
             thread_comments=thread_comments,
             views=post.views,
             config=report_config,
+            job_timeout_seconds=job_timeout_seconds,
+            rerun_stage=rerun_stage,
         )
+        report_json = map_internal_post_report_to_public_payload(report_json)
         status = report_status_from_payload(report_json, fallback=REPORT_STATUS_READY)
         report_json = _enrich_post_report_payload(payload=report_json, post=post, comment_rows=comment_rows)
         report_json.setdefault("post_id", post.id)
@@ -1118,7 +1215,7 @@ async def _load_post_report_payloads_for_event(session: AsyncSession, *, event_i
     for report_json, post_id, role, post_date in rows:
         if not isinstance(report_json, dict):
             continue
-        if report_status_from_payload(report_json, fallback="") == REPORT_STATUS_STALE:
+        if not _is_payload_dependency_ready(report_json):
             continue
         payload = dict(report_json)
         payload.setdefault("post_id", int(post_id))

@@ -192,6 +192,11 @@ export function useAsyncJobAction<TVariables>({
       return;
     }
 
+    const reportBuildProgress = progress;
+    if (!reportBuildProgress || reportBuildProgress.entityId === null) {
+      return;
+    }
+
     const accessToken = tokenStorage.load()?.accessToken;
     if (!accessToken) {
       return;
@@ -200,8 +205,8 @@ export function useAsyncJobAction<TVariables>({
     const socket = new WebSocket(
       buildReportProgressWebSocketUrl({
         requestId: activeJob.job_id,
-        entityType: progress.entityType,
-        entityId: progress.entityId,
+        entityType: reportBuildProgress.entityType,
+        entityId: reportBuildProgress.entityId,
         accessToken,
       }),
     );

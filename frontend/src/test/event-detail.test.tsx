@@ -124,6 +124,47 @@ describe('Event detail', () => {
     expect(screen.getAllByText(ru('\u0427\u0435\u0440\u043d\u043e\u0432\u0438\u043a')).length).toBeGreaterThan(0);
   });
 
+  it('renders limited event report status and mapped topics', async () => {
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/events/81') {
+        return createEventDetailResponse({
+          latest_report: {
+            id: 702,
+            status: 'limited',
+            version: 3,
+            report_text: 'Event report text.',
+            report_json: {
+              summary: 'Сводка по событию с ограничениями.',
+              cross_post_topics: [{ name: 'бюджет' }, { name: 'регионы' }],
+            },
+            created_at: '2026-03-13T08:45:00Z',
+          },
+        });
+      }
+
+      if (path === '/api/dashboard/events/81/graph') {
+        return createEventGraphResponse({
+          event: {
+            ...createEventGraphResponse().event,
+            report_status: 'limited',
+          },
+        });
+      }
+
+      throw new Error(`Unhandled GET path in limited event detail test: ${path}`);
+    });
+
+    renderEventDetail();
+
+    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: /Election coverage spike/i })).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByLabelText(/Статус отчета: Ограничен/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Сводка по событию с ограничениями/i)).toBeInTheDocument();
+    expect(screen.getByText(/бюджет, регионы/i)).toBeInTheDocument();
+  });
+
   it('navigates back to events dashboard from direct event detail entry', async () => {
     const user = userEvent.setup();
 

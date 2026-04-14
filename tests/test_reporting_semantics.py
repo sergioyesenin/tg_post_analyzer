@@ -58,6 +58,42 @@ def test_report_status_from_payload_detects_legacy_draft_payloads():
     assert reporting.report_status_from_payload(None) == "ready"
 
 
+def test_map_internal_post_report_to_public_payload_normalizes_public_semantics():
+    payload = reporting.map_internal_post_report_to_public_payload(
+        {
+            "type": "post_report_v2",
+            "status": "limited",
+            "post_id": 42,
+            "title": "draft",
+            "summary": "interpretive summary that should not leak as-is",
+            "comment_count": 8,
+            "sentiment": {
+                "dominant": "neutral",
+                "distribution": {"positive": 0.2, "negative": 0.2, "neutral": 0.6},
+            },
+            "topics": [
+                {"name": "budget", "share": 0.7},
+                {"name": "budget", "share": 0.6},
+                {"name": "regions", "share": 0.3},
+            ],
+            "confidence": {"overall": "high", "reason": "internal reviewer note"},
+        }
+    )
+
+    validated = PostReportPayload.model_validate(payload)
+
+    assert validated.status == "limited"
+    assert validated.summary.startswith("Анализ ограничен:")
+    assert [item.name for item in validated.topics] == ["budget", "regions"]
+    assert validated.confidence.overall == "medium"
+
+
+def test_payload_dependency_ready_accepts_limited_but_not_insufficient_data():
+    assert reporting._is_payload_dependency_ready({"status": "ready"}) is True
+    assert reporting._is_payload_dependency_ready({"status": "limited"}) is True
+    assert reporting._is_payload_dependency_ready({"status": "insufficient_data"}) is False
+
+
 @pytest.mark.skip(reason="obsolete legacy text template retained only for historical reference")
 def test_render_post_report_uses_obsolete_legacy_text_template():
     text = reporting._render_post_report_text(
@@ -392,6 +428,75 @@ def test_build_post_report_marks_status_failed_for_valid_failed_payload(monkeypa
     assert captured["report_json"]["status"] == "failed"
 
 
+def test_build_post_report_persists_non_ready_reviewer_downgrade_without_job_failure(monkeypatch):
+    channel = SimpleNamespace(id=7, username="test_channel")
+    post = SimpleNamespace(
+        id=11,
+        date=reporting.datetime(2026, 3, 11, 12, 0, tzinfo=reporting.timezone.utc),
+        text="post",
+        views=5,
+        comments_count=2,
+        reactions_json=None,
+    )
+    session = _FakeSession(
+        execute_results=[
+            type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
+            _FakeRowsResult([(1, None, None, 0, None, "hello", None)]),
+        ]
+    )
+
+    class _Project:
+        async def generate_post_report_payload(self, **kwargs):
+            return {
+                "type": "post_report_v2",
+                "status": "insufficient_data",
+                "post_id": 11,
+                "title": "fallback",
+                "summary": "fallback",
+                "comment_count": 1,
+                "sentiment": {
+                    "dominant": "neutral",
+                    "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+                    "confidence": "low",
+                },
+                "topics": [],
+                "clusters": [],
+                "time_trends": [],
+                "risks": [],
+                "anomalies": [],
+                "representative_quotes": [],
+                "confidence": {"overall": "low", "reason": "insufficient_data"},
+                "meta": {"multi_agent": {"final_status": "insufficient_data", "review_iterations": 2}},
+            }
+
+    captured = {}
+
+    async def _fake_upsert_report(session, *, post_id, status, content, report_json=None):
+        captured.update({"post_id": post_id, "status": status, "content": content, "report_json": report_json})
+        return SimpleNamespace(id=94)
+
+    monkeypatch.setattr(reporting, "upsert_report", _fake_upsert_report)
+    monkeypatch.setattr(
+        reporting,
+        "_post_report_readiness",
+        lambda _session, *, post: asyncio.sleep(0, result={"ready": True, "refresh_attempt": None}),
+    )
+
+    result = asyncio.run(
+        reporting.build_post_report(
+            session,
+            post_id=11,
+            report_project=_Project(),
+        )
+    )
+
+    assert result["status"] == "insufficient_data"
+    assert "technical_error" not in result
+    assert captured["status"] == "insufficient_data"
+    assert captured["content"] != reporting.REPORT_GENERATION_FAILED_CONTENT
+    assert captured["report_json"]["status"] == "insufficient_data"
+
+
 def test_build_event_report_draft_returns_draft_status_when_no_post_reports():
     event = SimpleNamespace(id=5, title="Event")
     session = _FakeSession(
@@ -623,6 +728,58 @@ def test_build_event_report_payload_conforms_to_schema():
     assert validated.meta["prompt_version"] == "event_report_v2"
 
 
+def test_build_event_report_payload_marks_limited_when_child_reports_are_limited():
+    payload = build_event_report_payload(
+        event_id=56,
+        event_title="Event 56",
+        post_reports=[
+            {
+                "status": "ready",
+                "post_id": 1,
+                "published_at": "2026-03-11T12:00:00+00:00",
+                "summary": "first summary",
+                "comment_count": 12,
+                "topics": [{"name": "topic-a", "share": 0.5}],
+                "sentiment": {
+                    "dominant": "neutral",
+                    "distribution": {"positive": 0.2, "negative": 0.1, "neutral": 0.7},
+                },
+            },
+            {
+                "status": "limited",
+                "post_id": 2,
+                "published_at": "2026-03-11T13:00:00+00:00",
+                "summary": "second summary",
+                "comment_count": 10,
+                "topics": [{"name": "topic-b", "share": 0.5}],
+                "sentiment": {
+                    "dominant": "positive",
+                    "distribution": {"positive": 0.7, "negative": 0.1, "neutral": 0.2},
+                },
+            },
+            {
+                "status": "insufficient_data",
+                "post_id": 3,
+                "published_at": "2026-03-11T14:00:00+00:00",
+                "summary": "should be ignored",
+                "comment_count": 1,
+                "topics": [{"name": "topic-c", "share": 1.0}],
+                "sentiment": {
+                    "dominant": "negative",
+                    "distribution": {"positive": 0.0, "negative": 1.0, "neutral": 0.0},
+                },
+            },
+        ],
+    )
+
+    validated = EventReportPayload.model_validate(payload)
+
+    assert validated.status == "limited"
+    assert validated.posts_count == 2
+    assert validated.source_post_reports == [1, 2]
+    assert validated.confidence.overall == "medium"
+
+
 def test_build_process_report_payload_conforms_to_schema():
     payload = build_process_report_payload(
         process_id=77,
@@ -663,6 +820,55 @@ def test_build_process_report_payload_conforms_to_schema():
     assert validated.events_count == 2
     assert validated.source_event_reports == [11, 12]
     assert validated.meta["prompt_version"] == "process_report_v2"
+
+
+def test_build_process_report_payload_marks_limited_when_child_events_are_limited():
+    payload = build_process_report_payload(
+        process_id=78,
+        process_title="Process 78",
+        event_reports=[
+            {
+                "status": "ready",
+                "event_id": 11,
+                "event_title": "Event 11",
+                "summary": "stage one",
+                "cross_post_topics": [{"name": "topic-a", "share": 0.5}],
+                "sentiment": {
+                    "dominant": "neutral",
+                    "distribution": {"positive": 0.1, "negative": 0.2, "neutral": 0.7},
+                },
+            },
+            {
+                "status": "limited",
+                "event_id": 12,
+                "event_title": "Event 12",
+                "summary": "stage two",
+                "cross_post_topics": [{"name": "topic-b", "share": 0.4}],
+                "sentiment": {
+                    "dominant": "positive",
+                    "distribution": {"positive": 0.8, "negative": 0.1, "neutral": 0.1},
+                },
+            },
+            {
+                "status": "insufficient_data",
+                "event_id": 13,
+                "event_title": "Event 13",
+                "summary": "ignored",
+                "cross_post_topics": [{"name": "topic-c", "share": 1.0}],
+                "sentiment": {
+                    "dominant": "negative",
+                    "distribution": {"positive": 0.0, "negative": 1.0, "neutral": 0.0},
+                },
+            },
+        ],
+    )
+
+    validated = ProcessReportPayload.model_validate(payload)
+
+    assert validated.status == "limited"
+    assert validated.events_count == 2
+    assert validated.source_event_reports == [11, 12]
+    assert validated.confidence.overall == "medium"
 
 
 def test_failed_post_report_payload_remains_schema_compatible():

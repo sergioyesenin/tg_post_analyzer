@@ -37,6 +37,21 @@ FRONTEND_INDEX_FILE = FRONTEND_DIST_DIR / "index.html"
 RESERVED_BACKEND_PREFIXES = ("api", "docs", "redoc", "openapi.json")
 
 
+def _frontend_media_type(file_path: Path) -> str | None:
+    suffix = file_path.suffix.lower()
+    if suffix == ".html":
+        return "text/html; charset=utf-8"
+    if suffix == ".css":
+        return "text/css; charset=utf-8"
+    if suffix == ".js":
+        return "application/javascript; charset=utf-8"
+    if suffix == ".json":
+        return "application/json; charset=utf-8"
+    if suffix == ".svg":
+        return "image/svg+xml; charset=utf-8"
+    return None
+
+
 @app.get("/", include_in_schema=False)
 async def frontend_index() -> FileResponse:
     if not FRONTEND_INDEX_FILE.exists():
@@ -45,7 +60,7 @@ async def frontend_index() -> FileResponse:
             detail="Frontend build not found. Run `npm run build` in `frontend/` or start the Vite dev server.",
         )
 
-    return FileResponse(FRONTEND_INDEX_FILE)
+    return FileResponse(FRONTEND_INDEX_FILE, media_type=_frontend_media_type(FRONTEND_INDEX_FILE))
 
 
 @app.get("/{full_path:path}", include_in_schema=False)
@@ -55,7 +70,7 @@ async def frontend_spa(full_path: str) -> FileResponse:
 
     requested_file = FRONTEND_DIST_DIR / full_path
     if full_path and requested_file.is_file():
-        return FileResponse(requested_file)
+        return FileResponse(requested_file, media_type=_frontend_media_type(requested_file))
 
     if full_path and Path(full_path).suffix:
         raise HTTPException(status_code=404, detail="Not Found")

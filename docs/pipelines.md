@@ -437,11 +437,10 @@ enqueue `rebuild_processes` -> worker `_run_rebuild_processes_job` -> `services.
 **Trigger:**
 
 - manual `POST /api/reports/post/{id}/update`
-- scheduled by AI pipeline when post is old enough
-- auto-enqueued after comment/input changes
+- manual batch request accepted through `POST /api/reports/posts/generate-by-filter`
 
 **Flow:**
-enqueue `build_post_report` -> AI worker `run_ai_jobs` -> `services.reporting.build_post_report` -> reporter project generates payload -> `upsert_report` -> if ready then mark related event reports stale + enqueue event report jobs
+enqueue `build_post_report` -> AI worker `run_ai_jobs` -> `services.reporting.build_post_report` -> reporter project generates one in-job post-report flow -> sequential internal stages `Context -> Routing -> Expert -> Public Opinion -> Synthesis -> Reviewer` -> map internal output back into public `post_report_v2` -> `upsert_report`
 
 **Real calls:**
 
@@ -455,13 +454,15 @@ enqueue `build_post_report` -> AI worker `run_ai_jobs` -> `services.reporting.bu
 
 - writes `reports`
 - calls external AI report generator
-- writes queue cascades for event reports
+- may mark related event/process reports `stale`
+- may persist internal multi-agent traces under `report_json.meta.multi_agent`, but those traces must stay redacted from public APIs
 
 **Errors:**
 
 - timeout -> requeue in 30s
 - model output failure -> report status failed
 - below min comments -> skipped result, no report row update cascade
+- reviewer exhaustion / insufficient evidence -> schema-valid public `limited` or `insufficient_data` instead of false `ready`
 
 **What breaks if changed:**
 
@@ -476,10 +477,10 @@ enqueue `build_post_report` -> AI worker `run_ai_jobs` -> `services.reporting.bu
 **Trigger:**
 
 - manual `POST /api/reports/events/{event_id}/update`
-- cascade after post reports become ready
+- explicit rebuild flows after dependent post reports are refreshed
 
 **Flow:**
-enqueue `build_event_report` -> AI worker -> `build_event_report_draft` -> readiness check across child post reports -> draft or ready event report -> mark related process reports stale -> enqueue process report jobs
+enqueue `build_event_report` -> AI worker -> `build_event_report_draft` -> readiness check across child post reports -> draft, ready, or limited event report depending on child public statuses -> persist latest event report version
 
 **Real calls:**
 
@@ -489,11 +490,11 @@ enqueue `build_event_report` -> AI worker -> `build_event_report_draft` -> readi
 **Side-effects:**
 
 - writes `event_reports`
-- cascade into process report jobs
+- downstream process reports may later be marked `stale` through existing dependency handling
 
 **Errors:**
 
-- not enough ready child post reports -> deferred and requeued
+- not enough aggregatable child post reports -> deferred until explicit rebuild path runs again
 
 **What breaks if changed:**
 
@@ -508,10 +509,10 @@ enqueue `build_event_report` -> AI worker -> `build_event_report_draft` -> readi
 **Trigger:**
 
 - manual `POST /api/reports/processes/{process_id}/update`
-- cascade after event reports
+- explicit rebuild flows after dependent event reports are refreshed
 
 **Flow:**
-enqueue `build_process_report` -> AI worker -> `build_process_report_draft` -> readiness check across event reports -> write `process_reports`
+enqueue `build_process_report` -> AI worker -> `build_process_report_draft` -> readiness check across event reports -> write `process_reports` using public child event payloads only
 
 **Real calls:**
 
@@ -524,7 +525,7 @@ enqueue `build_process_report` -> AI worker -> `build_process_report_draft` -> r
 
 **Errors:**
 
-- waiting on enough event reports -> deferred
+- waiting on enough aggregatable event reports -> deferred
 
 **What breaks if changed:**
 
@@ -539,7 +540,7 @@ enqueue `build_process_report` -> AI worker -> `build_process_report_draft` -> r
 `POST /api/reports/posts/generate-by-filter`
 
 **Flow:**
-API stores filter payload -> enqueue batch job -> AI worker `dispatch_post_report_batch` -> enqueue many `build_post_report` jobs
+API stores filter payload -> enqueue batch job -> passive AI worker rejects runtime batch expansion and does not fan out child `build_post_report` jobs
 
 **Real calls:**
 
@@ -549,11 +550,10 @@ API stores filter payload -> enqueue batch job -> AI worker `dispatch_post_repor
 **Side-effects:**
 
 - writes batch job
-- writes multiple child jobs
 
 **Errors:**
 
-- bad filter payload shape in job JSON can poison the batch
+- passive AI worker intentionally fails runtime batch expansion attempts
 
 **What breaks if changed:**
 

@@ -7,6 +7,7 @@ import pytest
 from telethon.errors import FloodWaitError
 
 from services import TGqueries as tgqueries
+from services.involvement import LONG_COMMENT_MIN_LENGTH, compute_involvement
 
 
 class _RowsResult:
@@ -34,8 +35,24 @@ class _FakeSession:
 
     async def execute(self, stmt):
         stmt_text = str(stmt)
-        if "comments.author_id" in stmt_text and "comments.author_username" in stmt_text:
-            return _RowsResult(self._commenter_rows)
+        if "comments.author_id" in stmt_text and "comments.author_username" in stmt_text and "comments.text" in stmt_text:
+            rows = [
+                (
+                    row[0],
+                    row[1],
+                    row[2] if isinstance(row, tuple) and len(row) > 2 else None,
+                )
+                for row in self._commenter_rows
+            ]
+            rows.extend(
+                (
+                    row.get("author_id"),
+                    row.get("author_username"),
+                    row.get("text"),
+                )
+                for row in self.persisted_rows
+            )
+            return _RowsResult(rows)
         if "SELECT comments.tg_peer_id" in stmt_text and "comments.tg_message_id" not in stmt_text:
             peer_rows = [(row[0],) if isinstance(row, tuple) else (row,) for row in self._existing_rows]
             return _RowsResult(peer_rows)
@@ -213,6 +230,8 @@ def _common_patches(monkeypatch: pytest.MonkeyPatch):
     updates: dict[str, list[dict]] = {
         "views": [],
         "comments_count": [],
+        "commenters": [],
+        "long_comments": [],
         "involvement": [],
         "scan_at": [],
     }
@@ -232,6 +251,12 @@ def _common_patches(monkeypatch: pytest.MonkeyPatch):
     async def _fake_set_post_comments_count(_session, *, post_id: int, comments_count: int):
         updates["comments_count"].append({"post_id": post_id, "comments_count": comments_count})
 
+    async def _fake_set_post_commenters(_session, *, post_id: int, commenters: int):
+        updates["commenters"].append({"post_id": post_id, "commenters": commenters})
+
+    async def _fake_set_post_long_comments(_session, *, post_id: int, long_comments: int):
+        updates["long_comments"].append({"post_id": post_id, "long_comments": long_comments})
+
     async def _fake_set_post_involvement(_session, *, post_id: int, involvement: float | None):
         updates["involvement"].append({"post_id": post_id, "involvement": involvement})
 
@@ -248,6 +273,8 @@ def _common_patches(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(tgqueries, "upsert_comment", _fake_upsert_comment)
     monkeypatch.setattr(tgqueries, "set_post_views", _fake_set_post_views)
     monkeypatch.setattr(tgqueries, "set_post_comments_count", _fake_set_post_comments_count)
+    monkeypatch.setattr(tgqueries, "set_post_commenters", _fake_set_post_commenters)
+    monkeypatch.setattr(tgqueries, "set_post_long_comments", _fake_set_post_long_comments)
     monkeypatch.setattr(tgqueries, "set_post_involvement", _fake_set_post_involvement)
     monkeypatch.setattr(tgqueries, "set_post_last_comments_scan_at", _fake_set_post_last_comments_scan_at)
     monkeypatch.setattr(tgqueries, "polite_sleep", _fake_polite_sleep)
@@ -286,6 +313,14 @@ async def test_update_post_comments_baseline_non_album_post(monkeypatch: pytest.
 
     result = await tgqueries.update_post_comments(session, post.id, tg_client=tg_client)
 
+    expected_involvement = compute_involvement(
+        views=77,
+        comments_count=1,
+        commenters=1,
+        long_comments=0,
+        reactions_payload=result["reactions"],
+    )
+
     assert result["status"] == "ok"
     assert result["post_id"] == 42
     assert result["discussion_msg_id"] == 500
@@ -294,7 +329,7 @@ async def test_update_post_comments_baseline_non_album_post(monkeypatch: pytest.
     assert result["comments_saved"] == 1
     assert result["comments_count"] == 1
     assert result["commenters_count"] == 1
-    assert result["involvement"] == 1 / 77
+    assert result["involvement"] == expected_involvement
     assert result["telegram_replies_count"] == 1
     assert result["reactions"]["comment_reactions"]["status"] == "no_reactions"
     assert len(session.persisted_rows) == 1
@@ -313,6 +348,9 @@ async def test_update_post_comments_baseline_non_album_post(monkeypatch: pytest.
     assert session.persisted_rows[0]["reactions_json"]["state"] == "no_reactions"
     assert _common_patches["views"] == [{"post_id": 42, "views": 77}]
     assert _common_patches["comments_count"] == [{"post_id": 42, "comments_count": 1}]
+    assert _common_patches["commenters"] == [{"post_id": 42, "commenters": 1}]
+    assert _common_patches["long_comments"] == [{"post_id": 42, "long_comments": 0}]
+    assert _common_patches["involvement"] == [{"post_id": 42, "involvement": expected_involvement}]
     assert _common_patches["scan_at"] == [{"post_id": 42, "scanned_at": None}]
 
 
@@ -658,7 +696,7 @@ async def test_update_post_comments_baseline_fast_path_unchanged_for_non_album(
 ):
     session = _FakeSession(
         initial_comments_count=2,
-        commenter_rows=[(101, "alice"), (None, "alice"), (202, "bob")],
+        commenter_rows=[(101, "alice", "first"), (None, "alice", "second"), (202, "bob", "third")],
     )
     post = SimpleNamespace(id=47, tg_message_id=900, date=_dt(10), views=15, reactions_json=_recent_reactions_payload())
     channel = SimpleNamespace(id=12, username="fast_path_channel")
@@ -683,21 +721,31 @@ async def test_update_post_comments_baseline_fast_path_unchanged_for_non_album(
 
     result = await tgqueries.update_post_comments(session, post.id, tg_client=tg_client)
 
+    expected_involvement = compute_involvement(
+        views=15,
+        comments_count=3,
+        commenters=3,
+        long_comments=0,
+        reactions_payload=post.reactions_json,
+    )
+
     assert result == {
         "status": "unchanged",
         "post_id": 47,
-        "comments_saved": 2,
-        "comments_count": 2,
+        "comments_saved": 3,
+        "comments_count": 3,
         "commenters_count": 3,
-        "involvement": 3 / 15,
+        "involvement": expected_involvement,
         "views": 15,
         "telegram_replies_count": 2,
     }
     assert discussion_attempted["called"] is False
     assert session.persisted_rows == []
     assert _common_patches["views"] == []
-    assert _common_patches["comments_count"] == [{"post_id": 47, "comments_count": 2}]
-    assert _common_patches["involvement"] == [{"post_id": 47, "involvement": 3 / 15}]
+    assert _common_patches["comments_count"] == [{"post_id": 47, "comments_count": 3}]
+    assert _common_patches["commenters"] == [{"post_id": 47, "commenters": 3}]
+    assert _common_patches["long_comments"] == [{"post_id": 47, "long_comments": 0}]
+    assert _common_patches["involvement"] == [{"post_id": 47, "involvement": expected_involvement}]
     assert _common_patches["scan_at"] == [{"post_id": 47, "scanned_at": None}]
 
 
@@ -708,7 +756,7 @@ async def test_update_post_comments_unchanged_refreshes_views_when_replies_count
 ):
     session = _FakeSession(
         initial_comments_count=2,
-        commenter_rows=[(101, "alice"), (202, "bob")],
+        commenter_rows=[(101, "alice", "first"), (202, "bob", "second")],
     )
     post = SimpleNamespace(id=48, tg_message_id=901, date=_dt(10), views=15, reactions_json=_recent_reactions_payload())
     channel = SimpleNamespace(id=13, username="fresh_views_channel")
@@ -731,11 +779,21 @@ async def test_update_post_comments_unchanged_refreshes_views_when_replies_count
 
     result = await tgqueries.update_post_comments(session, post.id, tg_client=tg_client)
 
+    expected_involvement = compute_involvement(
+        views=99,
+        comments_count=2,
+        commenters=2,
+        long_comments=0,
+        reactions_payload=post.reactions_json,
+    )
+
     assert result["status"] == "unchanged"
     assert result["views"] == 99
-    assert result["involvement"] == 2 / 99
+    assert result["involvement"] == expected_involvement
     assert _common_patches["views"] == [{"post_id": 48, "views": 99}]
-    assert _common_patches["involvement"] == [{"post_id": 48, "involvement": 2 / 99}]
+    assert _common_patches["commenters"] == [{"post_id": 48, "commenters": 2}]
+    assert _common_patches["long_comments"] == [{"post_id": 48, "long_comments": 0}]
+    assert _common_patches["involvement"] == [{"post_id": 48, "involvement": expected_involvement}]
 
 
 @pytest.mark.asyncio
@@ -745,7 +803,7 @@ async def test_update_post_comments_unchanged_keeps_comments_count_and_involveme
 ):
     session = _FakeSession(
         initial_comments_count=3,
-        commenter_rows=[(101, "alice"), (101, "alice"), (None, "guest"), (None, "guest2")],
+        commenter_rows=[(101, "alice", "one"), (101, "alice", "two"), (None, "guest", "three"), (None, "guest2", "four")],
     )
     post = SimpleNamespace(id=49, tg_message_id=902, date=_dt(10), views=20, reactions_json=_recent_reactions_payload())
     channel = SimpleNamespace(id=14, username="consistent_metrics_channel")
@@ -768,18 +826,28 @@ async def test_update_post_comments_unchanged_keeps_comments_count_and_involveme
 
     result = await tgqueries.update_post_comments(session, post.id, tg_client=tg_client)
 
+    expected_involvement = compute_involvement(
+        views=20,
+        comments_count=4,
+        commenters=3,
+        long_comments=0,
+        reactions_payload=post.reactions_json,
+    )
+
     assert result == {
         "status": "unchanged",
         "post_id": 49,
-        "comments_saved": 3,
-        "comments_count": 3,
+        "comments_saved": 4,
+        "comments_count": 4,
         "commenters_count": 3,
-        "involvement": 3 / 20,
+        "involvement": expected_involvement,
         "views": 20,
         "telegram_replies_count": 2,
     }
-    assert _common_patches["comments_count"] == [{"post_id": 49, "comments_count": 3}]
-    assert _common_patches["involvement"] == [{"post_id": 49, "involvement": 3 / 20}]
+    assert _common_patches["comments_count"] == [{"post_id": 49, "comments_count": 4}]
+    assert _common_patches["commenters"] == [{"post_id": 49, "commenters": 3}]
+    assert _common_patches["long_comments"] == [{"post_id": 49, "long_comments": 0}]
+    assert _common_patches["involvement"] == [{"post_id": 49, "involvement": expected_involvement}]
 
 
 def test_serialize_message_reactions_limits_payload_to_top_n():
@@ -927,5 +995,181 @@ async def test_update_post_comments_no_discussion_marks_no_reactions(
     result = await tgqueries.update_post_comments(session, post.id, tg_client=tg_client)
 
     assert result["status"] == "no_discussion"
+    assert result["comments_count"] == 0
+    assert result["involvement"] == 0.0
     assert result["reactions"]["post_reactions"]["state"] == "no_reactions"
     assert result["reactions"]["comment_reactions"]["status"] == "no_reactions"
+    assert _common_patches["comments_count"] == [{"post_id": 52, "comments_count": 0}]
+    assert _common_patches["commenters"] == [{"post_id": 52, "commenters": 0}]
+    assert _common_patches["long_comments"] == [{"post_id": 52, "long_comments": 0}]
+    assert _common_patches["involvement"] == [{"post_id": 52, "involvement": 0.0}]
+
+
+@pytest.mark.asyncio
+async def test_update_post_comments_persists_long_comments_and_ignores_whitespace_text(
+    monkeypatch: pytest.MonkeyPatch,
+    _common_patches,
+):
+    session = _FakeSession(initial_comments_count=0)
+    post = SimpleNamespace(id=53, tg_message_id=906, date=_dt(10), views=100)
+    channel = SimpleNamespace(id=18, username="long_comments_channel")
+    head_msg = _message(906, date=_dt(10), text="post", replies=2, views=100)
+    long_text = "x" * LONG_COMMENT_MIN_LENGTH
+    top_comment = _message(730, date=_dt(11), text=long_text, user_id=501, username="longreader")
+    second_comment = _message(731, date=_dt(11) + timedelta(minutes=1), text="   \n\t  ", user_id=502, username="space")
+    tg_client = _FakeTelegramClient(
+        entity=SimpleNamespace(id=9012),
+        messages_by_id={906: head_msg},
+        discussions={906: _discussion(chat_id=3012, root_id=8312)},
+        iter_map={(3012, 8312): [top_comment, second_comment]},
+    )
+
+    async def _fake_with_session_lock_retry(coro_factory, **_kwargs):
+        return await coro_factory()
+
+    monkeypatch.setattr(tgqueries, "with_session_lock_retry", _fake_with_session_lock_retry)
+    _patch_post_lookup(monkeypatch, post=post, channel=channel)
+
+    result = await tgqueries.update_post_comments(session, post.id, tg_client=tg_client)
+
+    expected_involvement = compute_involvement(
+        views=100,
+        comments_count=2,
+        commenters=2,
+        long_comments=1,
+        reactions_payload=result["reactions"],
+    )
+
+    assert result["status"] == "ok"
+    assert result["comments_count"] == 2
+    assert result["commenters_count"] == 2
+    assert result["involvement"] == expected_involvement
+    assert _common_patches["comments_count"] == [{"post_id": 53, "comments_count": 2}]
+    assert _common_patches["commenters"] == [{"post_id": 53, "commenters": 2}]
+    assert _common_patches["long_comments"] == [{"post_id": 53, "long_comments": 1}]
+    assert _common_patches["involvement"] == [{"post_id": 53, "involvement": expected_involvement}]
+
+
+@pytest.mark.asyncio
+async def test_update_post_comments_sets_zero_involvement_when_views_is_non_positive(
+    monkeypatch: pytest.MonkeyPatch,
+    _common_patches,
+):
+    session = _FakeSession(initial_comments_count=0)
+    post = SimpleNamespace(id=54, tg_message_id=907, date=_dt(10), views=10)
+    channel = SimpleNamespace(id=19, username="zero_views_channel")
+    head_msg = _message(907, date=_dt(10), text="post", replies=1, views=0)
+    top_comment = _message(740, date=_dt(11), text="comment", user_id=601, username="viewer")
+    tg_client = _FakeTelegramClient(
+        entity=SimpleNamespace(id=9013),
+        messages_by_id={907: head_msg},
+        discussions={907: _discussion(chat_id=3013, root_id=8313)},
+        iter_map={(3013, 8313): [top_comment]},
+    )
+
+    async def _fake_with_session_lock_retry(coro_factory, **_kwargs):
+        return await coro_factory()
+
+    monkeypatch.setattr(tgqueries, "with_session_lock_retry", _fake_with_session_lock_retry)
+    _patch_post_lookup(monkeypatch, post=post, channel=channel)
+
+    result = await tgqueries.update_post_comments(session, post.id, tg_client=tg_client)
+
+    assert result["status"] == "ok"
+    assert result["involvement"] == 0.0
+    assert _common_patches["involvement"] == [{"post_id": 54, "involvement": 0.0}]
+
+
+@pytest.mark.asyncio
+async def test_update_post_comments_sets_zero_involvement_when_no_identifiable_commenters(
+    monkeypatch: pytest.MonkeyPatch,
+    _common_patches,
+):
+    session = _FakeSession(initial_comments_count=0)
+    post = SimpleNamespace(id=55, tg_message_id=908, date=_dt(10), views=33)
+    channel = SimpleNamespace(id=20, username="anonymous_commenters_channel")
+    head_msg = _message(908, date=_dt(10), text="post", replies=1, views=33, user_id=700, username="poster")
+    anonymous_comment = SimpleNamespace(
+        id=741,
+        date=_dt(11),
+        message="anonymous comment",
+        grouped_id=None,
+        replies=SimpleNamespace(replies=0),
+        from_id=None,
+        sender=None,
+        reply_to=None,
+        reactions=None,
+    )
+    tg_client = _FakeTelegramClient(
+        entity=SimpleNamespace(id=9014),
+        messages_by_id={908: head_msg},
+        discussions={908: _discussion(chat_id=3014, root_id=8314)},
+        iter_map={(3014, 8314): [anonymous_comment]},
+    )
+
+    async def _fake_with_session_lock_retry(coro_factory, **_kwargs):
+        return await coro_factory()
+
+    monkeypatch.setattr(tgqueries, "with_session_lock_retry", _fake_with_session_lock_retry)
+    _patch_post_lookup(monkeypatch, post=post, channel=channel)
+
+    result = await tgqueries.update_post_comments(session, post.id, tg_client=tg_client)
+
+    assert result["status"] == "ok"
+    assert result["commenters_count"] == 0
+    assert result["involvement"] == 0.0
+    assert _common_patches["commenters"] == [{"post_id": 55, "commenters": 0}]
+    assert _common_patches["long_comments"] == [{"post_id": 55, "long_comments": 0}]
+    assert _common_patches["involvement"] == [{"post_id": 55, "involvement": 0.0}]
+
+
+@pytest.mark.asyncio
+async def test_update_post_comments_unchanged_with_malformed_reactions_payload_does_not_crash(
+    monkeypatch: pytest.MonkeyPatch,
+    _common_patches,
+):
+    session = _FakeSession(
+        initial_comments_count=1,
+        commenter_rows=[(101, "alice", "hello")],
+    )
+    post = SimpleNamespace(
+        id=56,
+        tg_message_id=909,
+        date=_dt(10),
+        views=44,
+        reactions_json={
+            "collected_at": datetime.now(timezone.utc).isoformat(),
+            "post_reactions": {"results": ["bad", {"count": None}, {"count": -3}]},
+            "comment_reactions": {"comments_scanned": 1, "comments_with_visible_reactions": 0},
+        },
+    )
+    channel = SimpleNamespace(id=21, username="malformed_reactions_channel")
+    head_msg = _message(909, date=_dt(10), text="post", replies=1, views=44)
+    tg_client = _FakeTelegramClient(
+        entity=SimpleNamespace(id=9015),
+        messages_by_id={909: head_msg},
+    )
+
+    async def _fake_with_session_lock_retry(coro_factory, **_kwargs):
+        return await coro_factory()
+
+    async def _fake_resolve_discussion_for_post_or_album(**_kwargs):
+        raise AssertionError("unchanged fast-path must not resolve discussion")
+
+    monkeypatch.setattr(tgqueries, "with_session_lock_retry", _fake_with_session_lock_retry)
+    monkeypatch.setattr(tgqueries, "_resolve_discussion_for_post_or_album", _fake_resolve_discussion_for_post_or_album)
+    _patch_post_lookup(monkeypatch, post=post, channel=channel)
+
+    result = await tgqueries.update_post_comments(session, post.id, tg_client=tg_client)
+
+    expected_involvement = compute_involvement(
+        views=44,
+        comments_count=1,
+        commenters=1,
+        long_comments=0,
+        reactions_payload=post.reactions_json,
+    )
+
+    assert result["status"] == "unchanged"
+    assert result["involvement"] == expected_involvement
+    assert _common_patches["involvement"] == [{"post_id": 56, "involvement": expected_involvement}]

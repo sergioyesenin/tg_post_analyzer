@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any, Optional
 
@@ -60,6 +61,23 @@ class ReportLLMSettings:
     llm_api_key: str | None = None
 
 
+@dataclass(frozen=True)
+class EpistemicEntry:
+    label: str  # One of EPISTEMIC_LABELS
+    evidence: str
+    confidence: str  # "high", "medium", "low"
+
+
+@dataclass(frozen=True)
+class MultiAgentMeta:
+    """Internal meta schema for multi-agent analysis traces."""
+    epistemic_labels: list[EpistemicEntry] = field(default_factory=list)
+    sufficiency: str = "insufficient"  # One of SUFFICIENCY_LABELS
+    stages: dict[str, Any] = field(default_factory=dict)  # For future stage outputs
+    review_iterations: int = 0
+    final_status: str = "insufficient_data"  # One of REPORT_STATUSES or FALLBACK_STATUSES
+
+
 def load_report_llm_settings() -> ReportLLMSettings:
     return ReportLLMSettings(
         llm_model=settings.REPORT_LLM_MODEL,
@@ -103,6 +121,18 @@ POST_REPORT_PROMPT_MAX_ENTITY_VALUES = 5
 POST_REPORT_MAX_RETRIES = 2
 POST_REPORT_TIMEOUT_SECONDS = 120
 POST_REPORT_MAX_TOKENS = 1000
+POST_REPORT_TIMEOUT_MIN_SECONDS = 15
+POST_REPORT_TIMEOUT_RESERVED_SECONDS = 10
+POST_REPORT_STAGE_SEQUENCE = ("context", "routing", "expert", "public_opinion", "synthesis")
+POST_REPORT_REVIEWER_STAGE = "reviewer"
+
+# Spec-derived constants for multi-agent analysis vocabulary
+EPISTEMIC_LABELS = frozenset(["fact", "derived", "interpretation", "external", "uncertain"])
+SUFFICIENCY_LABELS = frozenset(["sufficient", "limited", "weak_signal", "insufficient"])
+REPORT_STATUSES = frozenset(["ready", "limited", "insufficient_data"])
+REVIEW_BUDGET_MAX_ITERATIONS = 2
+FALLBACK_STATUSES = frozenset(["ready", "limited", "insufficient_data", "failed"])
+REVIEW_DECISIONS = frozenset(["accept", "rerun", "downgrade"])
 
 
 def _safe_text(value: str | None, *, limit: int = 500) -> str:
@@ -362,6 +392,191 @@ def _sentiment_signal_summary(records: list[dict]) -> dict:
     }
 
 
+def _article_sufficiency_label(post_text: str, named_entities: dict[str, list[str]], top_keywords: list[dict]) -> str:
+    stripped = (post_text or "").strip()
+    if not stripped:
+        return "insufficient"
+
+    length = len(stripped)
+    keyword_count = len(top_keywords)
+    entity_count = sum(len(values) for values in named_entities.values())
+
+    if length < 60:
+        return "weak_signal"
+    if length < 140:
+        return "limited" if keyword_count < 2 and entity_count < 2 else "weak_signal"
+    if keyword_count < 2 and entity_count < 2:
+        return "limited"
+    return "sufficient"
+
+
+def _comment_sufficiency_label(records: list[dict], sentiment_hint: dict[str, Any], top_keywords: list[dict]) -> str:
+    total = len(records)
+    if total == 0:
+        return "insufficient"
+    if total < 5:
+        return "weak_signal"
+
+    distribution = sentiment_hint.get("distribution_hint") or {}
+    positive = float(distribution.get("positive") or 0.0)
+    negative = float(distribution.get("negative") or 0.0)
+    neutral = float(distribution.get("neutral") or 0.0)
+    active_share = positive + negative
+    keyword_count = len(top_keywords)
+
+    if total < 10:
+        if neutral > 0.75 or active_share < 0.15:
+            return "weak_signal"
+        return "limited"
+
+    if neutral > 0.8:
+        return "weak_signal"
+    if active_share < 0.2:
+        return "limited"
+    if keyword_count < 2:
+        return "limited"
+    if positive > 0.65 or negative > 0.65:
+        return "sufficient"
+    return "limited"
+
+
+def _overall_sufficiency_label(article_label: str, comment_label: str) -> str:
+    if article_label == "insufficient" or comment_label == "insufficient":
+        return "insufficient"
+    if article_label == "weak_signal" or comment_label == "weak_signal":
+        return "weak_signal"
+    if article_label == "limited" or comment_label == "limited":
+        return "limited"
+    return "sufficient"
+
+
+def _discussion_state(records: list[dict], sentiment_hint: dict[str, Any], thread_shape: dict[str, Any], engagement_markers: dict[str, Any]) -> str:
+    total = len(records)
+    if total < 4:
+        return "sparse"
+
+    distribution = sentiment_hint.get("distribution_hint") or {}
+    positive = float(distribution.get("positive") or 0.0)
+    negative = float(distribution.get("negative") or 0.0)
+    neutral = float(distribution.get("neutral") or 0.0)
+
+    if positive > 0.25 and negative > 0.25:
+        return "conflicted"
+    if engagement_markers.get("links_share", 0.0) > 0.20 or engagement_markers.get("exclamations_share", 0.0) > 0.15:
+        return "noisy"
+    if thread_shape.get("replies_deeper", 0) > 0 and thread_shape.get("replies_level_1", 0) / max(1, thread_shape.get("root_comments", 1)) > 1.5:
+        return "conflicted"
+    if neutral > 0.8:
+        return "stable"
+    return "uncertain"
+
+
+def _build_evidence_candidates(records: list[dict], top_keywords: list[dict], *, limit: int = 5) -> list[dict]:
+    candidates: list[dict] = []
+    keyword_terms = [item["term"] for item in top_keywords if isinstance(item, dict) and isinstance(item.get("term"), str)]
+    for record in records:
+        text = record.get("text", "")
+        lowered = text.lower()
+        evidence_terms = [term for term in keyword_terms if term in lowered]
+        score = 0
+        if URL_RE.search(lowered):
+            score += 2
+        if "?" in text or "!" in text:
+            score += 1
+        if any(marker in lowered for marker in POSITIVE_MARKERS | NEGATIVE_MARKERS):
+            score += 1
+        score += len(evidence_terms)
+        if score <= 0:
+            continue
+        candidates.append(
+            {
+                "id": int(record.get("id") or 0),
+                "text": text if len(text) <= 220 else text[:217] + "...",
+                "evidence_terms": evidence_terms,
+                "sentiment_hints": {
+                    "contains_positive": any(marker in lowered for marker in POSITIVE_MARKERS),
+                    "contains_negative": any(marker in lowered for marker in NEGATIVE_MARKERS),
+                    "has_link": bool(URL_RE.search(lowered)),
+                    "has_question": "?" in text,
+                    "has_exclamation": "!" in text,
+                },
+                "score": score,
+            }
+        )
+
+    if not candidates:
+        for record in records[:limit]:
+            text = record.get("text", "")
+            candidates.append(
+                {
+                    "id": int(record.get("id") or 0),
+                    "text": text if len(text) <= 220 else text[:217] + "...",
+                    "evidence_terms": [],
+                    "sentiment_hints": {
+                        "contains_positive": any(marker in text.lower() for marker in POSITIVE_MARKERS),
+                        "contains_negative": any(marker in text.lower() for marker in NEGATIVE_MARKERS),
+                        "has_link": bool(URL_RE.search(text)),
+                        "has_question": "?" in text,
+                        "has_exclamation": "!" in text,
+                    },
+                    "score": 0,
+                }
+            )
+    candidates.sort(key=lambda item: (-item["score"], item["id"]))
+    return candidates[:limit]
+
+
+def _evaluate_retrieval_policy(signal_summary: dict[str, Any], post_text: str) -> dict[str, Any]:
+    policy_enabled = bool(getattr(settings, "RETRIEVAL_POLICY_ENABLED", False))
+    provider_enabled = bool(getattr(settings, "RETRIEVAL_PROVIDER_ENABLED", False))
+    provider_name = str(getattr(settings, "RETRIEVAL_PROVIDER_NAME", "none") or "none")
+
+    if not policy_enabled:
+        return {
+            "policy_enabled": False,
+            "provider_enabled": provider_enabled,
+            "provider_name": provider_name,
+            "provider_available": provider_enabled,
+            "required": False,
+            "used": False,
+            "status": "disabled",
+            "reason": "retrieval_policy_disabled",
+            "evaluated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    discussion_state = str(signal_summary.get("discussion_state") or "")
+    sufficiency = str(signal_summary.get("sufficiency") or "")
+    article_sufficiency = str(signal_summary.get("article_sufficiency") or "")
+    required = discussion_state in {"conflicted", "noisy"} or sufficiency in {"insufficient", "weak_signal"} or article_sufficiency == "insufficient"
+    if discussion_state in {"conflicted", "noisy"}:
+        reason = "conflicted_discussion"
+    elif article_sufficiency == "insufficient":
+        reason = "missing_post_content"
+    elif sufficiency in {"insufficient", "weak_signal"}:
+        reason = "low_internal_sufficiency"
+    else:
+        reason = "sufficient_internal_signal"
+
+    if required and not provider_enabled:
+        status = "required_but_unavailable"
+    elif required:
+        status = "required"
+    else:
+        status = "not_required"
+
+    return {
+        "policy_enabled": True,
+        "provider_enabled": provider_enabled,
+        "provider_name": provider_name,
+        "provider_available": provider_enabled,
+        "required": required,
+        "used": False,
+        "status": status,
+        "reason": reason,
+        "evaluated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 def _representative_samples(records: list[dict], *, limit: int = 8) -> list[dict]:
     ranked = sorted(
         records,
@@ -438,6 +653,24 @@ def build_post_signal_summary(
     keyword_terms = [item["term"] for item in top_keywords]
     overlap = [term for term in keyword_terms if term in post_tokens]
     sentiment_diagnostics = _build_sentiment_diagnostics(sentiment_hint)
+    article_sufficiency = _article_sufficiency_label(post_text or "", named_entities, top_keywords)
+    comment_sufficiency = _comment_sufficiency_label(records, sentiment_hint, top_keywords)
+    sufficiency = _overall_sufficiency_label(article_sufficiency, comment_sufficiency)
+    discussion_state_label = _discussion_state(
+        records,
+        sentiment_hint,
+        {
+            "root_comments": depth_counts["root"],
+            "replies_level_1": depth_counts["reply"],
+            "replies_deeper": depth_counts["deep_reply"],
+        },
+        {
+            "questions_share": _bucket_share(question_count, total),
+            "exclamations_share": _bucket_share(exclaim_count, total),
+            "links_share": _bucket_share(url_count, total),
+        },
+    )
+    evidence_candidates = _build_evidence_candidates(records, top_keywords)
 
     return {
         "comment_count": total,
@@ -459,6 +692,13 @@ def build_post_signal_summary(
         "named_entities": named_entities,
         "post_keyword_overlap": overlap[:5],
         "representative_samples": samples,
+        "article_sufficiency": article_sufficiency,
+        "comment_sufficiency": comment_sufficiency,
+        "sufficiency": sufficiency,
+        "discussion_state": discussion_state_label,
+        "weak_signal": comment_sufficiency == "weak_signal",
+        "public_opinion_strength": "weak" if comment_sufficiency == "weak_signal" else "medium" if comment_sufficiency == "limited" else "strong",
+        "evidence_candidates": evidence_candidates,
         "nlp_backend": {
             "lemmatizer": "natasha" if _get_natasha_components() is not None else "regex_fallback",
             "sentiment": sentiment_hint.get("backend", "fallback_neutral"),
@@ -485,6 +725,12 @@ def _compact_signal_summary_for_prompt(signal_summary: dict[str, Any]) -> dict[s
         },
         "post_keyword_overlap": list(signal_summary.get("post_keyword_overlap") or [])[:POST_REPORT_PROMPT_MAX_KEYWORDS],
         "representative_samples": list(signal_summary.get("representative_samples") or [])[:POST_REPORT_PROMPT_MAX_SAMPLES],
+        "article_sufficiency": signal_summary.get("article_sufficiency"),
+        "comment_sufficiency": signal_summary.get("comment_sufficiency"),
+        "sufficiency": signal_summary.get("sufficiency"),
+        "discussion_state": signal_summary.get("discussion_state"),
+        "weak_signal": signal_summary.get("weak_signal"),
+        "public_opinion_strength": signal_summary.get("public_opinion_strength"),
         "nlp_backend": dict(signal_summary.get("nlp_backend") or {}),
     }
 
@@ -504,20 +750,18 @@ def _build_post_report_prompt(
 Return one valid JSON object only. No markdown. No prose outside JSON.
 Language of all natural-language fields must be Russian.
 
-Task: analyze one Telegram post using normalized comment signals and deterministic representative samples, then build a compact structured report.
+Task: analyze one Telegram post using normalized comment signals and deterministic representative samples, then build a compact structured report based on five analytical components: Event (the post content), Context (background and metadata), Reaction (audience sentiment and engagement), Interpretation (thematic analysis and patterns), Consequences (implications and risks).
 Use only these sentiment labels: positive, negative, neutral.
 Do not invent facts. If confidence is low, say so in confidence.reason.
 Treat representative_samples as evidence examples, and treat post_signal_summary as the primary source for counts, structure, topic hints and entities.
+Pay special attention to post_signal_summary.article_sufficiency, post_signal_summary.comment_sufficiency, post_signal_summary.discussion_state, and post_signal_summary.weak_signal when judging how confidently to describe public opinion.
 If the evidence is weak or partial, summarize conservatively.
 The resulting payload must be sufficient to render a structured Russian mini-report with these sections:
-- context of the post,
-- overall tone of discussion with percentage sentiment split,
-- key topics,
-- trends and recurring patterns,
-- representative quotes,
-- comment classification by sentiment,
-- thematic classification of comments,
-- risks/signals when applicable.
+- Event: core post content and immediate context,
+- Context: channel background and publication details,
+- Reaction: overall tone of discussion with percentage sentiment split,
+- Interpretation: key topics, trends and recurring patterns, thematic classification,
+- Consequences: representative quotes, risks/signals, and implications.
 Prefer concise topic names, cluster summaries suitable for thematic classification, and time_trends that describe temporal dynamics or recurring patterns.
 Assume short Russian-language comments are common; infer cautiously and avoid overclaiming.
 
@@ -600,6 +844,9 @@ def _validate_post_report_payload(
     *,
     post_id: int,
     signal_summary: dict[str, Any],
+    retrieval_trace: dict[str, Any] | None = None,
+    stage_traces: dict[str, Any] | None = None,
+    orchestration_trace: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized = dict(payload)
     normalized["type"] = "post_report_v2"
@@ -621,6 +868,11 @@ def _validate_post_report_payload(
             "comment_count": int(signal_summary.get("comment_count") or 0),
             "top_keywords": [item["term"] for item in list(signal_summary.get("top_keywords") or [])[:5] if isinstance(item, dict) and item.get("term")],
             "sample_count": len(list(signal_summary.get("representative_samples") or [])),
+            "article_sufficiency": signal_summary.get("article_sufficiency"),
+            "comment_sufficiency": signal_summary.get("comment_sufficiency"),
+            "sufficiency": signal_summary.get("sufficiency"),
+            "discussion_state": signal_summary.get("discussion_state"),
+            "weak_signal": signal_summary.get("weak_signal"),
         },
     )
     sentiment_diagnostics = dict(((signal_summary.get("nlp_backend") or {}).get("sentiment_diagnostics")) or {})
@@ -632,6 +884,24 @@ def _validate_post_report_payload(
     meta.setdefault("sentiment_transformers_available", bool(sentiment_diagnostics.get("transformers_available")))
     if sentiment_diagnostics.get("fallback_reason"):
         meta.setdefault("sentiment_fallback_reason", sentiment_diagnostics.get("fallback_reason"))
+    multi_agent = meta.setdefault("multi_agent", {
+        "epistemic_labels": [],  # List of EpistemicEntry dicts
+        "sufficiency": "insufficient",  # Will be updated based on data sufficiency
+        "stages": {},  # For future stage outputs
+        "review_iterations": 0,
+        "final_status": "insufficient_data",
+    })
+    multi_agent["sufficiency"] = signal_summary.get("sufficiency") or multi_agent.get("sufficiency", "insufficient")
+    stages = dict(multi_agent.get("stages") or {})
+    if stage_traces is not None:
+        stages.update(stage_traces)
+    if retrieval_trace is not None:
+        stages["retrieval"] = retrieval_trace
+    multi_agent["stages"] = stages
+    if retrieval_trace and retrieval_trace.get("status") == "required_but_unavailable":
+        multi_agent["final_status"] = "insufficient_data"
+    multi_agent["orchestration"] = dict(orchestration_trace or {})
+    meta["multi_agent"] = multi_agent
     normalized["meta"] = meta
     validated = PostReportPayload.model_validate(normalized)
     return validated.model_dump()
@@ -642,7 +912,13 @@ def _build_invalid_output_fallback(
     post_id: int,
     signal_summary: dict[str, Any],
     error_message: str,
+    retrieval_trace: dict[str, Any] | None = None,
+    stage_traces: dict[str, Any] | None = None,
+    orchestration_trace: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    stages: dict[str, Any] = dict(stage_traces or {})
+    if retrieval_trace is not None:
+        stages["retrieval"] = retrieval_trace
     fallback = PostReportPayload(
         status="failed",
         post_id=int(post_id),
@@ -688,9 +964,634 @@ def _build_invalid_output_fallback(
             "sentiment_fallback_reason": (
                 ((signal_summary.get("nlp_backend") or {}).get("sentiment_diagnostics") or {}).get("fallback_reason")
             ),
+            "article_sufficiency": signal_summary.get("article_sufficiency"),
+            "comment_sufficiency": signal_summary.get("comment_sufficiency"),
+            "sufficiency": signal_summary.get("sufficiency"),
+            "discussion_state": signal_summary.get("discussion_state"),
+            "weak_signal": signal_summary.get("weak_signal"),
+            "public_opinion_strength": signal_summary.get("public_opinion_strength"),
+            "evidence_candidates": signal_summary.get("evidence_candidates"),
+            "multi_agent": {
+                "epistemic_labels": [],
+                "sufficiency": "insufficient",
+                "stages": dict(stage_traces or {}),
+                "review_iterations": 0,
+                "final_status": "failed",
+                "orchestration": dict(orchestration_trace or {}),
+            },
         },
     )
     return fallback.model_dump()
+
+
+def _stage_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _normalize_rerun_stage_name(stage_name: str | None) -> str | None:
+    normalized = str(stage_name or "").strip().lower()
+    if not normalized:
+        return None
+    if normalized not in POST_REPORT_STAGE_SEQUENCE:
+        raise ValueError(f"Unsupported rerun stage: {stage_name}")
+    return normalized
+
+
+def _build_stage_timeout_budget(job_timeout_seconds: int | None) -> dict[str, int]:
+    total = int(job_timeout_seconds or POST_REPORT_TIMEOUT_SECONDS)
+    total = max(POST_REPORT_TIMEOUT_MIN_SECONDS, total)
+    reserved = min(POST_REPORT_TIMEOUT_RESERVED_SECONDS, max(2, total // 6))
+    synthesis_timeout = max(
+        POST_REPORT_TIMEOUT_MIN_SECONDS,
+        min(POST_REPORT_TIMEOUT_SECONDS, total - reserved),
+    )
+    return {
+        "job_timeout_seconds": total,
+        "reserved_seconds": reserved,
+        "synthesis_timeout_seconds": synthesis_timeout,
+    }
+
+
+def _record_stage_execution(
+    stage_traces: dict[str, Any],
+    *,
+    stage_name: str,
+    stage_payload: dict[str, Any],
+    rerun_requested: bool,
+) -> dict[str, Any]:
+    previous = stage_traces.get(stage_name)
+    run_count = int(previous.get("run_count") or 0) + 1 if isinstance(previous, dict) else 1
+    next_payload = dict(stage_payload)
+    next_payload["run_count"] = run_count
+    next_payload["rerun_requested"] = bool(rerun_requested)
+    stage_traces[stage_name] = next_payload
+    return next_payload
+
+
+def _build_epistemic_labels(signal_summary: dict[str, Any], payload: dict[str, Any]) -> list[dict[str, str]]:
+    labels: list[dict[str, str]] = []
+    sufficiency = str(signal_summary.get("sufficiency") or "insufficient")
+    labels.append(
+        {
+            "label": "derived",
+            "evidence": f"sufficiency={sufficiency}",
+            "confidence": "medium" if sufficiency == "sufficient" else "low",
+        }
+    )
+    if retrieval_required := bool(((payload.get("meta") or {}).get("multi_agent") or {}).get("stages", {}).get("retrieval", {}).get("required")):
+        labels.append(
+            {
+                "label": "external",
+                "evidence": "retrieval_required",
+                "confidence": "low" if not bool(((payload.get("meta") or {}).get("multi_agent") or {}).get("stages", {}).get("retrieval", {}).get("provider_available")) else "medium",
+            }
+        )
+    if bool(signal_summary.get("weak_signal")):
+        labels.append(
+            {
+                "label": "uncertain",
+                "evidence": "weak_internal_signal",
+                "confidence": "high",
+            }
+        )
+    return labels[:5]
+
+
+def _append_unique_item(items: list[str], value: str | None) -> list[str]:
+    normalized = _safe_text(value, limit=200) if isinstance(value, str) else ""
+    if not normalized:
+        return list(items)
+    result = list(items)
+    if normalized not in result:
+        result.append(normalized)
+    return result
+
+
+def _review_target_status(*, signal_summary: dict[str, Any], retrieval_trace: dict[str, Any], reason_code: str) -> str:
+    if reason_code == "retrieval_misuse":
+        return "insufficient_data"
+    sufficiency = str(signal_summary.get("sufficiency") or "insufficient")
+    if sufficiency in {"insufficient", "weak_signal"}:
+        return "insufficient_data"
+    if retrieval_trace.get("required") and not retrieval_trace.get("provider_available"):
+        return "insufficient_data"
+    return "limited"
+
+
+def _review_payload(
+    payload: dict[str, Any],
+    *,
+    signal_summary: dict[str, Any],
+    retrieval_trace: dict[str, Any],
+    iteration: int,
+    max_iterations: int,
+) -> dict[str, Any]:
+    defects: list[str] = []
+    rerun_stage: str | None = None
+    status = str(payload.get("status") or "ready")
+    confidence_overall = str(((payload.get("confidence") or {}).get("overall")) or "medium").lower()
+    weak_signal = bool(signal_summary.get("weak_signal"))
+    sufficiency = str(signal_summary.get("sufficiency") or "insufficient")
+    retrieval_required = bool(retrieval_trace.get("required"))
+    retrieval_available = bool(retrieval_trace.get("provider_available"))
+
+    if retrieval_required and not retrieval_available and status == "ready":
+        defects.append("retrieval_misuse")
+
+    if status == "ready" and sufficiency == "insufficient":
+        defects.append("sufficiency_misuse")
+
+    if status == "ready" and weak_signal and confidence_overall == "high":
+        defects.append("epistemic_violation")
+
+    if defects and iteration < max_iterations and "retrieval_misuse" not in defects:
+        rerun_stage = "public_opinion" if "sufficiency_misuse" in defects else "synthesis"
+        decision = "rerun"
+        target_status = status
+        reason = f"reviewer_requested_rerun:{','.join(defects)}"
+    elif defects:
+        decision = "downgrade"
+        target_status = _review_target_status(
+            signal_summary=signal_summary,
+            retrieval_trace=retrieval_trace,
+            reason_code=defects[0],
+        )
+        reason = f"reviewer_exhausted:{','.join(defects)}" if iteration >= max_iterations else f"reviewer_downgraded:{','.join(defects)}"
+    else:
+        decision = "accept"
+        target_status = status
+        reason = "reviewer_accepted"
+
+    return {
+        "decision": decision,
+        "defects": defects,
+        "rerun_stage": rerun_stage,
+        "target_status": target_status,
+        "reason": reason,
+    }
+
+
+def _apply_review_decision_to_payload(
+    payload: dict[str, Any],
+    *,
+    review: dict[str, Any],
+) -> dict[str, Any]:
+    updated = dict(payload)
+    decision = str(review.get("decision") or "accept")
+    target_status = str(review.get("target_status") or updated.get("status") or "ready")
+
+    if decision == "downgrade":
+        updated["status"] = target_status
+        confidence = dict(updated.get("confidence") or {})
+        confidence["overall"] = "low" if target_status == "insufficient_data" else "medium"
+        confidence["reason"] = (
+            "Сводка ограничена внутренней проверкой качества и не может считаться полностью надёжной."
+            if target_status == "limited"
+            else "Данных недостаточно для надёжного итогового вывода после внутренней проверки."
+        )
+        updated["confidence"] = confidence
+        updated["anomalies"] = _append_unique_item(list(updated.get("anomalies") or []), "reviewer_policy_downgrade")
+    return updated
+
+
+def _finalize_review_metadata(
+    payload: dict[str, Any],
+    *,
+    signal_summary: dict[str, Any],
+    retrieval_trace: dict[str, Any],
+    stage_traces: dict[str, Any],
+    orchestration_trace: dict[str, Any],
+    review_trace: dict[str, Any],
+) -> dict[str, Any]:
+    finalized = _validate_post_report_payload(
+        payload,
+        post_id=int(payload.get("post_id") or 0),
+        signal_summary=signal_summary,
+        retrieval_trace=retrieval_trace,
+        stage_traces=stage_traces,
+        orchestration_trace=orchestration_trace,
+    )
+    meta = dict(finalized.get("meta") or {})
+    multi_agent = dict(meta.get("multi_agent") or {})
+    multi_agent["review_iterations"] = int(review_trace.get("iterations") or 0)
+    multi_agent["epistemic_labels"] = _build_epistemic_labels(signal_summary, finalized)
+    multi_agent["final_status"] = str(finalized.get("status") or multi_agent.get("final_status") or "failed")
+    meta["multi_agent"] = multi_agent
+    finalized["meta"] = meta
+    return finalized
+
+
+async def _run_reviewer_stage(
+    *,
+    initial_payload: dict[str, Any],
+    signal_summary: dict[str, Any],
+    retrieval_trace: dict[str, Any],
+    stage_traces: dict[str, Any],
+    orchestration_trace: dict[str, Any],
+    rerun_stage_fn,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    review_trace: dict[str, Any] = {
+        "status": "running",
+        "started_at": _stage_timestamp(),
+        "completed_at": None,
+        "iterations": 0,
+        "history": [],
+    }
+    payload = dict(initial_payload)
+
+    for iteration in range(1, REVIEW_BUDGET_MAX_ITERATIONS + 1):
+        review_trace["iterations"] = iteration
+        review = _review_payload(
+            payload,
+            signal_summary=signal_summary,
+            retrieval_trace=retrieval_trace,
+            iteration=iteration,
+            max_iterations=REVIEW_BUDGET_MAX_ITERATIONS,
+        )
+        history_entry = {
+            "iteration": iteration,
+            "decision": review["decision"],
+            "defects": list(review.get("defects") or []),
+            "rerun_stage": review.get("rerun_stage"),
+            "target_status": review.get("target_status"),
+            "reason": review.get("reason"),
+            "started_at": _stage_timestamp(),
+            "completed_at": _stage_timestamp(),
+        }
+        review_trace["history"].append(history_entry)
+
+        if review["decision"] == "accept":
+            review_trace["status"] = "completed"
+            review_trace["decision"] = "accept"
+            review_trace["completed_at"] = _stage_timestamp()
+            return (
+                _finalize_review_metadata(
+                    payload,
+                    signal_summary=signal_summary,
+                    retrieval_trace=retrieval_trace,
+                    stage_traces=stage_traces,
+                    orchestration_trace=orchestration_trace,
+                    review_trace=review_trace,
+                ),
+                review_trace,
+            )
+
+        if review["decision"] == "rerun":
+            rerun_stage = str(review.get("rerun_stage") or "synthesis")
+            rerun_payload = await rerun_stage_fn(rerun_stage)
+            if rerun_payload is None:
+                review_trace["status"] = "failed"
+                review_trace["decision"] = "failed"
+                review_trace["completed_at"] = _stage_timestamp()
+                return None, review_trace
+            payload = rerun_payload
+            continue
+
+        payload = _apply_review_decision_to_payload(payload, review=review)
+        review_trace["status"] = "completed"
+        review_trace["decision"] = "downgrade"
+        review_trace["completed_at"] = _stage_timestamp()
+        return (
+            _finalize_review_metadata(
+                payload,
+                signal_summary=signal_summary,
+                retrieval_trace=retrieval_trace,
+                stage_traces=stage_traces,
+                orchestration_trace=orchestration_trace,
+                review_trace=review_trace,
+            ),
+            review_trace,
+        )
+
+    review_trace["status"] = "completed"
+    review_trace["decision"] = "downgrade"
+    review_trace["completed_at"] = _stage_timestamp()
+    downgraded = _apply_review_decision_to_payload(
+        payload,
+        review={
+            "decision": "downgrade",
+            "target_status": _review_target_status(
+                signal_summary=signal_summary,
+                retrieval_trace=retrieval_trace,
+                reason_code="review_exhaustion",
+            ),
+        },
+    )
+    return (
+        _finalize_review_metadata(
+            downgraded,
+            signal_summary=signal_summary,
+            retrieval_trace=retrieval_trace,
+            stage_traces=stage_traces,
+            orchestration_trace=orchestration_trace,
+            review_trace=review_trace,
+        ),
+        review_trace,
+    )
+
+
+def _build_context_stage(
+    signal_summary: dict[str, Any],
+    *,
+    channel: str,
+    published_at_iso: str,
+    views: Optional[int],
+    post_text: str,
+) -> dict[str, Any]:
+    return {
+        "status": "completed",
+        "started_at": _stage_timestamp(),
+        "completed_at": _stage_timestamp(),
+        "channel": channel,
+        "published_at": published_at_iso,
+        "views": views,
+        "post_excerpt": _short_text(post_text, max_chars_each=260),
+        "comment_count": int(signal_summary.get("comment_count") or 0),
+        "article_sufficiency": signal_summary.get("article_sufficiency"),
+        "comment_sufficiency": signal_summary.get("comment_sufficiency"),
+        "discussion_state": signal_summary.get("discussion_state"),
+        "public_opinion_strength": signal_summary.get("public_opinion_strength"),
+        "source": "preprocessed_signals",
+    }
+
+
+def _build_routing_stage(
+    signal_summary: dict[str, Any],
+    *,
+    retrieval_trace: dict[str, Any],
+) -> dict[str, Any]:
+    discussion_state = str(signal_summary.get("discussion_state") or "")
+    sufficiency = str(signal_summary.get("sufficiency") or "")
+    if retrieval_trace.get("required"):
+        route = "public_opinion_enhanced"
+        reason = "retrieval_required_or_internal_signals_low"
+    elif discussion_state in {"conflicted", "noisy"}:
+        route = "public_opinion_focused"
+        reason = "conflicted_or_noisy_discussion"
+    elif sufficiency == "sufficient":
+        route = "direct_synthesis"
+        reason = "internal_signals_sufficient"
+    else:
+        route = "conservative_synthesis"
+        reason = "limited_internal_signals"
+    return {
+        "status": "completed",
+        "started_at": _stage_timestamp(),
+        "completed_at": _stage_timestamp(),
+        "route": route,
+        "reason": reason,
+        "retrieval_required": bool(retrieval_trace.get("required")),
+        "retrieval_available": bool(retrieval_trace.get("provider_available")),
+    }
+
+
+def _build_expert_stage(
+    signal_summary: dict[str, Any],
+    *,
+    routing_stage: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "status": "completed",
+        "started_at": _stage_timestamp(),
+        "completed_at": _stage_timestamp(),
+        "focus_topics": [item.get("term") for item in list(signal_summary.get("top_keywords") or [])[:3]],
+        "focus_entities": [
+            value
+            for bucket in (signal_summary.get("named_entities") or {}).values()
+            for value in list(bucket)[:2]
+        ],
+        "route": routing_stage.get("route"),
+        "insights": {
+            "article_sufficiency": signal_summary.get("article_sufficiency"),
+            "comment_sufficiency": signal_summary.get("comment_sufficiency"),
+            "discussion_state": signal_summary.get("discussion_state"),
+        },
+    }
+
+
+def _build_public_opinion_stage(
+    signal_summary: dict[str, Any],
+    *,
+    expert_stage: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "status": "completed",
+        "started_at": _stage_timestamp(),
+        "completed_at": _stage_timestamp(),
+        "discussion_state": signal_summary.get("discussion_state"),
+        "weak_signal": signal_summary.get("weak_signal"),
+        "public_opinion_strength": signal_summary.get("public_opinion_strength"),
+        "expert_route": expert_stage.get("route"),
+        "evidence_candidates": signal_summary.get("evidence_candidates"),
+    }
+
+
+async def _run_synthesis_stage(
+    project: TgReportProject,
+    *,
+    channel: str,
+    post_id: int,
+    published_at_iso: str,
+    post_text: str,
+    comments: list[str],
+    thread_comments: Optional[list[dict]],
+    views: Optional[int],
+    media_links: Optional[list[str]],
+    config: Optional[ReportConfig],
+    prompt: str,
+    signal_summary: dict[str, Any],
+    retrieval_trace: dict[str, Any],
+    stage_traces: dict[str, Any],
+    synthesis_timeout_seconds: int,
+    orchestration_trace: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    stage = {
+        "status": "running",
+        "started_at": _stage_timestamp(),
+        "attempts": 0,
+        "errors": [],
+    }
+    for attempt in range(POST_REPORT_MAX_RETRIES):
+        stage["attempts"] = attempt + 1
+        retry_note = ""
+        if attempt:
+            retry_note = (
+                "\n\nPrevious response was invalid. Return one JSON object only, "
+                "strictly matching the schema and labels."
+            )
+        try:
+            response = await acompletion(
+                model=project._llm_model,
+                base_url=project._llm_base_url,
+                api_key=project._llm_api_key,
+                temperature=0.1,
+                max_tokens=POST_REPORT_MAX_TOKENS,
+                timeout=synthesis_timeout_seconds,
+                messages=[
+                    {"role": "system", "content": "You are a strict JSON report generator for Russian Telegram analytics."},
+                    {"role": "user", "content": prompt + retry_note},
+                ],
+                metadata={
+                    "feature": "post_report_v2",
+                    "post_id": post_id,
+                    "channel": channel,
+                    "attempt": attempt + 1,
+                },
+            )
+            text = _clean_model_output(_extract_response_text(response))
+            payload = _extract_json_object(text)
+            validated_payload = _validate_post_report_payload(
+                payload,
+                post_id=post_id,
+                signal_summary=signal_summary,
+                retrieval_trace=retrieval_trace,
+                stage_traces=stage_traces,
+                orchestration_trace=orchestration_trace,
+            )
+            stage["status"] = "completed"
+            stage["completed_at"] = _stage_timestamp()
+            stage["last_output_length"] = len(text)
+            stage["timeout_seconds"] = synthesis_timeout_seconds
+            return validated_payload, stage
+        except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+            stage["errors"].append(f"{type(exc).__name__}: {exc}")
+            continue
+    stage["status"] = "failed"
+    stage["completed_at"] = _stage_timestamp()
+    stage["failure_reason"] = "invalid_model_output"
+    stage["timeout_seconds"] = synthesis_timeout_seconds
+    return None, stage
+
+
+async def _run_post_report_orchestration(
+    project: TgReportProject,
+    *,
+    channel: str,
+    post_id: int,
+    published_at_iso: str,
+    post_text: str,
+    comments: list[str],
+    thread_comments: Optional[list[dict]],
+    views: Optional[int],
+    media_links: Optional[list[str]],
+    config: Optional[ReportConfig],
+    prompt: str,
+    signal_summary: dict[str, Any],
+    retrieval_trace: dict[str, Any],
+    job_timeout_seconds: int | None = None,
+    rerun_stage: str | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any], dict[str, Any]]:
+    normalized_rerun_stage = _normalize_rerun_stage_name(rerun_stage)
+    timeout_budget = _build_stage_timeout_budget(job_timeout_seconds)
+    stage_traces: dict[str, Any] = {}
+    orchestration_trace: dict[str, Any] = {
+        "sequence": list(POST_REPORT_STAGE_SEQUENCE),
+        "reviewer_enabled": True,
+        "requested_rerun_stage": normalized_rerun_stage,
+        "executed_rerun_stage": None,
+        "timeout_budget": timeout_budget,
+    }
+
+    async def _execute_from(stage_name: str | None = None) -> dict[str, Any] | None:
+        rerun_mode = stage_name is not None
+        if rerun_mode:
+            orchestration_trace["executed_rerun_stage"] = stage_name
+
+        start_index = POST_REPORT_STAGE_SEQUENCE.index(stage_name) if stage_name else 0
+        result_payload: dict[str, Any] | None = None
+        for current_stage in POST_REPORT_STAGE_SEQUENCE[start_index:]:
+            if current_stage == "context":
+                _record_stage_execution(
+                    stage_traces,
+                    stage_name="context",
+                    stage_payload=_build_context_stage(
+                        signal_summary,
+                        channel=channel,
+                        published_at_iso=published_at_iso,
+                        views=views,
+                        post_text=post_text,
+                    ),
+                    rerun_requested=rerun_mode,
+                )
+            elif current_stage == "routing":
+                _record_stage_execution(
+                    stage_traces,
+                    stage_name="routing",
+                    stage_payload=_build_routing_stage(signal_summary, retrieval_trace=retrieval_trace),
+                    rerun_requested=rerun_mode,
+                )
+            elif current_stage == "expert":
+                _record_stage_execution(
+                    stage_traces,
+                    stage_name="expert",
+                    stage_payload=_build_expert_stage(signal_summary, routing_stage=stage_traces["routing"]),
+                    rerun_requested=rerun_mode,
+                )
+            elif current_stage == "public_opinion":
+                _record_stage_execution(
+                    stage_traces,
+                    stage_name="public_opinion",
+                    stage_payload=_build_public_opinion_stage(signal_summary, expert_stage=stage_traces["expert"]),
+                    rerun_requested=rerun_mode,
+                )
+            elif current_stage == "synthesis":
+                result_payload, synthesis_stage = await _run_synthesis_stage(
+                    project,
+                    channel=channel,
+                    post_id=post_id,
+                    published_at_iso=published_at_iso,
+                    post_text=post_text,
+                    comments=comments,
+                    thread_comments=thread_comments,
+                    views=views,
+                    media_links=media_links,
+                    config=config,
+                    prompt=prompt,
+                    signal_summary=signal_summary,
+                    retrieval_trace=retrieval_trace,
+                    stage_traces=stage_traces,
+                    synthesis_timeout_seconds=timeout_budget["synthesis_timeout_seconds"],
+                    orchestration_trace=orchestration_trace,
+                )
+                _record_stage_execution(
+                    stage_traces,
+                    stage_name="synthesis",
+                    stage_payload=synthesis_stage,
+                    rerun_requested=rerun_mode,
+                )
+        return result_payload
+
+    result = await _execute_from()
+    if normalized_rerun_stage is not None:
+        result = await _execute_from(normalized_rerun_stage)
+    if result is None:
+        return result, stage_traces, orchestration_trace
+
+    reviewed_result, reviewer_stage = await _run_reviewer_stage(
+        initial_payload=result,
+        signal_summary=signal_summary,
+        retrieval_trace=retrieval_trace,
+        stage_traces=stage_traces,
+        orchestration_trace=orchestration_trace,
+        rerun_stage_fn=_execute_from,
+    )
+    _record_stage_execution(
+        stage_traces,
+        stage_name=POST_REPORT_REVIEWER_STAGE,
+        stage_payload=reviewer_stage,
+        rerun_requested=bool(reviewer_stage.get("decision") == "rerun"),
+    )
+    if reviewed_result is not None:
+        reviewed_result = _finalize_review_metadata(
+            reviewed_result,
+            signal_summary=signal_summary,
+            retrieval_trace=retrieval_trace,
+            stage_traces=stage_traces,
+            orchestration_trace=orchestration_trace,
+            review_trace=reviewer_stage,
+        )
+    return reviewed_result, stage_traces, orchestration_trace
+
 
 def _format_signal_summary(signal_summary: dict[str, Any]) -> str:
     return json.dumps(signal_summary, ensure_ascii=False, indent=2)
@@ -1004,6 +1905,8 @@ class TgReportProject:
         views: Optional[int] = None,
         media_links: Optional[list[str]] = None,
         config: Optional[ReportConfig] = None,
+        job_timeout_seconds: int | None = None,
+        rerun_stage: str | None = None,
     ) -> dict[str, Any]:
         cfg = config or ReportConfig()
         thread_comments = thread_comments or []
@@ -1043,6 +1946,13 @@ class TgReportProject:
                     "sentiment_model_configured": bool(sentiment_diagnostics.get("configured")),
                     "sentiment_transformers_available": bool(sentiment_diagnostics.get("transformers_available")),
                     "sentiment_fallback_reason": sentiment_diagnostics.get("fallback_reason"),
+                    "multi_agent": {
+                        "epistemic_labels": [],
+                        "sufficiency": "insufficient",
+                        "stages": {},
+                        "review_iterations": 0,
+                        "final_status": "insufficient_data",
+                    },
                 },
             }
 
@@ -1052,6 +1962,7 @@ class TgReportProject:
             thread_comments=thread_comments,
             views=views,
         )
+        retrieval_trace = _evaluate_retrieval_policy(signal_summary=signal_summary, post_text=post_text or "")
         prompt = _build_post_report_prompt(
             channel=channel,
             post_id=post_id,
@@ -1062,48 +1973,41 @@ class TgReportProject:
             signal_summary=signal_summary,
         )
 
-        last_error: Exception | None = None
-        for attempt in range(POST_REPORT_MAX_RETRIES):
-            try:
-                retry_note = ""
-                if attempt:
-                    retry_note = (
-                        "\n\nPrevious response was invalid. Return one JSON object only, "
-                        "strictly matching the schema and labels."
-                    )
-                response = await acompletion(
-                    model=self._llm_model,
-                    base_url=self._llm_base_url,
-                    api_key=self._llm_api_key,
-                    temperature=0.1,
-                    max_tokens=POST_REPORT_MAX_TOKENS,
-                    timeout=POST_REPORT_TIMEOUT_SECONDS,
-                    messages=[
-                        {"role": "system", "content": "You are a strict JSON report generator for Russian Telegram analytics."},
-                        {"role": "user", "content": prompt + retry_note},
-                    ],
-                    metadata={
-                        "feature": "post_report_v2",
-                        "post_id": post_id,
-                        "channel": channel,
-                        "attempt": attempt + 1,
-                    },
-                )
-                text = _clean_model_output(_extract_response_text(response))
-                payload = _extract_json_object(text)
-                return _validate_post_report_payload(
-                    payload,
-                    post_id=post_id,
-                    signal_summary=signal_summary,
-                )
-            except (json.JSONDecodeError, ValidationError, ValueError) as exc:
-                last_error = exc
-                continue
+        result, stage_traces, orchestration_trace = await _run_post_report_orchestration(
+            self,
+            channel=channel,
+            post_id=post_id,
+            published_at_iso=published_at_iso,
+            post_text=post_text,
+            comments=comments,
+            thread_comments=thread_comments,
+            views=views,
+            media_links=media_links,
+            config=cfg,
+            prompt=prompt,
+            signal_summary=signal_summary,
+            retrieval_trace=retrieval_trace,
+            job_timeout_seconds=job_timeout_seconds,
+            rerun_stage=rerun_stage,
+        )
+
+        if result is not None:
+            return _validate_post_report_payload(
+                result,
+                post_id=post_id,
+                signal_summary=signal_summary,
+                retrieval_trace=retrieval_trace,
+                stage_traces=stage_traces,
+                orchestration_trace=orchestration_trace,
+            )
 
         return _build_invalid_output_fallback(
             post_id=post_id,
             signal_summary=signal_summary,
-            error_message=f"{type(last_error).__name__}: {last_error}" if last_error is not None else "unknown_validation_error",
+            error_message="invalid_model_output_or_validation_failure",
+            retrieval_trace=retrieval_trace,
+            stage_traces=stage_traces,
+            orchestration_trace=orchestration_trace,
         )
 
 

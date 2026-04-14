@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
+from api.public_report_boundary import to_public_linked_report_out
 from db.models import Channel, Event, EventPost, EventReport, Job, Post, PostLink, Process, ProcessEvent, ProcessReport
 from deps import get_session, require_roles
 from schemas.linking import (
@@ -259,14 +260,7 @@ async def get_event(
         post_ids=post_ids,
         root_post_id=int(root_post_id) if root_post_id is not None else (int(post_ids[0]) if post_ids else None),
         channels=[str(username) for username, in channel_rows if username],
-        latest_report=LinkedReportOut(
-            id=latest_report.id,
-            status=latest_report.report_json.get("status", "ready") if isinstance(latest_report.report_json, dict) else "ready",
-            version=latest_report.version,
-            report_text=latest_report.report_text,
-            report_json=latest_report.report_json,
-            created_at=latest_report.created_at,
-        ) if latest_report is not None else None,
+        latest_report=to_public_linked_report_out(latest_report) if latest_report is not None else None,
     )
 
 
@@ -336,12 +330,5 @@ async def get_process(
             )
             for item, title, started_at, ended_at, confidence in event_rows
         ],
-        latest_report=LinkedReportOut(
-            id=latest_report.id,
-            status=latest_report.report_json.get("status", "ready") if isinstance(latest_report.report_json, dict) else "ready",
-            version=latest_report.version,
-            report_text=latest_report.report_text,
-            report_json=latest_report.report_json,
-            created_at=latest_report.created_at,
-        ) if latest_report is not None else None,
+        latest_report=to_public_linked_report_out(latest_report) if latest_report is not None else None,
     )

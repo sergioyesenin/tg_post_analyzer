@@ -18,16 +18,20 @@ from client.telegram import ensure_telegram_client_started, with_session_lock_re
 from config import settings
 from db.models import Comment
 from services.ingest import (
+    set_post_commenters,
     set_post_comments_count,
     set_post_involvement,
     set_post_last_comments_scan_at,
+    set_post_long_comments,
     set_post_reactions_json,
     set_post_views,
     upsert_comment,
 )
+from services.involvement import compute_involvement, count_long_comments
 from services.queries import get_post_with_channel_by_post_id
 from services.settings_defaults import get_default_setting
 from services.settings_store import get_all_settings
+from utils.serialization import to_jsonable
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +114,97 @@ def _build_existing_commenter_keys(rows: list[tuple[int | None, str | None]]) ->
 
 def _legacy_comment_peer_id(channel_id: int) -> int:
     return int(channel_id)
+
+
+async def _load_persisted_comment_snapshot_metrics(session: AsyncSession, *, post_id: int) -> tuple[int, int, int]:
+    rows = (
+        await session.execute(
+            select(Comment.author_id, Comment.author_username, Comment.text).where(Comment.post_id == post_id)
+        )
+    ).all()
+    commenter_keys = _build_existing_commenter_keys([(author_id, author_username) for author_id, author_username, _text in rows])
+    long_comments = count_long_comments([text for _author_id, _author_username, text in rows])
+    return len(rows), len(commenter_keys), long_comments
+
+
+def _log_involvement_metric_anomalies(
+    *,
+    post_id: int,
+    views: int | None,
+    comments_count: int,
+    commenters_count: int,
+    long_comments_count: int,
+) -> None:
+    normalized_views = int(views or 0) if isinstance(views, int) else 0
+    if normalized_views <= 0:
+        logger.warning(
+            "involvement_metrics_anomaly anomaly=views_non_positive post_id=%s views=%s comments_count=%s commenters=%s long_comments=%s",
+            post_id,
+            views,
+            comments_count,
+            commenters_count,
+            long_comments_count,
+        )
+    if comments_count > 0 and commenters_count <= 0:
+        logger.warning(
+            "involvement_metrics_anomaly anomaly=comments_without_commenters post_id=%s views=%s comments_count=%s commenters=%s long_comments=%s",
+            post_id,
+            views,
+            comments_count,
+            commenters_count,
+            long_comments_count,
+        )
+    if long_comments_count > comments_count:
+        logger.warning(
+            "involvement_metrics_anomaly anomaly=long_comments_overflow post_id=%s views=%s comments_count=%s commenters=%s long_comments=%s",
+            post_id,
+            views,
+            comments_count,
+            commenters_count,
+            long_comments_count,
+        )
+
+
+async def _persist_post_engagement_metrics(
+    session: AsyncSession,
+    *,
+    post_id: int,
+    views: int | None,
+    reactions_payload: dict | None,
+    comments_count: int,
+    commenters_count: int,
+    long_comments_count: int,
+) -> float:
+    _log_involvement_metric_anomalies(
+        post_id=post_id,
+        views=views,
+        comments_count=comments_count,
+        commenters_count=commenters_count,
+        long_comments_count=long_comments_count,
+    )
+    try:
+        involvement = compute_involvement(
+            views=views,
+            comments_count=comments_count,
+            commenters=commenters_count,
+            long_comments=long_comments_count,
+            reactions_payload=reactions_payload,
+        )
+        await set_post_comments_count(session, post_id=post_id, comments_count=comments_count)
+        await set_post_commenters(session, post_id=post_id, commenters=commenters_count)
+        await set_post_long_comments(session, post_id=post_id, long_comments=long_comments_count)
+        await set_post_involvement(session, post_id=post_id, involvement=involvement)
+        return involvement
+    except Exception:
+        logger.exception(
+            "involvement_recalculation_failed post_id=%s views=%s comments_count=%s commenters=%s long_comments=%s",
+            post_id,
+            views,
+            comments_count,
+            commenters_count,
+            long_comments_count,
+        )
+        raise
 
 
 def _serialize_message_reactions(message, *, top_n: int) -> dict:
@@ -773,28 +868,25 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             and recent_reactions_payload
             and (not reconciliation_enabled or telegram_replies_count == existing_comments_count)
         ):
-            await set_post_comments_count(
+            snapshot_comments_count, snapshot_commenters_count, snapshot_long_comments_count = (
+                await _load_persisted_comment_snapshot_metrics(session, post_id=post.id)
+            )
+            involvement = await _persist_post_engagement_metrics(
                 session,
                 post_id=post.id,
-                comments_count=existing_comments_count,
+                views=post.views,
+                reactions_payload=existing_reactions_payload,
+                comments_count=snapshot_comments_count,
+                commenters_count=snapshot_commenters_count,
+                long_comments_count=snapshot_long_comments_count,
             )
-
-            existing_commenter_rows = await session.execute(
-                select(Comment.author_id, Comment.author_username).where(Comment.post_id == post.id)
-            )
-            existing_commenters = _build_existing_commenter_keys(existing_commenter_rows.all())
-            involvement = None
-            if isinstance(post.views, int) and post.views > 0:
-                involvement = len(existing_commenters) / post.views
-
-            await set_post_involvement(session, post_id=post.id, involvement=involvement)
             await set_post_last_comments_scan_at(session, post_id=post.id)
             return {
                 "status": "unchanged",
                 "post_id": post.id,
-                "comments_saved": existing_comments_count,
-                "comments_count": existing_comments_count,
-                "commenters_count": len(existing_commenters),
+                "comments_saved": snapshot_comments_count,
+                "comments_count": snapshot_comments_count,
+                "commenters_count": snapshot_commenters_count,
                 "involvement": involvement,
                 "views": post.views,
                 "telegram_replies_count": telegram_replies_count,
@@ -866,11 +958,26 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 comment_status="no_reactions",
                 reason="no_discussion",
             )
+            snapshot_comments_count, snapshot_commenters_count, snapshot_long_comments_count = (
+                await _load_persisted_comment_snapshot_metrics(session, post_id=post.id)
+            )
+            involvement = await _persist_post_engagement_metrics(
+                session,
+                post_id=post.id,
+                views=post.views,
+                reactions_payload=post_reactions_payload,
+                comments_count=snapshot_comments_count,
+                commenters_count=snapshot_commenters_count,
+                long_comments_count=snapshot_long_comments_count,
+            )
+            await set_post_last_comments_scan_at(session, post_id=post.id)
             return {
                 "status": "no_discussion",
                 "post_id": post_id,
-                "comments_saved": 0,
-                "commenters_count": 0,
+                "comments_saved": snapshot_comments_count,
+                "commenters_count": snapshot_commenters_count,
+                "comments_count": snapshot_comments_count,
+                "involvement": involvement,
                 "album_grouped_id": getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
                 "discussion_source_msg_id": discussion_source_msg_id,
                 "reactions": post_reactions_payload,
@@ -928,10 +1035,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         tg_to_comment_id[comment_key] = comment_id
         tg_to_depth[comment_key] = depth
 
-    existing_commenter_rows = await session.execute(
-        select(Comment.author_id, Comment.author_username).where(Comment.post_id == post.id)
-    )
-    commenters: set[str] = _build_existing_commenter_keys(existing_commenter_rows.all())
+    commenters: set[str] = set()
     sender_meta_cache: dict[int, tuple[bool, str | None]] = {}
     comments_saved = 0
     comments_scanned, comments_with_visible_reactions = _comment_reactions_resume_counts(
@@ -1033,6 +1137,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 if bool(comment_reactions_payload.get("present")):
                     comments_with_visible_reactions += 1
 
+                safe_reactions_json = to_jsonable(comment_reactions_payload)
                 saved_comment = await upsert_comment(
                     session,
                     channel_id=channel.id,
@@ -1047,7 +1152,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                     author_id=author_id,
                     author_username=author_username,
                     text=c.message,
-                    reactions_json=comment_reactions_payload,
+                    reactions_json=safe_reactions_json,
                 )
                 tg_to_comment_id[comment_key] = saved_comment.id
                 tg_to_depth[comment_key] = 0
@@ -1314,18 +1419,6 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             "reactions": post_reactions_payload,
         }
 
-    await set_post_comments_count(
-        session,
-        post_id=post.id,
-        comments_count=actual_comments_count,
-    )
-
-    involvement = None
-    if isinstance(post.views, int) and post.views > 0:
-        involvement = len(commenters) / post.views
-
-    await set_post_involvement(session, post_id=post.id, involvement=involvement)
-    await set_post_last_comments_scan_at(session, post_id=post.id)
     post_reactions_payload = await persist_post_reactions(
         is_complete=True,
         comment_status=_comment_reactions_status(
@@ -1337,6 +1430,19 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         comments_with_visible_reactions=comments_with_visible_reactions,
         thread_entity_type=thread_entity_type,
     )
+    snapshot_comments_count, snapshot_commenters_count, snapshot_long_comments_count = (
+        await _load_persisted_comment_snapshot_metrics(session, post_id=post.id)
+    )
+    involvement = await _persist_post_engagement_metrics(
+        session,
+        post_id=post.id,
+        views=post.views,
+        reactions_payload=post_reactions_payload,
+        comments_count=snapshot_comments_count,
+        commenters_count=snapshot_commenters_count,
+        long_comments_count=snapshot_long_comments_count,
+    )
+    await set_post_last_comments_scan_at(session, post_id=post.id)
 
     return {
         "status": "ok",
@@ -1345,8 +1451,8 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         "discussion_source_msg_id": discussion_source_msg_id,
         "album_grouped_id": getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
         "comments_saved": comments_saved,
-        "comments_count": actual_comments_count,
-        "commenters_count": len(commenters),
+        "comments_count": snapshot_comments_count,
+        "commenters_count": snapshot_commenters_count,
         "involvement": involvement,
         "telegram_replies_count": telegram_replies_count,
         "reactions": post_reactions_payload,

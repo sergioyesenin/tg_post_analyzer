@@ -58,6 +58,13 @@ def _ready_post_report_payload(*, post_id: int, summary: str) -> dict:
     }
 
 
+def _limited_post_report_payload(*, post_id: int, summary: str) -> dict:
+    payload = _ready_post_report_payload(post_id=post_id, summary=summary)
+    payload["status"] = "limited"
+    payload["confidence"] = {"overall": "medium", "reason": "limited"}
+    return payload
+
+
 def _ready_event_report_payload(*, event_id: int, post_ids: list[int], summary: str) -> dict:
     return {
         "type": "event_report_v2",
@@ -1808,6 +1815,78 @@ async def test_run_ai_jobs_contains_invalid_post_report_output_without_false_dow
         assert event_reports[0].report_json["status"] == "stale"
         assert len(process_reports) == 1
         assert process_reports[0].report_json["status"] == "stale"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_run_ai_jobs_persists_limited_post_report_without_false_downstream_ready_against_real_db(
+    integration_async_session_factory,
+    integration_sync_session_factory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_cascade_fixture(integration_sync_session_factory)
+
+    async with integration_async_session_factory() as session:
+        staleness_result = await sync_post_report_staleness(
+            session,
+            post_id=1,
+            source="integration:limited_post_report",
+            dependency_type="comments_refresh",
+            dependency_id=1,
+        )
+        await session.commit()
+
+    assert staleness_result["status"] == "stale_marked"
+    assert staleness_result["event_reports_marked_stale"] == 1
+    assert staleness_result["process_reports_marked_stale"] == 1
+
+    async with integration_async_session_factory() as session:
+        queued_job = await enqueue_job(
+            session,
+            job_type=JobType.BUILD_POST_REPORT,
+            payload={"post_id": 1, "source": "integration:limited_post_report"},
+            dedupe_key="build_post_report:1",
+        )
+        await session.commit()
+
+    assert queued_job is not None
+
+    class _FakeReportProject:
+        async def generate_post_report_payload(self, **kwargs):
+            return _limited_post_report_payload(post_id=int(kwargs["post_id"]), summary="limited public summary")
+
+    monkeypatch.setattr(pipeline_runtime, "AsyncSessionLocal", integration_async_session_factory)
+    monkeypatch.setattr(
+        pipeline_runtime.TgReportProject,
+        "from_settings",
+        staticmethod(lambda: _FakeReportProject()),
+    )
+
+    first = await pipeline_runtime.run_ai_jobs(job_batch_size=10, worker_id="ai-int-limited-1", job_worker_concurrency=1)
+    second = await pipeline_runtime.run_ai_jobs(job_batch_size=10, worker_id="ai-int-limited-2", job_worker_concurrency=1)
+    third = await pipeline_runtime.run_ai_jobs(job_batch_size=10, worker_id="ai-int-limited-3", job_worker_concurrency=1)
+
+    assert (first, second, third) == (1, 0, 0)
+
+    with integration_sync_session_factory() as session:
+        post_report = session.execute(select(Report).where(Report.post_id == 1)).scalar_one()
+        event_reports = session.execute(select(EventReport).where(EventReport.event_id == 10).order_by(EventReport.version.asc())).scalars().all()
+        process_reports = (
+            session.execute(select(ProcessReport).where(ProcessReport.process_id == 20).order_by(ProcessReport.version.asc())).scalars().all()
+        )
+        jobs = session.execute(select(Job).order_by(Job.id.asc())).scalars().all()
+
+        PostReportPayload.model_validate(post_report.report_json)
+        assert post_report.status == "limited"
+        assert post_report.report_json["status"] == "limited"
+        assert post_report.report_json["summary"]
+        assert post_report.report_json["meta"]["input_signature"]
+        assert len(event_reports) == 1
+        assert event_reports[0].report_json["status"] == "stale"
+        assert len(process_reports) == 1
+        assert process_reports[0].report_json["status"] == "stale"
+        assert [job.type for job in jobs] == [JobType.BUILD_POST_REPORT]
+        assert all(job.status == "done" for job in jobs)
 
 
 @pytest.mark.integration

@@ -359,7 +359,3 @@ export function ProcessesDashboardScreen() {
     </div>
   );
 }
-
-
-
-

@@ -100,6 +100,7 @@ docs/                   Runbook-ы и сопутствующая инженер�
 
 - [docs/runtime_topology.md](/d:/Projects/tg_post_analyzer/docs/runtime_topology.md)
 - [docs/runtime_runbook.md](/d:/Projects/tg_post_analyzer/docs/runtime_runbook.md)
+- [docs/multi_agent_rollout_checklist.md](/d:/Projects/tg_post_analyzer/docs/multi_agent_rollout_checklist.md)
 
 ## Доставка фронтенда
 

@@ -56,6 +56,11 @@ class Settings:
             errors=errors,
         )
 
+        self.RETRIEVAL_POLICY_ENABLED = self._env_bool("RETRIEVAL_POLICY_ENABLED", default=False, errors=errors)
+        self.RETRIEVAL_ROLLOUT_PERCENT = self._env_int("RETRIEVAL_ROLLOUT_PERCENT", default=0, errors=errors)
+        self.RETRIEVAL_PROVIDER_ENABLED = self._env_bool("RETRIEVAL_PROVIDER_ENABLED", default=False, errors=errors)
+        self.RETRIEVAL_PROVIDER_NAME = self._env_str("RETRIEVAL_PROVIDER_NAME", default="none", errors=errors)
+
         self.LINKING_PIPELINE_VERSION = self._env_str("LINKING_PIPELINE_VERSION", default="v2-evidence-first", errors=errors)
         self.LINKING_TOP_K = self._env_int("LINKING_TOP_K", default=50, errors=errors)
         self.LINKING_EMBED_ENABLED = self._env_bool("LINKING_EMBED_ENABLED", default=True, errors=errors)
@@ -83,6 +88,11 @@ class Settings:
             errors=errors,
         )
         self.COMMENTS_REACTIONS_TOP_N = self._env_int("COMMENTS_REACTIONS_TOP_N", default=10, errors=errors)
+        self.COMMENTS_LONG_COMMENT_THRESHOLD = self._env_int(
+            "COMMENTS_LONG_COMMENT_THRESHOLD",
+            default=100,
+            errors=errors,
+        )
         self.AUTH_JWT_SECRET = self._env_str("AUTH_JWT_SECRET", required=True, errors=errors)
         self._validate_jwt_secret(self.AUTH_JWT_SECRET, errors)
         self.AUTH_JWT_ALG = self._env_str("AUTH_JWT_ALG", default="HS256", errors=errors)

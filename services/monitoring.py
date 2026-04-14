@@ -409,6 +409,33 @@ async def pipeline_snapshot(session: AsyncSession, *, retention_days: int = 30, 
         )
         or 0
     )
+    involvement_zero_views_count = int(
+        await session.scalar(
+            select(func.count()).select_from(Post).where(Post.views <= 0)
+        )
+        or 0
+    )
+    involvement_comments_without_commenters_count = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(Post)
+            .where(Post.comments_count > 0)
+            .where((Post.commenters.is_(None)) | (Post.commenters <= 0))
+        )
+        or 0
+    )
+    involvement_long_comments_overflow_count = int(
+        await session.scalar(
+            select(func.count())
+            .select_from(Post)
+            .where(Post.long_comments > Post.comments_count)
+        )
+        or 0
+    )
+    involvement_long_comments_overflow_rate = _safe_ratio(
+        involvement_long_comments_overflow_count,
+        reactions_payload_count if reactions_payload_count > 0 else int(await session.scalar(select(func.count()).select_from(Post)) or 0),
+    )
 
     recent_deduped_jobs = int(
         await session.scalar(
@@ -482,6 +509,12 @@ async def pipeline_snapshot(session: AsyncSession, *, retention_days: int = 30, 
                 reactions_complete_count + reactions_no_reactions_count,
                 reactions_payload_count,
             ),
+        },
+        "involvement": {
+            "posts_with_non_positive_views": involvement_zero_views_count,
+            "posts_with_comments_but_zero_commenters": involvement_comments_without_commenters_count,
+            "posts_with_long_comments_overflow": involvement_long_comments_overflow_count,
+            "long_comments_overflow_rate": involvement_long_comments_overflow_rate,
         },
         "coverage": {
             "window_since": window_since.isoformat(),

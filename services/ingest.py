@@ -172,6 +172,22 @@ async def set_post_views(session: AsyncSession, *, post_id: int, views: Optional
     )
 
 
+async def set_post_commenters(session: AsyncSession, *, post_id: int, commenters: int) -> None:
+    await session.execute(
+        Post.__table__.update()
+        .where(Post.id == post_id)
+        .values(commenters=commenters)
+    )
+
+
+async def set_post_long_comments(session: AsyncSession, *, post_id: int, long_comments: int) -> None:
+    await session.execute(
+        Post.__table__.update()
+        .where(Post.id == post_id)
+        .values(long_comments=long_comments)
+    )
+
+
 async def set_post_involvement(session: AsyncSession, *, post_id: int, involvement: Optional[float]) -> None:
     await session.execute(
         Post.__table__.update()

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from services import TGqueries as tgqueries
+from services.involvement import compute_involvement
 
 
 class _RowsResult:
@@ -30,10 +31,10 @@ class _ReconSession:
         stmt_text = str(stmt)
         params = stmt.compile().params
 
-        if "comments.author_id" in stmt_text and "comments.author_username" in stmt_text:
+        if "comments.author_id" in stmt_text and "comments.author_username" in stmt_text and "comments.text" in stmt_text:
             post_id = int(next(iter(params.values())))
             rows = [
-                (row.get("author_id"), row.get("author_username"))
+                (row.get("author_id"), row.get("author_username"), row.get("text"))
                 for row in self.comment_rows
                 if int(row["post_id"]) == post_id
             ]
@@ -73,6 +74,9 @@ class _ReconSession:
         if stmt_text.startswith("DELETE FROM comments"):
             stale_ids = {int(value) for value in params["id_1"]}
             self.comment_rows = [row for row in self.comment_rows if int(row["id"]) not in stale_ids]
+            return _RowsResult([])
+
+        if stmt_text.startswith("UPDATE posts SET reactions_json="):
             return _RowsResult([])
 
         raise AssertionError(f"Unexpected statement: {stmt_text}")
@@ -164,7 +168,7 @@ def _patch_types(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 def _common_patches(monkeypatch: pytest.MonkeyPatch):
-    updates = {"comments_count": [], "involvement": [], "views": [], "scan_at": []}
+    updates = {"comments_count": [], "commenters": [], "long_comments": [], "involvement": [], "views": [], "scan_at": []}
 
     async def _fake_ensure_started(_client, *, op_name: str = "tg_client.start"):
         del _client, op_name
@@ -193,6 +197,12 @@ def _common_patches(monkeypatch: pytest.MonkeyPatch):
     async def _fake_set_post_comments_count(_session, *, post_id: int, comments_count: int):
         updates["comments_count"].append({"post_id": post_id, "comments_count": comments_count})
 
+    async def _fake_set_post_commenters(_session, *, post_id: int, commenters: int):
+        updates["commenters"].append({"post_id": post_id, "commenters": commenters})
+
+    async def _fake_set_post_long_comments(_session, *, post_id: int, long_comments: int):
+        updates["long_comments"].append({"post_id": post_id, "long_comments": long_comments})
+
     async def _fake_set_post_involvement(_session, *, post_id: int, involvement: float | None):
         updates["involvement"].append({"post_id": post_id, "involvement": involvement})
 
@@ -202,13 +212,19 @@ def _common_patches(monkeypatch: pytest.MonkeyPatch):
     async def _fake_polite_sleep(_base: float, _jitter: float):
         return None
 
+    async def _fake_get_all_settings(_session):
+        return {}
+
     monkeypatch.setattr(tgqueries, "ensure_telegram_client_started", _fake_ensure_started)
     monkeypatch.setattr(tgqueries, "upsert_comment", _fake_upsert_comment)
     monkeypatch.setattr(tgqueries, "set_post_views", _fake_set_post_views)
     monkeypatch.setattr(tgqueries, "set_post_comments_count", _fake_set_post_comments_count)
+    monkeypatch.setattr(tgqueries, "set_post_commenters", _fake_set_post_commenters)
+    monkeypatch.setattr(tgqueries, "set_post_long_comments", _fake_set_post_long_comments)
     monkeypatch.setattr(tgqueries, "set_post_involvement", _fake_set_post_involvement)
     monkeypatch.setattr(tgqueries, "set_post_last_comments_scan_at", _fake_set_post_last_comments_scan_at)
     monkeypatch.setattr(tgqueries, "polite_sleep", _fake_polite_sleep)
+    monkeypatch.setattr(tgqueries, "get_all_settings", _fake_get_all_settings)
     return updates
 
 
@@ -308,10 +324,21 @@ async def test_update_post_comments_reconciliation_realigns_comments_count(monke
 
     result = await tgqueries.update_post_comments(session, post.id, tg_client=tg_client)
 
+    expected_involvement = compute_involvement(
+        views=77,
+        comments_count=1,
+        commenters=1,
+        long_comments=0,
+        reactions_payload=result["reactions"],
+    )
+
     assert result["status"] == "ok"
     assert result["comments_count"] == 1
     assert {(row["tg_peer_id"], row["tg_message_id"]) for row in session.comment_rows} == {(7, 701)}
     assert _common_patches["comments_count"] == [{"post_id": 52, "comments_count": 1}]
+    assert _common_patches["commenters"] == [{"post_id": 52, "commenters": 1}]
+    assert _common_patches["long_comments"] == [{"post_id": 52, "long_comments": 0}]
+    assert _common_patches["involvement"] == [{"post_id": 52, "involvement": expected_involvement}]
 
 
 @pytest.mark.asyncio
@@ -335,7 +362,7 @@ async def test_update_post_comments_reconciliation_incomplete_returns_retryable_
     async def _fake_with_session_lock_retry(coro_factory, **_kwargs):
         return await coro_factory()
 
-    async def _fake_reconcile(**_kwargs):
+    async def _fake_reconcile(*_args, **_kwargs):
         raise RuntimeError("reconcile failed")
 
     monkeypatch.setattr(tgqueries, "with_session_lock_retry", _fake_with_session_lock_retry)

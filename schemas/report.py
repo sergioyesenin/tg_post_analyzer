@@ -94,7 +94,7 @@ class AudienceStance(BaseModel):
 
 class PostReportPayload(BaseModel):
     type: Literal["post_report_v2"] = "post_report_v2"
-    status: Literal["ready", "skipped_min_comments", "failed"] = "ready"
+    status: Literal["ready", "limited", "insufficient_data", "skipped_min_comments", "failed"] = "ready"
     post_id: int
     published_at: str | None = None
     title: str

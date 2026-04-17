@@ -55,6 +55,66 @@ class Settings:
             default=None,
             errors=errors,
         )
+        self.REPORT_V2_PROMPTS_ROOT = self._env_str(
+            "REPORT_V2_PROMPTS_ROOT",
+            default="configs/prompts/report_v2",
+            errors=errors,
+        )
+        self.REPORT_V2_OPENAI_MODEL = self._env_str(
+            "REPORT_V2_OPENAI_MODEL",
+            default="gpt-4o-mini",
+            errors=errors,
+        )
+        self.REPORT_V2_OPENAI_FALLBACK_MODELS = self._env_csv(
+            "REPORT_V2_OPENAI_FALLBACK_MODELS",
+            default=[],
+            errors=errors,
+        )
+        self.REPORT_V2_OPENAI_ROUTING_ENABLED = self._env_bool(
+            "REPORT_V2_OPENAI_ROUTING_ENABLED",
+            default=False,
+            errors=errors,
+        )
+        self.REPORT_V2_OPENAI_BASE_URL = self._env_str(
+            "REPORT_V2_OPENAI_BASE_URL",
+            default=None,
+            errors=errors,
+        )
+        self.REPORT_V2_OPENAI_API_KEY = self._env_str(
+            "REPORT_V2_OPENAI_API_KEY",
+            default=None,
+            errors=errors,
+        )
+        self.REPORT_V2_OPENAI_TIMEOUT_SEC = self._env_float(
+            "REPORT_V2_OPENAI_TIMEOUT_SEC",
+            default=120.0,
+            errors=errors,
+        )
+        self.REPORT_V2_OPENAI_MAX_RETRIES = self._env_int(
+            "REPORT_V2_OPENAI_MAX_RETRIES",
+            default=2,
+            errors=errors,
+        )
+        self.REPORT_V2_LOCAL_FALLBACK_ENABLED = self._env_bool(
+            "REPORT_V2_LOCAL_FALLBACK_ENABLED",
+            default=False,
+            errors=errors,
+        )
+        self.REPORT_V2_LOCAL_MODEL = self._env_str(
+            "REPORT_V2_LOCAL_MODEL",
+            default="llama3.1:8b-instruct-q4_K_M",
+            errors=errors,
+        )
+        self.REPORT_V2_LOCAL_BASE_URL = self._env_str(
+            "REPORT_V2_LOCAL_BASE_URL",
+            default="http://localhost:11434/v1",
+            errors=errors,
+        )
+        self.REPORT_V2_LOCAL_API_KEY = self._env_str(
+            "REPORT_V2_LOCAL_API_KEY",
+            default=None,
+            errors=errors,
+        )
 
         self.RETRIEVAL_POLICY_ENABLED = self._env_bool("RETRIEVAL_POLICY_ENABLED", default=False, errors=errors)
         self.RETRIEVAL_ROLLOUT_PERCENT = self._env_int("RETRIEVAL_ROLLOUT_PERCENT", default=0, errors=errors)

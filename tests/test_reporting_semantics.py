@@ -4,6 +4,7 @@ import asyncio
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from schemas.report import EventReportPayload, PostReportPayload, ProcessReportPayload
 from services.report_aggregation import build_event_report_payload, build_process_report_payload
@@ -51,11 +52,15 @@ class _FakeSession:
         return None
 
 
-def test_report_status_from_payload_detects_legacy_draft_payloads():
-    assert reporting.report_status_from_payload({"type": "event_report_draft_v1"}) == "draft"
-    assert reporting.report_status_from_payload({"type": "process_report_draft_v1"}) == "draft"
+def test_report_status_from_payload_uses_status_only():
+    assert reporting.report_status_from_payload({"type": "unknown_type"}) == "ready"
+    assert reporting.report_status_from_payload({"type": "another_unknown_type"}) == "ready"
     assert reporting.report_status_from_payload({"status": "ready"}) == "ready"
     assert reporting.report_status_from_payload(None) == "ready"
+
+
+def test_report_status_from_payload_keeps_unknown_status_unchanged():
+    assert reporting.report_status_from_payload({"status": "custom_status"}) == "custom_status"
 
 
 def test_map_internal_post_report_to_public_payload_normalizes_public_semantics():
@@ -88,90 +93,57 @@ def test_map_internal_post_report_to_public_payload_normalizes_public_semantics(
     assert validated.confidence.overall == "medium"
 
 
+def test_post_report_payload_rejects_unknown_status_literal():
+    with pytest.raises(ValidationError):
+        PostReportPayload.model_validate(
+            {
+                "type": "post_report_v2",
+                "status": "unexpected_status",
+                "post_id": 42,
+                "title": "draft",
+                "summary": "summary",
+            }
+        )
+
+
 def test_payload_dependency_ready_accepts_limited_but_not_insufficient_data():
     assert reporting._is_payload_dependency_ready({"status": "ready"}) is True
     assert reporting._is_payload_dependency_ready({"status": "limited"}) is True
     assert reporting._is_payload_dependency_ready({"status": "insufficient_data"}) is False
 
 
-@pytest.mark.skip(reason="obsolete legacy text template retained only for historical reference")
-def test_render_post_report_uses_obsolete_legacy_text_template():
-    text = reporting._render_post_report_text(
-        {
-            "title": "Заголовок: Добрый поступок вызвал отклик",
-            "summary": "Большинство комментариев поддерживают героя публикации.",
-            "sentiment": {
-                "dominant": "positive",
-                "distribution": {"positive": 0.7, "negative": 0.1, "neutral": 0.2},
-            },
-            "topics": [{"name": "благодарность"}, {"name": "подражание примеру"}],
-            "clusters": [{"name": "поддержка", "summary": "Люди хвалят поступок и желают здоровья."}],
-            "time_trends": [{"summary": "В начале обсуждения доминирует одобрение."}],
-            "representative_quotes": ["Молодец!", "Побольше бы таких людей."],
-            "risks": ["скепсис к съемке на камеру"],
-        }
-    )
-
-    assert "Краткий анализ комментариев к посту" in text
-    assert "Общий эмоциональный фон" in text
-    assert "2. Основные направления мысли" in text
-    assert "3. Противоречия и спорные моменты" in text
-    assert "4. Примеры характерных тезисов (для ориентира)" in text
-    assert "Итог" in text
-    assert "Тональность:" not in text
-
-
-def test_render_event_or_process_report_uses_legacy_text_template():
+def test_render_event_or_process_report_uses_compact_spec_aligned_text():
     text = reporting._render_event_or_process_text(
         {
             "event_id": 4,
-            "event_title": "Обсуждение законопроекта",
-            "summary": "Сводка показывает ровный нейтральный фон.",
-            "sentiment": {
-                "dominant": "neutral",
-                "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
-            },
-            "cross_post_topics": [{"name": "законопроект"}],
-            "post_dynamics": [{"role": "контекст", "summary": "Посты фокусируются на содержании инициативы."}],
-            "event_trends": [{"summary": "Тон обсуждения остается ровным."}],
-            "risks": ["propaganda"],
+            "event_title": "Event discussion",
+            "summary": "Neutral overview.",
+            "confidence": {"overall": "medium", "reason": "bounded evidence"},
         }
     )
 
-    assert "Краткий анализ комментариев к обсуждению" in text
-    assert "Общий эмоциональный фон" in text
-    assert "2. Основные направления мысли" in text
-    assert "Итог" in text
-    assert "Тональность:" not in text
+    assert text.startswith("Event discussion")
+    assert "Status:" in text
+    assert "Summary:" in text
+    assert "Confidence rationale:" in text
 
 
-def test_render_post_report_uses_legacy_text_template():
+def test_render_post_report_uses_compact_spec_aligned_text():
     text = reporting._render_post_report_text(
         {
-            "title": "Заголовок: Добрый поступок вызвал отклик",
-            "summary": "Большинство комментариев поддерживают героя публикации.",
-            "sentiment": {
-                "dominant": "positive",
-                "distribution": {"positive": 0.7, "negative": 0.1, "neutral": 0.2},
-            },
-            "topics": [{"name": "благодарность"}, {"name": "подражание примеру"}],
-            "clusters": [{"name": "поддержка", "summary": "Люди хвалят поступок и желают здоровья."}],
-            "time_trends": [{"summary": "В начале обсуждения доминирует одобрение."}],
-            "representative_quotes": ["Молодец!", "Побольше бы таких людей."],
-            "risks": ["скепсис к съемке на камеру"],
+            "title": "Post 42 discussion snapshot",
+            "status": "limited",
+            "summary": "Limited signal.",
+            "topics": [{"name": "topic-a"}, {"name": "topic-b"}],
+            "confidence": {"overall": "medium", "reason": "weak comment signal"},
         }
     )
 
-    assert "1) Контекст поста" in text
-    assert "2) Общий тон обсуждения" in text
-    assert "3) Ключевые темы" in text
-    assert "4) Тренды и повторяющиеся паттерны" in text
-    assert "5) Репрезентативные цитаты" in text
-    assert "6) Классификация комментариев" in text
-    assert "7) Риски/сигналы" in text
-    assert "- Итог: позитивный" in text
-    assert "- По тональности:" in text
-    assert "- По темам:" in text
+    assert text.startswith("Post 42 discussion snapshot")
+    assert "Status: limited" in text
+    assert "Summary:" in text
+    assert "Top topics:" in text
+    assert "Confidence rationale:" in text
 
 
 def test_mark_report_payload_stale_preserves_context():
@@ -214,9 +186,8 @@ def test_build_post_report_sanitizes_internal_error(monkeypatch):
         ]
     )
 
-    class _BrokenProject:
-        async def generate_post_report_payload(self, **kwargs):
-            raise RuntimeError("llm exploded")
+    async def _broken_v2(**kwargs):
+        raise RuntimeError("llm exploded")
 
     captured = {}
 
@@ -225,6 +196,7 @@ def test_build_post_report_sanitizes_internal_error(monkeypatch):
         return SimpleNamespace(id=91)
 
     monkeypatch.setattr(reporting, "upsert_report", _fake_upsert_report)
+    monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _broken_v2)
     monkeypatch.setattr(
         reporting,
         "_post_report_readiness",
@@ -235,7 +207,7 @@ def test_build_post_report_sanitizes_internal_error(monkeypatch):
         reporting.build_post_report(
             session,
             post_id=11,
-            report_project=_BrokenProject(),
+            report_project=SimpleNamespace(),
         )
     )
 
@@ -329,9 +301,37 @@ def test_build_post_report_persists_input_signature(monkeypatch):
         ]
     )
 
-    class _Project:
-        async def generate_post_report_payload(self, **kwargs):
-            return {"status": "ready", "title": "ok", "summary": "done"}
+    async def _fake_generate_v2(**kwargs):
+        return {
+            "type": "post_report_v2",
+            "status": "ready",
+            "post_id": 11,
+            "published_at": "2026-03-11T12:00:00+00:00",
+            "title": "ok",
+            "summary": "done",
+            "comment_count": 1,
+            "sentiment": {
+                "dominant": "neutral",
+                "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+            },
+            "topics": [],
+            "clusters": [],
+            "time_trends": [],
+            "risks": [],
+            "anomalies": [],
+            "representative_quotes": [],
+            "confidence": {"overall": "medium", "reason": "ok"},
+            "meta": {
+                "multi_agent": {
+                    "epistemic_labels": [],
+                    "sufficiency": "sufficient",
+                    "stages": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
+                    "review_iterations": 1,
+                    "final_status": "ready",
+                    "orchestration": {"sequence": ["context", "routing", "expert", "public_opinion", "synthesis"]},
+                }
+            },
+        }
 
     captured = {}
 
@@ -340,6 +340,7 @@ def test_build_post_report_persists_input_signature(monkeypatch):
         return SimpleNamespace(id=92)
 
     monkeypatch.setattr(reporting, "upsert_report", _fake_upsert_report)
+    monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _fake_generate_v2)
     monkeypatch.setattr(
         reporting,
         "_post_report_readiness",
@@ -350,7 +351,7 @@ def test_build_post_report_persists_input_signature(monkeypatch):
         reporting.build_post_report(
             session,
             post_id=11,
-            report_project=_Project(),
+            report_project=SimpleNamespace(),
         )
     )
 
@@ -376,29 +377,38 @@ def test_build_post_report_marks_status_failed_for_valid_failed_payload(monkeypa
         ]
     )
 
-    class _Project:
-        async def generate_post_report_payload(self, **kwargs):
-            return {
-                "type": "post_report_v2",
-                "status": "failed",
-                "post_id": 11,
-                "title": "fallback",
-                "summary": "fallback",
-                "comment_count": 1,
-                "sentiment": {
-                    "dominant": "neutral",
-                    "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
-                    "confidence": "low",
+    async def _fake_generate_v2(**kwargs):
+        return {
+            "type": "post_report_v2",
+            "status": "failed",
+            "post_id": 11,
+            "title": "fallback",
+            "summary": "fallback",
+            "comment_count": 1,
+            "sentiment": {
+                "dominant": "neutral",
+                "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+                "confidence": "low",
+            },
+            "topics": [],
+            "clusters": [],
+            "time_trends": [],
+            "risks": [],
+            "anomalies": ["model_output_invalid"],
+            "representative_quotes": [],
+            "confidence": {"overall": "low", "reason": "model_output_invalid"},
+            "meta": {
+                "validation_error": "bad output",
+                "multi_agent": {
+                    "epistemic_labels": [],
+                    "sufficiency": "insufficient",
+                    "stages": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
+                    "review_iterations": 1,
+                    "final_status": "failed",
+                    "orchestration": {"sequence": ["context", "routing", "expert", "public_opinion", "synthesis"]},
                 },
-                "topics": [],
-                "clusters": [],
-                "time_trends": [],
-                "risks": [],
-                "anomalies": ["model_output_invalid"],
-                "representative_quotes": [],
-                "confidence": {"overall": "low", "reason": "model_output_invalid"},
-                "meta": {"validation_error": "bad output"},
-            }
+            },
+        }
 
     captured = {}
 
@@ -407,6 +417,7 @@ def test_build_post_report_marks_status_failed_for_valid_failed_payload(monkeypa
         return SimpleNamespace(id=93)
 
     monkeypatch.setattr(reporting, "upsert_report", _fake_upsert_report)
+    monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _fake_generate_v2)
     monkeypatch.setattr(
         reporting,
         "_post_report_readiness",
@@ -417,7 +428,7 @@ def test_build_post_report_marks_status_failed_for_valid_failed_payload(monkeypa
         reporting.build_post_report(
             session,
             post_id=11,
-            report_project=_Project(),
+            report_project=SimpleNamespace(),
         )
     )
 
@@ -445,29 +456,37 @@ def test_build_post_report_persists_non_ready_reviewer_downgrade_without_job_fai
         ]
     )
 
-    class _Project:
-        async def generate_post_report_payload(self, **kwargs):
-            return {
-                "type": "post_report_v2",
-                "status": "insufficient_data",
-                "post_id": 11,
-                "title": "fallback",
-                "summary": "fallback",
-                "comment_count": 1,
-                "sentiment": {
-                    "dominant": "neutral",
-                    "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
-                    "confidence": "low",
-                },
-                "topics": [],
-                "clusters": [],
-                "time_trends": [],
-                "risks": [],
-                "anomalies": [],
-                "representative_quotes": [],
-                "confidence": {"overall": "low", "reason": "insufficient_data"},
-                "meta": {"multi_agent": {"final_status": "insufficient_data", "review_iterations": 2}},
-            }
+    async def _fake_generate_v2(**kwargs):
+        return {
+            "type": "post_report_v2",
+            "status": "insufficient_data",
+            "post_id": 11,
+            "title": "fallback",
+            "summary": "fallback",
+            "comment_count": 1,
+            "sentiment": {
+                "dominant": "neutral",
+                "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+                "confidence": "low",
+            },
+            "topics": [],
+            "clusters": [],
+            "time_trends": [],
+            "risks": [],
+            "anomalies": [],
+            "representative_quotes": [],
+            "confidence": {"overall": "low", "reason": "insufficient_data"},
+            "meta": {
+                "multi_agent": {
+                    "epistemic_labels": [],
+                    "sufficiency": "insufficient",
+                    "stages": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
+                    "review_iterations": 2,
+                    "final_status": "insufficient_data",
+                    "orchestration": {"sequence": ["context", "routing", "expert", "public_opinion", "synthesis"]},
+                }
+            },
+        }
 
     captured = {}
 
@@ -476,6 +495,7 @@ def test_build_post_report_persists_non_ready_reviewer_downgrade_without_job_fai
         return SimpleNamespace(id=94)
 
     monkeypatch.setattr(reporting, "upsert_report", _fake_upsert_report)
+    monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _fake_generate_v2)
     monkeypatch.setattr(
         reporting,
         "_post_report_readiness",
@@ -486,7 +506,7 @@ def test_build_post_report_persists_non_ready_reviewer_downgrade_without_job_fai
         reporting.build_post_report(
             session,
             post_id=11,
-            report_project=_Project(),
+            report_project=SimpleNamespace(),
         )
     )
 
@@ -497,21 +517,47 @@ def test_build_post_report_persists_non_ready_reviewer_downgrade_without_job_fai
     assert captured["report_json"]["status"] == "insufficient_data"
 
 
-def test_build_event_report_draft_returns_draft_status_when_no_post_reports():
-    event = SimpleNamespace(id=5, title="Event")
-    session = _FakeSession(
-        get_map={("Event", 5): event},
-        execute_results=[
-            _FakeRowsResult([]),
-            _FakeRowsResult([]),
-            _FakeScalarResult(2),
-        ],
-    )
+def test_build_event_report_draft_persists_v2_payload_when_input_is_insufficient(monkeypatch):
+    session = _FakeSession(execute_results=[_FakeScalarResult(2)])
+
+    async def _fake_build_event_report_v2_impl(*, session, event_id):
+        assert event_id == 5
+        return {
+            "type": "event_report_v2",
+            "status": "insufficient_data",
+            "event_id": 5,
+            "event_title": "Event",
+            "posts_count": 0,
+            "source_post_reports": [],
+            "sentiment": {
+                "dominant": "neutral",
+                "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+            },
+            "cross_post_topics": [],
+            "post_dynamics": [],
+            "event_trends": [],
+            "risks": [],
+            "anomalies": [],
+            "summary": "insufficient",
+            "confidence": {"overall": "low", "reason": "insufficient"},
+            "meta": {
+                "multi_agent": {
+                    "epistemic_labels": [],
+                    "sufficiency": "insufficient",
+                    "stages": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
+                    "review_iterations": 1,
+                    "final_status": "insufficient_data",
+                    "orchestration": {"sequence": ["context", "routing", "expert", "public_opinion", "synthesis"]},
+                }
+            },
+        }
+
+    monkeypatch.setattr(reporting, "build_event_report_v2_impl", _fake_build_event_report_v2_impl)
 
     result = asyncio.run(reporting.build_event_report_draft(session, event_id=5))
 
-    assert result == {"status": "draft", "event_id": 5, "report_id": 1}
-    assert session.added[0].report_json["status"] == "draft"
+    assert result == {"status": "insufficient_data", "event_id": 5, "report_id": 1}
+    assert session.added[0].report_json["status"] == "insufficient_data"
     assert session.added[0].report_json["type"] == "event_report_v2"
 
 
@@ -535,29 +581,47 @@ def test_build_process_report_draft_returns_draft_status_when_no_event_reports()
     assert session.added[0].report_json["type"] == "process_report_v2"
 
 
-def test_build_event_report_draft_defers_when_dependencies_are_not_ready(monkeypatch):
-    event = SimpleNamespace(id=7, title="Event")
-    session = _FakeSession(get_map={("Event", 7): event})
+def test_build_event_report_draft_uses_v2_bridge(monkeypatch):
+    session = _FakeSession(execute_results=[_FakeScalarResult(None)])
 
-    async def _fake_readiness(_session, *, event_id):
+    async def _fake_build_event_report_v2_impl(*, session, event_id):
         assert event_id == 7
         return {
-            "ready": False,
-            "reason": "waiting_post_reports",
-            "total_posts": 4,
-            "ready_post_reports": 1,
-            "dependencies": [{"job_type": "build_post_report", "post_id": 11, "reason": "waiting_post_reports"}],
+            "type": "event_report_v2",
+            "status": "ready",
+            "event_id": 7,
+            "event_title": "Event",
+            "posts_count": 2,
+            "source_post_reports": [201, 202],
+            "sentiment": {
+                "dominant": "neutral",
+                "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+            },
+            "cross_post_topics": [],
+            "post_dynamics": [],
+            "event_trends": [],
+            "risks": [],
+            "anomalies": [],
+            "summary": "ok",
+            "confidence": {"overall": "high", "reason": "ok"},
+            "meta": {
+                "multi_agent": {
+                    "epistemic_labels": [],
+                    "sufficiency": "sufficient",
+                    "stages": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
+                    "review_iterations": 1,
+                    "final_status": "ready",
+                    "orchestration": {"sequence": ["context", "routing", "expert", "public_opinion", "synthesis"]},
+                }
+            },
         }
 
-    monkeypatch.setattr(reporting, "_event_report_readiness", _fake_readiness)
+    monkeypatch.setattr(reporting, "build_event_report_v2_impl", _fake_build_event_report_v2_impl)
 
     result = asyncio.run(reporting.build_event_report_draft(session, event_id=7))
 
-    assert result["status"] == reporting.REPORT_STATUS_DEFERRED
-    assert result["event_id"] == 7
-    assert result["reason"] == "waiting_post_reports"
-    assert result["dependencies"] == [{"job_type": "build_post_report", "post_id": 11, "reason": "waiting_post_reports"}]
-    assert session.added == []
+    assert result == {"status": "ready", "event_id": 7, "report_id": 1}
+    assert session.added[0].report_json["meta"]["multi_agent"]["final_status"] == "ready"
 
 
 def test_build_process_report_draft_defers_when_dependencies_are_not_ready(monkeypatch):
@@ -898,3 +962,5 @@ def test_failed_post_report_payload_remains_schema_compatible():
 
     assert validated.status == "failed"
     assert validated.meta["validation_error"] == "bad output"
+
+

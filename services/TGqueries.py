@@ -116,6 +116,68 @@ def _legacy_comment_peer_id(channel_id: int) -> int:
     return int(channel_id)
 
 
+def _thread_entity_debug_fields(entity: object | None) -> dict[str, object | None]:
+    if entity is None:
+        return {
+            "entity_type": None,
+            "entity_id": None,
+            "entity_username": None,
+            "entity_title": None,
+            "entity_broadcast": None,
+            "entity_megagroup": None,
+            "entity_gigagroup": None,
+            "entity_forum": None,
+            "entity_access_hash_present": None,
+        }
+    access_hash = getattr(entity, "access_hash", None)
+    return {
+        "entity_type": type(entity).__name__,
+        "entity_id": getattr(entity, "id", None),
+        "entity_username": getattr(entity, "username", None),
+        "entity_title": getattr(entity, "title", None),
+        "entity_broadcast": getattr(entity, "broadcast", None),
+        "entity_megagroup": getattr(entity, "megagroup", None),
+        "entity_gigagroup": getattr(entity, "gigagroup", None),
+        "entity_forum": getattr(entity, "forum", None),
+        "entity_access_hash_present": bool(access_hash),
+    }
+
+
+def _filter_top_level_candidates(
+    items: list[object],
+    *,
+    root_id: int,
+    post_date: datetime,
+) -> tuple[list[object], dict[str, int]]:
+    filtered: list[object] = []
+    no_date = 0
+    too_old = 0
+    root_echo = 0
+
+    threshold = post_date - timedelta(days=1)
+    for item in items:
+        item_date = getattr(item, "date", None)
+        item_id = getattr(item, "id", None)
+        if item_date is None:
+            no_date += 1
+            continue
+        if item_date < threshold:
+            too_old += 1
+            continue
+        if item_id == root_id:
+            root_echo += 1
+            continue
+        filtered.append(item)
+
+    return filtered, {
+        "raw": len(items),
+        "kept": len(filtered),
+        "dropped_no_date": no_date,
+        "dropped_too_old": too_old,
+        "dropped_root_echo": root_echo,
+    }
+
+
 async def _load_persisted_comment_snapshot_metrics(session: AsyncSession, *, post_id: int) -> tuple[int, int, int]:
     rows = (
         await session.execute(
@@ -475,6 +537,8 @@ async def _load_top_level_thread_comments(
         discussion_chat_roots,
         source_entity_roots,
     )
+    discussion_debug = _thread_entity_debug_fields(discussion_chat)
+    source_debug = _thread_entity_debug_fields(entity)
 
     # 1) linked discussion chat: only discussion_root.id
     for root_id in discussion_chat_roots:
@@ -496,6 +560,18 @@ async def _load_top_level_thread_comments(
                 discussion_source_msg_id,
             )
             items = []
+        except RPCError as exc:
+            scan_errors += 1
+            logger.warning(
+                "top-level scan rpc_error in discussion chat root_id=%s chat_id=%s discussion_msg_id=%s discussion_source_msg_id=%s err_type=%s err=%r",
+                root_id,
+                getattr(discussion_chat, "id", None),
+                discussion_msg_id,
+                discussion_source_msg_id,
+                type(exc).__name__,
+                exc,
+            )
+            items = []
         except Exception:
             scan_errors += 1
             logger.exception(
@@ -512,18 +588,32 @@ async def _load_top_level_thread_comments(
         )
 
         # sanity filter: comments must not be older than the post itself
-        filtered = [
-            c for c in items
-            if getattr(c, "date", None) is not None
-            and c.date >= post_date - timedelta(days=1)
-            and getattr(c, "id", None) != root_id
-        ]
+        filtered, filter_stats = _filter_top_level_candidates(items, root_id=root_id, post_date=post_date)
 
         logger.debug(
-            "top-level scan discussion_chat root_id=%s filtered=%s",
+            "top-level scan discussion_chat root_id=%s filtered=%s dropped_no_date=%s dropped_too_old=%s dropped_root_echo=%s",
             root_id,
-            len(filtered),
+            filter_stats["kept"],
+            filter_stats["dropped_no_date"],
+            filter_stats["dropped_too_old"],
+            filter_stats["dropped_root_echo"],
         )
+
+        if items and not filtered:
+            logger.warning(
+                "top-level scan returned only non-persistable items in discussion chat "
+                "root_id=%s raw=%s dropped_no_date=%s dropped_too_old=%s dropped_root_echo=%s "
+                "discussion_msg_id=%s discussion_source_msg_id=%s post_date=%s discussion_chat=%s",
+                root_id,
+                filter_stats["raw"],
+                filter_stats["dropped_no_date"],
+                filter_stats["dropped_too_old"],
+                filter_stats["dropped_root_echo"],
+                discussion_msg_id,
+                discussion_source_msg_id,
+                post_date.isoformat() if isinstance(post_date, datetime) else post_date,
+                discussion_debug,
+            )
 
         if filtered:
             return discussion_chat, root_id, filtered
@@ -538,6 +628,17 @@ async def _load_top_level_thread_comments(
                 successful_source_scans += 1
             except FloodWaitError:
                 raise
+            except RPCError as exc:
+                scan_errors += 1
+                logger.warning(
+                    "top-level scan rpc_error in source entity root_id=%s discussion_msg_id=%s discussion_source_msg_id=%s err_type=%s err=%r",
+                    root_id,
+                    discussion_msg_id,
+                    discussion_source_msg_id,
+                    type(exc).__name__,
+                    exc,
+                )
+                items = []
             except Exception:
                 scan_errors += 1
                 logger.exception(
@@ -552,18 +653,31 @@ async def _load_top_level_thread_comments(
                 len(items),
             )
 
-            filtered = [
-                c for c in items
-                if getattr(c, "date", None) is not None
-                and c.date >= post_date - timedelta(days=1)
-                and getattr(c, "id", None) != root_id
-            ]
+            filtered, filter_stats = _filter_top_level_candidates(items, root_id=root_id, post_date=post_date)
 
             logger.debug(
-                "top-level scan source entity root_id=%s filtered=%s",
+                "top-level scan source entity root_id=%s filtered=%s dropped_no_date=%s dropped_too_old=%s dropped_root_echo=%s",
                 root_id,
-                len(filtered),
+                filter_stats["kept"],
+                filter_stats["dropped_no_date"],
+                filter_stats["dropped_too_old"],
+                filter_stats["dropped_root_echo"],
             )
+
+            if items and not filtered:
+                logger.warning(
+                    "source fallback scan returned only non-persistable items "
+                    "root_id=%s raw=%s dropped_no_date=%s dropped_too_old=%s dropped_root_echo=%s "
+                    "discussion_msg_id=%s discussion_source_msg_id=%s source_entity=%s",
+                    root_id,
+                    filter_stats["raw"],
+                    filter_stats["dropped_no_date"],
+                    filter_stats["dropped_too_old"],
+                    filter_stats["dropped_root_echo"],
+                    discussion_msg_id,
+                    discussion_source_msg_id,
+                    source_debug,
+                )
 
             if filtered:
                 return entity, root_id, filtered
@@ -575,11 +689,19 @@ async def _load_top_level_thread_comments(
         return entity, source_entity_roots[0], []
 
     logger.warning(
-        "top-level thread comments could not be confirmed discussion_msg_id=%s discussion_source_msg_id=%s discussion_root_id=%s scan_errors=%s",
+        "top-level thread comments could not be confirmed discussion_msg_id=%s discussion_source_msg_id=%s discussion_root_id=%s "
+        "scan_errors=%s successful_discussion_scans=%s successful_source_scans=%s discussion_chat_invalid_root=%s "
+        "discussion_chat=%s source_entity=%s telegram_head_msg_id=%s",
         discussion_msg_id,
         discussion_source_msg_id,
         discussion_root_id,
         scan_errors,
+        successful_discussion_scans,
+        successful_source_scans,
+        discussion_chat_invalid_root,
+        discussion_debug,
+        source_debug,
+        getattr(head_msg, "id", None) if head_msg is not None else None,
     )
     return None, None, []
 
@@ -942,6 +1064,17 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                     comment_status="unavailable",
                     reason="discussion_not_resolved_with_positive_replies",
                 )
+                logger.warning(
+                    "discussion not resolved despite positive replies post_id=%s tg_message_id=%s telegram_replies_count=%s "
+                    "entity=%s grouped_id=%s fallback_window=%s fallback_max_seconds=%s",
+                    post.id,
+                    post.tg_message_id,
+                    telegram_replies_count,
+                    _thread_entity_debug_fields(entity),
+                    getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
+                    discussion_fallback_id_window,
+                    discussion_fallback_max_seconds,
+                )
                 return {
                     "status": "discussion_error",
                     "post_id": post_id,
@@ -1044,6 +1177,16 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
     k = 0
     seen_comment_ids: set[tuple[int, int]] = set()
     persisted_comment_keys: set[tuple[int, int]] = set()
+    top_level_seen = 0
+    top_level_skipped_duplicate = 0
+    top_level_skipped_no_date = 0
+    top_level_skipped_bot = 0
+    top_level_existing_rows_reused = 0
+    nested_seen = 0
+    nested_skipped_duplicate = 0
+    nested_skipped_no_date = 0
+    nested_skipped_bot = 0
+    nested_existing_rows_reused = 0
 
     thread_entity, top_level_root_id, top_level_comments = await _load_top_level_thread_comments(
     tg_client=tg_client,
@@ -1063,11 +1206,14 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             reason="discussion_resolved_but_top_level_thread_unconfirmed",
         )
         logger.warning(
-            "no top-level thread comments resolved post_id=%s discussion_msg_id=%s discussion_root_id=%s telegram_replies_count=%s",
+            "no top-level thread comments resolved post_id=%s discussion_msg_id=%s discussion_root_id=%s "
+            "telegram_replies_count=%s discussion_chat=%s source_entity=%s",
             post.id,
             discussion_msg_id,
             getattr(discussion_root, "id", None),
             telegram_replies_count,
+            _thread_entity_debug_fields(discussion_chat),
+            _thread_entity_debug_fields(entity),
         )
         return {
             "status": "discussion_error",
@@ -1090,13 +1236,16 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
     try:
         # Сначала сохраняем top-level comments
         for c in top_level_comments:
+            top_level_seen += 1
             comment_key = (active_comment_peer_id, int(c.id))
             if comment_key in seen_comment_ids:
+                top_level_skipped_duplicate += 1
                 continue
             seen_comment_ids.add(comment_key)
             k += 1
 
             if c.date is None:
+                top_level_skipped_no_date += 1
                 continue
 
             author_id = None
@@ -1121,6 +1270,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 author_username = getattr(sender, "username", None)
 
             if is_bot:
+                top_level_skipped_bot += 1
                 continue
 
             commenter_key = _build_commenter_key(author_id, author_username)
@@ -1157,6 +1307,8 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                 tg_to_comment_id[comment_key] = saved_comment.id
                 tg_to_depth[comment_key] = 0
                 comments_saved += 1
+            else:
+                top_level_existing_rows_reused += 1
             persisted_comment_keys.add(comment_key)
 
             comment_replies_obj = getattr(c, "replies", None)
@@ -1173,13 +1325,16 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
             parent_tg_message_id, parent_depth = queue.popleft()
 
             async for c in tg_client.iter_messages(thread_entity, reply_to=parent_tg_message_id):
+                nested_seen += 1
                 comment_key = (active_comment_peer_id, int(c.id))
                 if comment_key in seen_comment_ids:
+                    nested_skipped_duplicate += 1
                     continue
                 seen_comment_ids.add(comment_key)
                 k += 1
 
                 if c.date is None:
+                    nested_skipped_no_date += 1
                     continue
 
                 author_id = None
@@ -1203,6 +1358,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                     author_username = getattr(sender, "username", None)
 
                 if is_bot:
+                    nested_skipped_bot += 1
                     continue
 
                 reply_to = getattr(c, "reply_to", None)
@@ -1246,6 +1402,8 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
                     tg_to_comment_id[comment_key] = saved_comment.id
                     tg_to_depth[comment_key] = depth
                     comments_saved += 1
+                else:
+                    nested_existing_rows_reused += 1
                 persisted_comment_keys.add(comment_key)
 
                 comment_replies_obj = getattr(c, "replies", None)
@@ -1398,12 +1556,31 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         )
         logger.warning(
             "comments scan produced zero persisted rows despite positive telegram replies "
-            "post_id=%s discussion_msg_id=%s discussion_source_msg_id=%s telegram_replies_count=%s grouped_id=%s",
+            "post_id=%s discussion_msg_id=%s discussion_source_msg_id=%s telegram_replies_count=%s grouped_id=%s "
+            "thread_entity_type=%s thread_entity_id=%s top_level_comments=%s top_level_seen=%s "
+            "top_level_skipped_duplicate=%s top_level_skipped_no_date=%s top_level_skipped_bot=%s "
+            "top_level_existing_rows_reused=%s nested_seen=%s nested_skipped_duplicate=%s nested_skipped_no_date=%s "
+            "nested_skipped_bot=%s nested_existing_rows_reused=%s comments_scanned=%s comments_with_visible_reactions=%s",
             post.id,
             discussion_msg_id,
             discussion_source_msg_id,
             telegram_replies_count,
             getattr(head_msg, "grouped_id", None) if head_msg is not None else None,
+            thread_entity_type,
+            getattr(thread_entity, "id", None),
+            len(top_level_comments),
+            top_level_seen,
+            top_level_skipped_duplicate,
+            top_level_skipped_no_date,
+            top_level_skipped_bot,
+            top_level_existing_rows_reused,
+            nested_seen,
+            nested_skipped_duplicate,
+            nested_skipped_no_date,
+            nested_skipped_bot,
+            nested_existing_rows_reused,
+            comments_scanned,
+            comments_with_visible_reactions,
         )
         return {
             "status": "discussion_error",

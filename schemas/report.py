@@ -29,6 +29,15 @@ class ConfidenceSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class PublicModelInfo(BaseModel):
+    provider: str | None = None
+    model: str | None = None
+    latency_ms: int | None = Field(default=None, ge=0)
+    fallback_used: bool | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class TopicSummary(BaseModel):
     name: str
     share: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -94,7 +103,7 @@ class AudienceStance(BaseModel):
 
 class PostReportPayload(BaseModel):
     type: Literal["post_report_v2"] = "post_report_v2"
-    status: Literal["ready", "limited", "insufficient_data", "skipped_min_comments", "failed"] = "ready"
+    status: Literal["ready", "limited", "insufficient_data", "failed"] = "ready"
     post_id: int
     published_at: str | None = None
     title: str
@@ -112,6 +121,7 @@ class PostReportPayload(BaseModel):
     reactions_coverage: ReactionsCoverage = Field(default_factory=ReactionsCoverage)
     audience_stance: AudienceStance = Field(default_factory=AudienceStance)
     confidence: ConfidenceSummary = Field(default_factory=ConfidenceSummary)
+    model_info: PublicModelInfo | None = None
     meta: dict = Field(default_factory=dict)
 
     model_config = ConfigDict(extra="forbid")
@@ -165,3 +175,15 @@ class ReportOut(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ReportTraceOut(BaseModel):
+    entity_type: Literal["post", "event"]
+    entity_id: int
+    report_id: int
+    version: int | None = None
+    status: str
+    trace: dict
+    created_at: datetime
+
+    model_config = ConfigDict(extra="forbid")

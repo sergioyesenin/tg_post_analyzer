@@ -65,6 +65,12 @@ def test_sanitize_public_report_json_strips_only_multi_agent_meta():
         "status": "ready",
         "summary": "summary",
         "topics": [{"name": "topic"}],
+        "model_info": {
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "latency_ms": 120,
+            "fallback_used": False,
+        },
         "meta": {
             "generated_at": "2026-04-13T10:00:00Z",
             "multi_agent": {"trace_id": "abc", "steps": [{"agent": "critic"}]},
@@ -77,11 +83,42 @@ def test_sanitize_public_report_json_strips_only_multi_agent_meta():
         "status": "ready",
         "summary": "summary",
         "topics": [{"name": "topic"}],
+        "model_info": {
+            "provider": "openai",
+            "model": "gpt-4o-mini",
+            "latency_ms": 120,
+            "fallback_used": False,
+        },
         "meta": {
             "generated_at": "2026-04-13T10:00:00Z",
         },
     }
     assert payload["meta"]["multi_agent"]["trace_id"] == "abc"
+
+
+def test_sanitize_public_report_json_keeps_non_internal_meta_and_top_level_model_info() -> None:
+    payload = {
+        "status": "limited",
+        "summary": "summary",
+        "model_info": {"provider": "openai", "model": "gpt-4o-mini"},
+        "meta": {
+            "generated_at": "2026-04-13T10:00:00Z",
+            "refresh_attempt": {"source": "refresh_comments"},
+            "multi_agent": {"trace_id": "internal"},
+        },
+    }
+
+    sanitized = sanitize_public_report_json(payload)
+
+    assert sanitized == {
+        "status": "limited",
+        "summary": "summary",
+        "model_info": {"provider": "openai", "model": "gpt-4o-mini"},
+        "meta": {
+            "generated_at": "2026-04-13T10:00:00Z",
+            "refresh_attempt": {"source": "refresh_comments"},
+        },
+    }
 
 
 def test_get_report_omits_multi_agent_meta_from_public_payload():
@@ -98,6 +135,7 @@ def test_get_report_omits_multi_agent_meta_from_public_payload():
             "status": "ready",
             "summary": "public summary",
             "topics": [{"name": "alpha"}],
+            "model_info": {"provider": "openai", "model": "gpt-4o-mini"},
             "meta": {
                 "generated_at": "2026-04-13T10:00:00Z",
                 "multi_agent": {"trace_id": "internal"},
@@ -119,6 +157,7 @@ def test_get_report_omits_multi_agent_meta_from_public_payload():
         "status": "ready",
         "summary": "public summary",
         "topics": [{"name": "alpha"}],
+        "model_info": {"provider": "openai", "model": "gpt-4o-mini"},
         "meta": {"generated_at": "2026-04-13T10:00:00Z"},
     }
 
@@ -155,6 +194,7 @@ def test_event_and_process_details_omit_internal_trace_payloads(monkeypatch):
             "status": "ready",
             "summary": "event summary",
             "cross_post_topics": [{"name": "incident"}],
+            "model_info": {"provider": "openai", "model": "gpt-4o-mini"},
             "meta": {"multi_agent": {"trace_id": "event-internal"}},
         },
         created_at=now,
@@ -167,6 +207,7 @@ def test_event_and_process_details_omit_internal_trace_payloads(monkeypatch):
             "status": "ready",
             "summary": "process summary",
             "stage_analysis": [{"main_topics": ["escalation"]}],
+            "model_info": {"provider": "openai", "model": "gpt-4o-mini"},
             "meta": {"multi_agent": {"trace_id": "process-internal"}},
         },
         created_at=now,
@@ -214,6 +255,7 @@ def test_event_and_process_details_omit_internal_trace_payloads(monkeypatch):
         "status": "ready",
         "summary": "event summary",
         "cross_post_topics": [{"name": "incident"}],
+        "model_info": {"provider": "openai", "model": "gpt-4o-mini"},
     }
 
     app.dependency_overrides[linking.get_session] = _fake_get_process_session
@@ -223,4 +265,5 @@ def test_event_and_process_details_omit_internal_trace_payloads(monkeypatch):
         "status": "ready",
         "summary": "process summary",
         "stage_analysis": [{"main_topics": ["escalation"]}],
+        "model_info": {"provider": "openai", "model": "gpt-4o-mini"},
     }

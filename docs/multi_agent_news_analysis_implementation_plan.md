@@ -626,3 +626,39 @@ Resolution: rollout status expansion only as coordinated backend/frontend/downst
 Gap: Downstream readiness assumes deterministic child reports
 
 Resolution: explicitly remap new post-report statuses into dependency readiness rules.
+
+## MA-008 Acceptance Matrix and Runbook (Implemented)
+
+Status policy used by current tests:
+- `ready|limited|insufficient_data|failed` for public/post semantics.
+
+Acceptance matrix (explicit test coverage):
+1. full sufficient
+- Expected: `status=ready`, context sufficiency components show `article=sufficient`, `comment=sufficient`, retrieval trace is `status=none`.
+- Tests: `tests/test_reporting_v2_post.py::test_acceptance_matrix_full_sufficient`
+
+2. weak-signal comments
+- Expected: `status=limited`, context `comment=weak_signal`, analytical sufficiency is limited, reviewer decision is `accept_with_limitations`.
+- Tests: `tests/test_reporting_v2_post.py::test_acceptance_matrix_weak_signal_comments`
+
+3. retrieval-required failure (provider absent)
+- Expected: non-ready status, retrieval trace `required=true`, `used=false`, `status=failed`, no fabricated `external` epistemic claims.
+- Tests: `tests/test_reporting_v2_post.py::test_acceptance_matrix_retrieval_required_failure`, `tests/test_reporting_v2_event.py::test_build_event_report_v2_impl_emits_multi_agent_trace_with_event_input_mode`
+
+4. schema-valid partial fallback
+- Expected: `status=limited`, payload remains schema-valid, trace contains reviewer rerun history and final `accept_with_limitations`.
+- Tests: `tests/test_reporting_v2_post.py::test_acceptance_matrix_schema_valid_partial_fallback`, `tests/test_reporting_v2_contracts.py::test_acceptance_matrix_schema_valid_partial_fallback_contract`
+
+5. terminal insufficient_data
+- Expected: `status=insufficient_data`, reviewer loop exhausted at max iterations, terminal decision stored in trace history.
+- Tests: `tests/test_reporting_v2_post.py::test_acceptance_matrix_terminal_insufficient_data`, `tests/test_reporting_v2_event.py::test_build_event_report_v2_reviewer_loop_caps_at_two_on_synthesis_failure`
+
+Runbook (quick verification):
+1. Execute focused suite:
+- `py -m pytest -q tests\\test_reporting_v2_post.py tests\\test_reporting_v2_event.py tests\\test_reporting_v2_contracts.py tests\\test_reporting_semantics.py`
+2. If retrieval-required scenarios become `ready`, treat as regression:
+- check retrieval trace (`required`, `used`, `status`, `sources`);
+- confirm no `external` epistemic claims are emitted without retrieval evidence.
+3. If partial fallback fails schema:
+- validate `meta.multi_agent` via `validate_multi_agent_meta`;
+- confirm review history and final status mapping are present.

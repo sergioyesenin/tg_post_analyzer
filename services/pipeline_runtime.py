@@ -16,7 +16,6 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from agents.reporter import get_report_project
 from client.telegram import (
     TelegramClientHandle,
     is_session_locked_error,
@@ -1161,7 +1160,6 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
     async with AsyncSessionLocal() as session:
         effective_settings = await get_all_settings(session)
 
-    report_project = get_report_project()
     report_config = report_config_from_settings(effective_settings)
     jobs_settings = effective_settings.get("jobs", {})
     ai_job_timeout_seconds = max(
@@ -1208,7 +1206,7 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
                     job_coro = build_post_report(
                         session,
                         post_id=int(payload.get("post_id")),
-                        report_project=report_project,
+                        report_project=None,
                         report_config=report_config,
                         job_timeout_seconds=ai_job_timeout_seconds,
                         rerun_stage=_extract_post_report_rerun_stage(payload),
@@ -1290,13 +1288,18 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
                         )
                     continue
 
-                if db_job.type == JobType.BUILD_POST_REPORT and result_status in {reporting_module.REPORT_STATUS_READY, "skipped_min_comments"}:
+                if db_job.type == JobType.BUILD_POST_REPORT and result_status == reporting_module.REPORT_STATUS_READY:
                     if result_status == reporting_module.REPORT_STATUS_READY:
                         await _mark_related_event_reports_stale(
                             session,
                             post_id=int(payload.get("post_id")),
                         )
-                elif db_job.type == JobType.BUILD_EVENT_REPORT and result_status in {reporting_module.REPORT_STATUS_READY, reporting_module.REPORT_STATUS_DRAFT}:
+                elif db_job.type == JobType.BUILD_EVENT_REPORT and result_status in {
+                    reporting_module.REPORT_STATUS_READY,
+                    reporting_module.REPORT_STATUS_LIMITED,
+                    reporting_module.REPORT_STATUS_INSUFFICIENT_DATA,
+                    reporting_module.REPORT_STATUS_DRAFT,
+                }:
                     await _mark_related_process_reports_stale(
                         session,
                         event_id=int(payload.get("event_id")),

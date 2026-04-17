@@ -159,6 +159,18 @@ def _report_job(*, job_type: str, payload: dict, job_id: int = 1):
     )
 
 
+def test_ai_job_types_do_not_include_internal_multi_agent_stage_jobs() -> None:
+    expected_types = {
+        "build_post_report",
+        "build_post_report_batch",
+        "build_event_report",
+        "build_process_report",
+    }
+    assert pipeline_runtime.AI_JOB_TYPES == expected_types
+    for forbidden in {"context", "routing", "retrieval", "expert", "public_opinion", "synthesis", "reviewer"}:
+        assert forbidden not in pipeline_runtime.AI_JOB_TYPES
+
+
 @pytest.mark.asyncio
 async def test_run_ai_jobs_processes_queued_build_post_report(monkeypatch: pytest.MonkeyPatch) -> None:
     settings_session = _FakeSession()
@@ -186,7 +198,7 @@ async def test_run_ai_jobs_processes_queued_build_post_report(monkeypatch: pytes
     async def _fake_build_post_report(session, *, post_id: int, report_project, report_config, job_timeout_seconds: int, rerun_stage: str | None):
         assert session is process_session
         assert post_id == 42
-        assert report_project == "fake-project"
+        assert report_project is None
         assert report_config == {"mode": "test"}
         assert job_timeout_seconds == 30
         assert rerun_stage is None
@@ -206,7 +218,6 @@ async def test_run_ai_jobs_processes_queued_build_post_report(monkeypatch: pytes
     )
     monkeypatch.setattr(pipeline_runtime, "get_all_settings", _fake_get_all_settings)
     monkeypatch.setattr(pipeline_runtime, "fetch_and_lock_jobs", _fake_fetch_and_lock_jobs)
-    monkeypatch.setattr(pipeline_runtime, "get_report_project", lambda: "fake-project")
     monkeypatch.setattr(pipeline_runtime, "report_config_from_settings", lambda _settings: {"mode": "test"})
     monkeypatch.setattr(pipeline_runtime, "build_post_report", _fake_build_post_report)
     monkeypatch.setattr(pipeline_runtime, "mark_job_done", _fake_mark_job_done)
@@ -257,7 +268,7 @@ async def test_run_ai_jobs_passes_internal_stage_rerun_without_creating_extra_jo
     async def _fake_build_post_report(session, *, post_id: int, report_project, report_config, job_timeout_seconds: int, rerun_stage: str | None):
         assert session is process_session
         assert post_id == 42
-        assert report_project == "fake-project"
+        assert report_project is None
         assert report_config == {"mode": "test"}
         assert job_timeout_seconds == 45
         assert rerun_stage == "synthesis"
@@ -277,7 +288,6 @@ async def test_run_ai_jobs_passes_internal_stage_rerun_without_creating_extra_jo
     )
     monkeypatch.setattr(pipeline_runtime, "get_all_settings", _fake_get_all_settings)
     monkeypatch.setattr(pipeline_runtime, "fetch_and_lock_jobs", _fake_fetch_and_lock_jobs)
-    monkeypatch.setattr(pipeline_runtime, "get_report_project", lambda: "fake-project")
     monkeypatch.setattr(pipeline_runtime, "report_config_from_settings", lambda _settings: {"mode": "test"})
     monkeypatch.setattr(pipeline_runtime, "build_post_report", _fake_build_post_report)
     monkeypatch.setattr(pipeline_runtime, "mark_job_done", _fake_mark_job_done)
@@ -339,7 +349,6 @@ async def test_run_ai_jobs_keeps_build_post_report_batch_passive(monkeypatch: py
     )
     monkeypatch.setattr(pipeline_runtime, "get_all_settings", _fake_get_all_settings)
     monkeypatch.setattr(pipeline_runtime, "fetch_and_lock_jobs", _fake_fetch_and_lock_jobs)
-    monkeypatch.setattr(pipeline_runtime, "get_report_project", lambda: "fake-project")
     monkeypatch.setattr(pipeline_runtime, "report_config_from_settings", lambda _settings: {"mode": "test"})
     monkeypatch.setattr(pipeline_runtime, "dispatch_post_report_batch", _unexpected_dispatch_post_report_batch)
 

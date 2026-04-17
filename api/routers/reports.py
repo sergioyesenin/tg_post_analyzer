@@ -23,7 +23,7 @@ from db.models import (
 )
 from api.public_report_boundary import to_public_report_out
 from schemas.query_params import CsvIntList, CsvStrList
-from schemas.report import ReportOut
+from schemas.report import ReportOut, ReportTraceOut
 from services.auth import AuthUser
 from services.jobs import build_report_request_dedupe_key, find_blocking_report_duplicate
 from services.orchestration import (
@@ -54,6 +54,18 @@ def _job_accepted_response(*, job_id: int, job_type: str) -> JSONResponse:
             }
         ),
     )
+
+
+def _extract_multi_agent_trace(report_json: dict | None) -> dict | None:
+    if not isinstance(report_json, dict):
+        return None
+    meta = report_json.get("meta")
+    if not isinstance(meta, dict):
+        return None
+    trace = meta.get("multi_agent")
+    if not isinstance(trace, dict):
+        return None
+    return trace
 
 
 def _duplicate_blocked_response() -> JSONResponse:
@@ -140,6 +152,64 @@ async def get_report(
         raise HTTPException(status_code=404, detail="Report not found")
 
     return to_public_report_out(report)
+
+
+@router.get("/post/{post_id}/trace", response_model=ReportTraceOut)
+async def get_post_report_trace(
+    post_id: int,
+    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(Report).where(Report.post_id == post_id).order_by(Report.created_at.desc(), Report.id.desc())
+    )
+    report = result.scalar_one_or_none()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    trace = _extract_multi_agent_trace(report.report_json)
+    if trace is None:
+        raise HTTPException(status_code=404, detail="Trace not found")
+
+    return ReportTraceOut(
+        entity_type="post",
+        entity_id=post_id,
+        report_id=report.id,
+        version=None,
+        status=report.status,
+        trace=trace,
+        created_at=report.created_at,
+    )
+
+
+@router.get("/events/{event_id}/trace", response_model=ReportTraceOut)
+async def get_event_report_trace(
+    event_id: int,
+    _: AuthUser = Depends(require_roles("admin", "analyst")),
+    session: AsyncSession = Depends(get_session),
+):
+    result = await session.execute(
+        select(EventReport)
+        .where(EventReport.event_id == event_id)
+        .order_by(EventReport.version.desc(), EventReport.id.desc())
+    )
+    report = result.scalar_one_or_none()
+    if not report:
+        raise HTTPException(status_code=404, detail="Event report not found")
+
+    trace = _extract_multi_agent_trace(report.report_json)
+    if trace is None:
+        raise HTTPException(status_code=404, detail="Trace not found")
+
+    return ReportTraceOut(
+        entity_type="event",
+        entity_id=event_id,
+        report_id=report.id,
+        version=report.version,
+        status=_event_process_report_status(report),
+        trace=trace,
+        created_at=report.created_at,
+    )
 
 
 @router.post("/post/{post_id}/update")

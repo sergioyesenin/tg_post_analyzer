@@ -4,18 +4,25 @@ import hashlib
 import json
 import math
 from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agents.reporter import ReportConfig, TgReportProject
 from db.models import Channel, Comment, Event, EventPost, EventReport, Job, Post, Process, ProcessEvent, ProcessReport, Report
+from schemas.report import PostReportPayload
 from services.jobs import JOB_STATUS_DONE, JobType
 from services.ingest import upsert_report
 from services.report_aggregation import build_event_report_payload, build_process_report_payload
+from services.settings_store import get_all_settings
+from services.reporting_v2 import (
+    build_event_report_v2_impl,
+    generate_post_report_payload_v2,
+    map_state_to_public_post_payload,
+    run_post_orchestrator_v2,
+)
 
 
-SKIPPED_MIN_COMMENTS_PREFIX = "STATUS: SKIPPED_MIN_COMMENTS"
 REPORT_GENERATION_FAILED_CONTENT = "STATUS: FAILED\nREASON: report_generation_failed"
 REPORT_STATUS_DRAFT = "draft"
 REPORT_STATUS_READY = "ready"
@@ -26,6 +33,98 @@ REPORT_STATUS_DEFERRED = "deferred_waiting_dependencies"
 REPORT_STATUS_STALE = "stale"
 POST_REPORT_REBUILD_PRIORITY = 40
 AGGREGATABLE_REPORT_STATUSES = {REPORT_STATUS_READY, REPORT_STATUS_LIMITED}
+DEFAULT_MIN_COMMENTS = 20
+
+
+def should_use_multi_agent_v2(
+    *,
+    post_id: int,
+    features: dict[str, Any] | None = None,
+) -> bool:
+    if not isinstance(features, dict):
+        return False
+
+    enabled = bool(features.get("multi_agent_mode_enabled", False))
+    if not enabled:
+        return False
+
+    try:
+        rollout_percent = int(features.get("multi_agent_rollout_percent", 0))
+    except (TypeError, ValueError):
+        return False
+    rollout_percent = max(0, min(rollout_percent, 100))
+    if rollout_percent <= 0:
+        return False
+    if rollout_percent >= 100:
+        return True
+
+    deterministic_bucket = abs(int(post_id)) % 100
+    return deterministic_bucket < rollout_percent
+
+
+def _is_multi_agent_shadow_mode_enabled(*, features: dict[str, Any] | None) -> bool:
+    if not isinstance(features, dict):
+        return False
+    return bool(features.get("multi_agent_shadow_mode_enabled", False))
+
+
+def _summary_preview(value: Any, *, max_len: int = 180) -> str:
+    if not isinstance(value, str):
+        return ""
+    normalized = " ".join(value.split())
+    return normalized[:max_len]
+
+
+def _build_shadow_compare_payload(*, legacy_payload: dict, v2_payload: dict) -> dict[str, Any]:
+    legacy_status = str(legacy_payload.get("status") or "")
+    v2_status = str(v2_payload.get("status") or "")
+    legacy_summary_preview = _summary_preview(legacy_payload.get("summary"))
+    v2_summary_preview = _summary_preview(v2_payload.get("summary"))
+    return {
+        "legacy_status": legacy_status,
+        "v2_status": v2_status,
+        "legacy_summary_preview": legacy_summary_preview,
+        "v2_summary_preview": v2_summary_preview,
+        "same_status": legacy_status == v2_status,
+        "same_summary": legacy_summary_preview == v2_summary_preview,
+    }
+
+
+async def _load_reporting_feature_flags(session: AsyncSession) -> dict[str, Any]:
+    try:
+        settings_payload = await get_all_settings(session)
+    except Exception:
+        return {}
+    features = settings_payload.get("features")
+    return features if isinstance(features, dict) else {}
+
+
+async def build_post_report_v2_payload_from_orchestrator(
+    *,
+    post_id: int,
+    published_at_iso: str,
+    post_text: str,
+    comments: list[str],
+    thread_comments: list[dict[str, Any]],
+    views: int | None,
+    rerun_stage: str | None,
+) -> dict:
+    state = await run_post_orchestrator_v2(
+        post_id=post_id,
+        published_at_iso=published_at_iso,
+        post_text=post_text,
+        comments=comments,
+        thread_comments=thread_comments,
+        views=views,
+        rerun_stage=rerun_stage,
+    )
+    payload = map_state_to_public_post_payload(
+        state=state,
+        post_id=post_id,
+        published_at_iso=published_at_iso,
+    )
+    validated = PostReportPayload.model_validate(payload)
+    return validated.model_dump(mode="python")
 
 
 def _build_dependency(job_type: str, *, entity_id: int, reason: str) -> dict:
@@ -208,94 +307,6 @@ def _trim_sentence(text: str | None, *, fallback: str) -> str:
     return value if value[-1] in ".!?" else f"{value}."
 
 
-def _build_emotional_background(payload: dict, *, sentiment_key: str = "sentiment") -> list[str]:
-    sentiment = payload.get(sentiment_key) or {}
-    distribution = sentiment.get("distribution") or {}
-    dominant = _sentiment_label_ru(sentiment.get("dominant"))
-    lines = [
-        (
-            f"В целом преобладает {dominant} тон. "
-            f"Распределение реакций: позитив {_share_to_percent(distribution.get('positive'))} / "
-            f"негатив {_share_to_percent(distribution.get('negative'))} / "
-            f"нейтрально {_share_to_percent(distribution.get('neutral'))}."
-        )
-    ]
-    summary = _clean_list_text(payload.get("summary"))
-    if summary:
-        lines.append(_trim_sentence(summary, fallback=""))
-    confidence_reason = _clean_list_text((payload.get("confidence") or {}).get("reason"))
-    if confidence_reason:
-        lines.append(_trim_sentence(confidence_reason, fallback=""))
-    risks = _collect_text_items(payload.get("risks"), limit=2)
-    if risks:
-        lines.append(f"В обсуждении также заметны спорные сигналы: {'; '.join(risks)}.")
-    return [line for line in lines if line]
-
-
-def _render_legacy_report_text(
-    payload: dict,
-    *,
-    title: str,
-    intro_label: str,
-    intro_fallback: str,
-    topics: list[str],
-    patterns: list[str],
-    examples: list[str],
-    conclusion_fallback: str,
-    sentiment_key: str = "sentiment",
-) -> str:
-    heading = _clean_list_text(title) or "Заголовок: Отчет"
-    intro = _trim_sentence(payload.get("summary"), fallback=intro_fallback)
-    emotional_background = _build_emotional_background(payload, sentiment_key=sentiment_key)
-    if not topics:
-        topics = ["Явно выраженные тематические линии в данных не выделяются."]
-    if not patterns:
-        patterns = ["Повторяющиеся паттерны выражены слабо, дискуссия выглядит относительно ровной."]
-    if not examples:
-        examples = ["Характерные тезисы в исходных данных выражены недостаточно явно для надежной выборки."]
-
-    risks = _collect_text_items(payload.get("risks"), limit=3)
-    anomalies = _collect_text_items(payload.get("anomalies"), limit=3)
-    conclusion_parts: list[str] = []
-    summary = _clean_list_text(payload.get("summary"))
-    if summary:
-        conclusion_parts.append(summary.rstrip("."))
-    if risks:
-        conclusion_parts.append(f"Среди заметных рисков и спорных моментов: {'; '.join(risks)}")
-    if anomalies:
-        conclusion_parts.append(f"Дополнительные сигналы: {'; '.join(anomalies)}")
-    conclusion = ". ".join(part for part in conclusion_parts if part).strip()
-    if conclusion:
-        conclusion = conclusion if conclusion.endswith(".") else f"{conclusion}."
-    else:
-        conclusion = conclusion_fallback
-
-    lines = [
-        f"Краткий анализ комментариев к {intro_label}",
-        "",
-        heading,
-        "",
-        "Общий эмоциональный фон",
-        *emotional_background,
-        "2. Основные направления мысли",
-        *[f"- {item}" for item in topics[:5]],
-        "3. Противоречия и спорные моменты",
-        *[f"- {item}" for item in patterns[:5]],
-        "4. Примеры характерных тезисов (для ориентира)",
-        *[f"- {item}" for item in examples[:5]],
-        "Итог",
-        conclusion,
-        "",
-        "8) Reactions и позиция аудитории",
-        _format_reactions_summary_line("Post reactions", payload.get("post_reactions") or {}),
-        _format_reactions_summary_line("Comment reactions", payload.get("comment_reactions") or {}),
-        _format_reactions_coverage_line(payload),
-        f"- Audience stance: {(payload.get('audience_stance') or {}).get('label') or 'unclear'} ({(payload.get('audience_stance') or {}).get('confidence') or 'low'}).",
-        f"- Обоснование stance: {_trim_sentence((payload.get('audience_stance') or {}).get('reason'), fallback='Позиция аудитории определена по сочетанию тональности комментариев и reactions coverage.')}",
-    ]
-    return "\n".join(lines).strip()
-
-
 def _signature_timestamp(value: datetime | None) -> str | None:
     if value is None:
         return None
@@ -422,194 +433,21 @@ async def _post_report_readiness(session: AsyncSession, *, post: Post) -> dict:
     }
 
 
-def _obsolete_render_post_report_text_v1(payload: dict) -> str:
-    lines = [
-        f"Заголовок: {payload.get('title') or 'Отчет по посту'}",
-        "",
-        f"Краткое резюме: {payload.get('summary') or 'Нет данных.'}",
-    ]
-    sentiment = payload.get("sentiment") or {}
-    distribution = sentiment.get("distribution") or {}
-    lines.extend(
-        [
-            "",
-            "Тональность:",
-            f"- Доминирующая: {sentiment.get('dominant') or 'neutral'}",
-            (
-                f"- Распределение: позитив {distribution.get('positive', 0)} / "
-                f"негатив {distribution.get('negative', 0)} / "
-                f"нейтрально {distribution.get('neutral', 0)}"
-            ),
-        ]
-    )
-    topics = [item.get("name") for item in payload.get("topics") or [] if isinstance(item, dict) and item.get("name")]
-    if topics:
-        lines.extend(["", "Темы:", *[f"- {topic}" for topic in topics[:5]]])
-    risks = [item for item in payload.get("risks") or [] if isinstance(item, str) and item.strip()]
-    if risks:
-        lines.extend(["", "Риски:", *[f"- {item}" for item in risks[:5]]])
-    return "\n".join(lines).strip()
-
-
-def _obsolete_render_event_or_process_text_v1(payload: dict) -> str:
-    title = payload.get("event_title") or payload.get("process_title") or payload.get("title") or "Отчет"
-    lines = [
-        f"Заголовок: {title}",
-        "",
-        f"Краткое резюме: {payload.get('summary') or 'Нет данных.'}",
-    ]
-    sentiment = payload.get("sentiment") or payload.get("overall_sentiment") or {}
-    if isinstance(sentiment, dict):
-        lines.extend(
-            [
-                "",
-                "Тональность:",
-                f"- Доминирующая: {sentiment.get('dominant') or 'neutral'}",
-            ]
-        )
-    risks = [item for item in payload.get("risks") or [] if isinstance(item, str) and item.strip()]
-    if risks:
-        lines.extend(["", "Риски:", *[f"- {item}" for item in risks[:5]]])
-    return "\n".join(lines).strip()
-
-
-def _obsolete_render_post_report_text_v2(payload: dict) -> str:
-    topics = _collect_topic_names(payload.get("topics"), limit=5)
-    patterns = _collect_text_items(payload.get("time_trends"), limit=3)
-    for item in payload.get("clusters") or []:
-        if not isinstance(item, dict):
-            continue
-        name = _clean_list_text(item.get("name"))
-        summary = _clean_list_text(item.get("summary"))
-        pattern = f"{name}: {summary}" if name and summary else name or summary
-        if pattern and pattern not in patterns:
-            patterns.append(pattern)
-        if len(patterns) >= 5:
-            break
-    patterns.extend(item for item in _collect_text_items(payload.get("risks"), limit=2) if item not in patterns)
-
-    examples = _collect_text_items(payload.get("representative_quotes"), limit=5)
-    if not examples:
-        examples = topics[:3]
-
-    return _render_legacy_report_text(
-        payload,
-        title=payload.get("title") or "Заголовок: Отчет по посту",
-        intro_label="посту",
-        intro_fallback="Комментарии отражают реакцию аудитории на публикацию и связанные с ней смыслы.",
-        topics=topics,
-        patterns=patterns,
-        examples=examples,
-        conclusion_fallback="Обсуждение в целом остается содержательным, с преобладанием основных тем и ограниченным числом спорных сигналов.",
-    )
-
-
 def _render_event_or_process_text(payload: dict) -> str:
     is_process = "process_id" in payload or "process_title" in payload
     title = payload.get("process_title") if is_process else payload.get("event_title")
-    title = title or payload.get("title") or "Отчет"
-
-    topics = _collect_topic_names(payload.get("cross_post_topics"), limit=5)
-    source_items = payload.get("stage_analysis") if is_process else payload.get("post_dynamics")
-    for item in source_items or []:
-        if not isinstance(item, dict):
-            continue
-        name = _clean_list_text(item.get("stage_name") or item.get("role"))
-        summary = _clean_list_text(item.get("summary"))
-        topic = f"{name}: {summary}" if name and summary else summary or name
-        if topic and topic not in topics:
-            topics.append(topic)
-        if len(topics) >= 5:
-            break
-
-    patterns = _collect_text_items(payload.get("event_trends") or payload.get("process_trends"), limit=5)
-    patterns.extend(item for item in _collect_text_items(payload.get("risks"), limit=3) if item not in patterns)
-    patterns.extend(item for item in _collect_text_items(payload.get("bottlenecks"), limit=2) if item not in patterns)
-
-    examples = _collect_text_items(payload.get("risks"), limit=2)
-    examples.extend(item for item in _collect_text_items(payload.get("anomalies"), limit=3) if item not in examples)
-    if not examples:
-        examples = topics[:3]
-
-    return _render_legacy_report_text(
-        payload,
-        title=f"Заголовок: {title}",
-        intro_label="обсуждению",
-        intro_fallback="Сводный отчет фиксирует общую динамику обсуждения и ключевые смысловые линии.",
-        topics=topics,
-        patterns=patterns,
-        examples=examples,
-        conclusion_fallback="Сводное обсуждение сохраняет общую логическую связность и позволяет увидеть основные тенденции без резких перекосов.",
-        sentiment_key="overall_sentiment" if is_process else "sentiment",
-    )
-
-
-def _post_report_tone_label(payload: dict) -> str:
-    sentiment = payload.get("sentiment") or {}
-    distribution = sentiment.get("distribution") or {}
-    positive = float(distribution.get("positive", 0.0) or 0.0)
-    negative = float(distribution.get("negative", 0.0) or 0.0)
-    neutral = float(distribution.get("neutral", 0.0) or 0.0)
-    dominant = str(sentiment.get("dominant") or "neutral").strip().lower()
-    if abs(positive - negative) <= 0.15 and positive >= 0.2 and negative >= 0.2:
-        return "смешанный"
-    if dominant == "positive":
-        return "позитивный"
-    if dominant == "negative":
-        return "негативный"
-    if dominant == "neutral" and positive >= 0.25 and negative >= 0.15:
-        return "смешанный"
-    if neutral >= 0.6:
-        return "нейтральный"
-    return _sentiment_label_ru(dominant)
-
-
-def _build_post_tone_reasoning(payload: dict) -> str:
-    parts: list[str] = []
-    summary = _clean_list_text(payload.get("summary"))
-    if summary:
-        parts.append(summary)
-    confidence_reason = _clean_list_text((payload.get("confidence") or {}).get("reason"))
-    if confidence_reason and confidence_reason not in parts:
-        parts.append(confidence_reason)
-    risks = _collect_text_items(payload.get("risks"), limit=2)
-    if risks:
-        parts.append(f"Отдельно заметны спорные реакции: {'; '.join(risks)}.")
-    if not parts:
-        parts.append("Вывод основан на распределении тональностей, тематических кластерах и репрезентативных комментариях.")
-    return " ".join(part if part.endswith((".", "!", "?")) else f"{part}." for part in parts[:3])
-
-
-def _build_post_sentiment_classification(payload: dict) -> str:
-    sentiment = payload.get("sentiment") or {}
-    distribution = sentiment.get("distribution") or {}
-    parts = [
-        f"позитивные комментарии составляют {_share_to_percent(distribution.get('positive'))} и в основном выражают поддержку или одобрение",
-        f"негативные занимают {_share_to_percent(distribution.get('negative'))} и чаще связаны с критикой, сомнениями или возражениями",
-        f"нейтральные составляют {_share_to_percent(distribution.get('neutral'))} и обычно содержат уточнения, наблюдения или спокойные оценки",
-    ]
-    return " ; ".join(parts) + "."
-
-
-def _build_post_thematic_classification(payload: dict) -> str:
-    cluster_parts: list[str] = []
-    for item in payload.get("clusters") or []:
-        if not isinstance(item, dict):
-            continue
-        name = _clean_list_text(item.get("name"))
-        summary = _clean_list_text(item.get("summary"))
-        if name and summary:
-            cluster_parts.append(f"{name} — {summary}")
-        elif name:
-            cluster_parts.append(name)
-        if len(cluster_parts) >= 4:
-            break
-    if cluster_parts:
-        return "; ".join(cluster_parts) + "."
-    topics = _collect_topic_names(payload.get("topics"), limit=4)
-    if topics:
-        return "Основные тематические кластеры: " + "; ".join(topics) + "."
-    return "Тематическая классификация выражена слабо: заметны только отдельные смысловые линии без устойчивых кластеров."
+    title = _clean_list_text(title) or _clean_list_text(payload.get("title")) or ("Process report" if is_process else "Event report")
+    status = report_status_from_payload(payload, fallback=REPORT_STATUS_READY)
+    summary = _trim_sentence(payload.get("summary"), fallback="Insufficient narrative details in synthesized output.")
+    confidence_reason = _clean_list_text((payload.get("confidence") or {}).get("reason")) or "Not provided."
+    return "\n".join(
+        [
+            title,
+            f"Status: {status}",
+            f"Summary: {summary}",
+            f"Confidence rationale: {confidence_reason}",
+        ]
+    ).strip()
 
 
 def _safe_int(value: object) -> int:
@@ -827,82 +665,21 @@ def _aggregate_child_coverage(payloads: list[dict]) -> tuple[dict, dict]:
 
 
 def _render_post_report_text(payload: dict) -> str:
-    title = _clean_list_text(payload.get("title")) or "Заголовок: Отчет по посту"
-    if not title.lower().startswith("заголовок:"):
-        title = f"Заголовок: {title}"
-
-    sentiment = payload.get("sentiment") or {}
-    distribution = sentiment.get("distribution") or {}
-    topics = _collect_topic_names(payload.get("topics"), limit=5)
-    if not topics:
-        topics = ["Явно выраженные темы в комментариях не выделяются."]
-
-    patterns = _collect_text_items(payload.get("time_trends"), limit=3)
-    for item in payload.get("clusters") or []:
-        if not isinstance(item, dict):
-            continue
-        summary = _clean_list_text(item.get("summary"))
-        if summary and summary not in patterns:
-            patterns.append(summary)
-        if len(patterns) >= 5:
-            break
-    if not patterns:
-        patterns = ["Повторяющиеся паттерны выражены умеренно и в основном совпадают с ключевыми темами обсуждения."]
-
-    quotes = _collect_text_items(payload.get("representative_quotes"), limit=5)
-    if not quotes:
-        quotes = ["Репрезентативные цитаты не выделены, поэтому выводы основаны на агрегированных сигналах."]
-
-    risks = _collect_text_items(payload.get("risks"), limit=5)
-    if not risks:
-        risks = ["Сильные риск-сигналы в комментариях не выявлены."]
-
-    lines = [
-        title,
-        "",
-        "1) Контекст поста",
-        _trim_sentence(
-            payload.get("summary"),
-            fallback="Отчет суммирует реакцию аудитории на публикацию и показывает, какие темы и оценки доминируют в комментариях.",
-        ),
-        (
-            "Анализ опирается на комментарии к одному посту и включает общий тон, "
-            "процентное соотношение настроений, тематические линии, паттерны обсуждения и репрезентативные цитаты."
-        ),
-        "",
-        "2) Общий тон обсуждения",
-        f"- Итог: {_post_report_tone_label(payload)}",
-        (
-            f"- Распределение: позитив {_share_to_percent(distribution.get('positive'))} / "
-            f"негатив {_share_to_percent(distribution.get('negative'))} / "
-            f"нейтрально {_share_to_percent(distribution.get('neutral'))}"
-        ),
-        f"- Обоснование: {_build_post_tone_reasoning(payload)}",
-        "",
-        "3) Ключевые темы",
-        *[f"- Тема {idx}: {topic}" for idx, topic in enumerate(topics[:5], start=1)],
-        "",
-        "4) Тренды и повторяющиеся паттерны",
-        *[f"- {item}" for item in patterns[:5]],
-        "",
-        "5) Репрезентативные цитаты",
-        *[f'- "{item}"' for item in quotes[:5]],
-        "",
-        "6) Классификация комментариев",
-        f"- По тональности: {_build_post_sentiment_classification(payload)}",
-        f"- По темам: {_build_post_thematic_classification(payload)}",
-        "",
-        "7) Риски/сигналы",
-        *[f"- {item}" for item in risks[:5]],
-        "",
-        "8) Reactions и позиция аудитории",
-        _format_reactions_summary_line("Post reactions", payload.get("post_reactions") or {}),
-        _format_reactions_summary_line("Comment reactions", payload.get("comment_reactions") or {}),
-        _format_reactions_coverage_line(payload),
-        f"- Audience stance: {(payload.get('audience_stance') or {}).get('label') or 'unclear'} ({(payload.get('audience_stance') or {}).get('confidence') or 'low'}).",
-        f"- Обоснование stance: {_trim_sentence((payload.get('audience_stance') or {}).get('reason'), fallback='Позиция аудитории определена по сочетанию тональности комментариев и reactions coverage.')}",
-    ]
-    return "\n".join(lines).strip()
+    title = _clean_list_text(payload.get("title")) or "Post discussion snapshot"
+    status = report_status_from_payload(payload, fallback=REPORT_STATUS_READY)
+    summary = _trim_sentence(payload.get("summary"), fallback="Insufficient narrative details in synthesized output.")
+    confidence_reason = _clean_list_text((payload.get("confidence") or {}).get("reason")) or "Not provided."
+    topics = _collect_topic_names(payload.get("topics"), limit=3)
+    topics_text = ", ".join(topics) if topics else "not identified"
+    return "\n".join(
+        [
+            title,
+            f"Status: {status}",
+            f"Summary: {summary}",
+            f"Top topics: {topics_text}",
+            f"Confidence rationale: {confidence_reason}",
+        ]
+    ).strip()
 
 
 def report_status_from_payload(payload: dict | None, *, fallback: str = REPORT_STATUS_READY) -> str:
@@ -911,9 +688,6 @@ def report_status_from_payload(payload: dict | None, *, fallback: str = REPORT_S
     status = payload.get("status")
     if isinstance(status, str) and status:
         return status
-    payload_type = payload.get("type")
-    if payload_type in {"event_report_draft_v1", "process_report_draft_v1"}:
-        return REPORT_STATUS_DRAFT
     return fallback
 
 
@@ -1019,7 +793,7 @@ async def sync_post_report_staleness(
     report = (
         await session.execute(select(Report).where(Report.post_id == post_id))
     ).scalar_one_or_none()
-    min_comments = ReportConfig().min_comments
+    min_comments = DEFAULT_MIN_COMMENTS
     if report is None and int(post.comments_count or 0) < min_comments:
         return {
             "status": "ignored_below_min_comments",
@@ -1081,8 +855,8 @@ async def build_post_report(
     session: AsyncSession,
     *,
     post_id: int,
-    report_project: TgReportProject,
-    report_config: ReportConfig | None = None,
+    report_project: Any = None,
+    report_config: Any = None,
     job_timeout_seconds: int | None = None,
     rerun_stage: str | None = None,
 ) -> dict:
@@ -1145,19 +919,54 @@ async def build_post_report(
     channel_label = f"@{channel.username}" if channel.username else f"channel:{channel.id}"
     status = REPORT_STATUS_READY
     report_json: dict | None = None
+    shadow_compare: dict[str, Any] | None = None
     try:
-        report_json = await report_project.generate_post_report_payload(
-            channel=channel_label,
-            post_id=post.id,
-            published_at_iso=post.date.isoformat(),
-            post_text=post.text or "",
-            comments=comments,
-            thread_comments=thread_comments,
-            views=post.views,
-            config=report_config,
-            job_timeout_seconds=job_timeout_seconds,
-            rerun_stage=rerun_stage,
-        )
+        del report_project
+        features = await _load_reporting_feature_flags(session)
+        use_multi_agent_v2 = should_use_multi_agent_v2(post_id=int(post.id), features=features)
+        shadow_mode_enabled = _is_multi_agent_shadow_mode_enabled(features=features)
+        legacy_kwargs = {
+            "channel": channel_label,
+            "post_id": post.id,
+            "published_at_iso": post.date.isoformat(),
+            "post_text": post.text or "",
+            "comments": comments,
+            "thread_comments": thread_comments,
+            "views": post.views,
+            "job_timeout_seconds": job_timeout_seconds,
+            "rerun_stage": rerun_stage,
+        }
+        v2_kwargs = {
+            "post_id": post.id,
+            "published_at_iso": post.date.isoformat(),
+            "post_text": post.text or "",
+            "comments": comments,
+            "thread_comments": thread_comments,
+            "views": post.views,
+            "rerun_stage": rerun_stage,
+        }
+        if shadow_mode_enabled:
+            # Shadow mode keeps legacy payload as the persisted result.
+            report_json = await generate_post_report_payload_v2(**legacy_kwargs)
+            if use_multi_agent_v2:
+                try:
+                    v2_shadow_payload = await build_post_report_v2_payload_from_orchestrator(**v2_kwargs)
+                    shadow_compare = _build_shadow_compare_payload(
+                        legacy_payload=report_json,
+                        v2_payload=v2_shadow_payload,
+                    )
+                except Exception as shadow_exc:
+                    shadow_compare = {
+                        "error": f"{type(shadow_exc).__name__}: {shadow_exc}",
+                    }
+        elif use_multi_agent_v2:
+            try:
+                report_json = await build_post_report_v2_payload_from_orchestrator(**v2_kwargs)
+            except Exception:
+                # Keep rollout safe: fallback to legacy persisted path when v2 path errors.
+                report_json = await generate_post_report_payload_v2(**legacy_kwargs)
+        else:
+            report_json = await generate_post_report_payload_v2(**legacy_kwargs)
         report_json = map_internal_post_report_to_public_payload(report_json)
         status = report_status_from_payload(report_json, fallback=REPORT_STATUS_READY)
         report_json = _enrich_post_report_payload(payload=report_json, post=post, comment_rows=comment_rows)
@@ -1180,13 +989,6 @@ async def build_post_report(
         content = REPORT_GENERATION_FAILED_CONTENT
         technical_error = f"{type(exc).__name__}: {exc}"
 
-    if isinstance(report_json, dict) and report_json.get("status") == "skipped_min_comments":
-        return {
-            "status": "skipped_min_comments",
-            "post_id": post.id,
-            "report_id": None,
-        }
-
     report = await upsert_report(
         session,
         post_id=post.id,
@@ -1197,6 +999,8 @@ async def build_post_report(
     result = {"status": status, "post_id": post.id, "report_id": report.id}
     if technical_error is not None:
         result["technical_error"] = technical_error
+    if shadow_compare is not None:
+        result["shadow_compare"] = shadow_compare
     return result
 
 
@@ -1226,7 +1030,7 @@ async def _load_post_report_payloads_for_event(session: AsyncSession, *, event_i
 
 
 async def _event_report_readiness(session: AsyncSession, *, event_id: int) -> dict:
-    min_comments = ReportConfig().min_comments
+    min_comments = DEFAULT_MIN_COMMENTS
     rows = (
         await session.execute(
             select(EventPost.post_id, EventPost.role, Post.comments_count, Post.text, Report.report_json)
@@ -1305,47 +1109,10 @@ async def build_event_report_draft(
     *,
     event_id: int,
 ) -> dict:
-    event = await session.get(Event, event_id)
-    if event is None:
+    payload = await build_event_report_v2_impl(session=session, event_id=event_id)
+    if payload.get("status") == "not_found":
         return {"status": "not_found", "event_id": event_id}
-
-    readiness = await _event_report_readiness(session, event_id=event_id)
-    if not readiness.get("ready"):
-        return {
-            "status": REPORT_STATUS_DEFERRED,
-            "event_id": event_id,
-            "reason": readiness.get("reason"),
-            "readiness": readiness,
-            "dependencies": list(readiness.get("dependencies") or []),
-        }
-
-    post_payloads = await _load_post_report_payloads_for_event(session, event_id=event_id)
-    if not post_payloads:
-        payload = {
-            "type": "event_report_v2",
-            "status": REPORT_STATUS_DRAFT,
-            "event_id": event_id,
-            "event_title": event.title,
-            "posts_count": int(readiness.get("total_posts") or 0),
-            "source_post_reports": [],
-            "summary": "Для события пока нет готовых отчетов по постам.",
-            "meta": {"prompt_version": "event_report_v2", "source_type": "post_reports", "readiness": readiness},
-        }
-        status = REPORT_STATUS_DRAFT
-    else:
-        payload = build_event_report_payload(
-            event_id=event_id,
-            event_title=event.title,
-            post_reports=post_payloads,
-        )
-        status = report_status_from_payload(payload, fallback=REPORT_STATUS_READY)
-    coverage, stance = _aggregate_child_coverage(post_payloads)
-    payload["reactions_coverage"] = coverage
-    payload["audience_stance"] = stance
-    payload["meta"] = {
-        **dict(payload.get("meta") or {}),
-        "coverage_factor": coverage.get("factor"),
-    }
+    status = report_status_from_payload(payload, fallback=REPORT_STATUS_READY)
 
     last_version = (
         await session.execute(
@@ -1542,3 +1309,9 @@ async def build_process_report_draft(
     session.add(report)
     await session.flush()
     return {"status": status, "process_id": process_id, "report_id": report.id}
+
+
+
+
+
+

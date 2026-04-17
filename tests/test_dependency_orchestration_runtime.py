@@ -82,7 +82,7 @@ async def test_enqueue_ai_job_dependencies_skips_active_refresh_job(monkeypatch:
 
     result = await pipeline_runtime._enqueue_ai_job_dependencies(
         object(),
-        parent_job=SimpleNamespace(type=JobType.BUILD_POST_REPORT),
+        parent_job=SimpleNamespace(id=1, type=JobType.BUILD_POST_REPORT),
         dependencies=[{"job_type": JobType.REFRESH_COMMENTS, "post_id": 42, "reason": "waiting_refresh_post_data"}],
     )
 
@@ -133,7 +133,6 @@ async def test_run_ai_jobs_enqueues_dependencies_before_requeue(monkeypatch: pyt
     )
     monkeypatch.setattr(pipeline_runtime, "get_all_settings", _fake_get_all_settings)
     monkeypatch.setattr(pipeline_runtime, "fetch_and_lock_jobs", _fake_fetch_and_lock_jobs)
-    monkeypatch.setattr(pipeline_runtime, "get_report_project", lambda: "fake-project")
     monkeypatch.setattr(pipeline_runtime, "report_config_from_settings", lambda _settings: {"mode": "test"})
     monkeypatch.setattr(pipeline_runtime, "build_event_report_draft", _fake_build_event_report_draft)
     monkeypatch.setattr(pipeline_runtime, "_enqueue_ai_job_dependencies", _fake_enqueue_ai_job_dependencies)
@@ -196,7 +195,6 @@ async def test_run_ai_jobs_fails_deferred_parent_when_retry_budget_exhausted(mon
     )
     monkeypatch.setattr(pipeline_runtime, "get_all_settings", _fake_get_all_settings)
     monkeypatch.setattr(pipeline_runtime, "fetch_and_lock_jobs", _fake_fetch_and_lock_jobs)
-    monkeypatch.setattr(pipeline_runtime, "get_report_project", lambda: "fake-project")
     monkeypatch.setattr(pipeline_runtime, "report_config_from_settings", lambda _settings: {"mode": "test"})
     monkeypatch.setattr(pipeline_runtime, "build_process_report_draft", _fake_build_process_report_draft)
     monkeypatch.setattr(pipeline_runtime, "_enqueue_ai_job_dependencies", _fake_enqueue_ai_job_dependencies)

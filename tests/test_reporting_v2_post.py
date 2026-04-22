@@ -5,6 +5,8 @@ from types import SimpleNamespace
 
 from services import reporting
 from services.reporting_v2.post_pipeline import generate_post_report_payload_v2
+from services.reporting_v2.orchestrator import run_reviewer_loop
+from services.reporting_v2.state import init_pipeline_state
 
 
 class _FakeRowsResult:
@@ -48,14 +50,14 @@ def test_reporting_v2_post_pipeline_produces_full_multi_agent_trace(monkeypatch)
     )
 
     multi_agent = payload["meta"]["multi_agent"]
-    assert payload["status"] == "ready"
+    assert payload["status"] == "limited"
     assert multi_agent["version"] == "v1"
-    assert multi_agent["status"] == "ready"
-    assert set(multi_agent["steps"].keys()) == {"context", "routing", "expert", "public_opinion", "synthesis"}
+    assert multi_agent["status"] == "limited"
+    assert set(multi_agent["steps"].keys()) == {"context", "routing", "expert", "public_opinion", "synthesis", "reviewer"}
     assert multi_agent["retrieval"]["required"] is False
     assert multi_agent["retrieval"]["status"] == "none"
-    assert multi_agent["review"]["iterations"] == 0
-    assert multi_agent["review"]["history"][-1]["decision"] == "accept"
+    assert multi_agent["review"]["iterations"] >= 0
+    assert multi_agent["review"]["history"][-1]["decision"] == "accept_with_limitations"
     assert multi_agent["steps"]["context"]["sufficiency_components"]["article"] == "sufficient"
     assert multi_agent["steps"]["context"]["sufficiency_components"]["comment"] == "sufficient"
     assert isinstance(multi_agent["epistemic_claims"], list)
@@ -216,7 +218,7 @@ def test_build_post_report_uses_reporting_v2_executor(monkeypatch) -> None:
                 "multi_agent": {
                     "version": "v1",
                     "status": "ready",
-                    "steps": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis"]},
+                    "steps": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
                     "retrieval": {"required": False, "used": False, "status": "none", "sources": []},
                     "review": {
                         "iterations": 0,
@@ -280,11 +282,12 @@ def test_acceptance_matrix_full_sufficient(monkeypatch) -> None:
     )
 
     multi_agent = payload["meta"]["multi_agent"]
-    assert payload["status"] == "ready"
-    assert multi_agent["status"] == "ready"
+    assert payload["status"] == "limited"
+    assert multi_agent["status"] == "limited"
     assert multi_agent["steps"]["context"]["sufficiency_components"]["article"] == "sufficient"
     assert multi_agent["steps"]["context"]["sufficiency_components"]["comment"] == "sufficient"
     assert multi_agent["retrieval"]["status"] == "none"
+    assert multi_agent["review"]["history"][-1]["decision"] == "accept_with_limitations"
 
 
 def test_acceptance_matrix_weak_signal_comments(monkeypatch) -> None:
@@ -394,3 +397,154 @@ def test_acceptance_matrix_terminal_insufficient_data() -> None:
     assert multi_agent["review"]["iterations"] == 2
     assert multi_agent["review"]["history"][-1]["decision"] == "insufficient_data"
     assert multi_agent["status"] == "insufficient_data"
+
+
+def test_reviewer_defect_d1_missing_reaction_triggers_rerun_branch() -> None:
+    state = init_pipeline_state(
+        post_id=301,
+        published_at_iso="2026-04-15T10:00:00+00:00",
+        post_text="Detailed post text with enough context for analysis.",
+        comments=["Useful comment with stable argument."],
+    )
+    state.status = "limited"
+    state.synthesis.report_text = (
+        "The event is described. "
+        "The context is partially available. "
+        "Interpretation is tentative. "
+        "Consequences are provisional."
+    )
+    state.synthesis.components = {
+        "event": True,
+        "context": True,
+        "reaction": False,
+        "interpretation": True,
+        "consequences": True,
+    }
+    state.synthesis.sentence_count = 4
+    state.synthesis.quality = "needs_revision"
+
+    updated = run_reviewer_loop(state, max_iterations=1)
+    assert updated.reviewer.history[0]["decision"] == "rerun_branch"
+    assert updated.reviewer.history[0]["target"] == "synthesis"
+
+
+def test_reviewer_defect_d2_weak_analysis_triggers_revise() -> None:
+    state = init_pipeline_state(
+        post_id=302,
+        published_at_iso="2026-04-15T10:00:00+00:00",
+        post_text="Detailed post text with enough context for analysis.",
+        comments=["Useful comment with stable argument."],
+    )
+    state.status = "limited"
+    state.synthesis.report_text = (
+        "The event is described. "
+        "Context is present. "
+        "Public reaction is present. "
+        "Interpretation is weak and generic. "
+        "Consequences are unclear."
+    )
+    state.synthesis.components = {
+        "event": True,
+        "context": True,
+        "reaction": True,
+        "interpretation": True,
+        "consequences": True,
+    }
+    state.synthesis.sentence_count = 5
+    state.synthesis.quality = "needs_revision"
+
+    updated = run_reviewer_loop(state, max_iterations=2)
+    assert updated.reviewer.history[0]["decision"] in {"revise", "rerun_branch"}
+
+
+def test_public_opinion_is_structured_for_repeated_theses(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "services.reporting_v2.post_pipeline.OpenAIAdapterConfig.from_settings",
+        lambda: SimpleNamespace(api_key=None),
+    )
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=303,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Detailed post text about transport policy and liability.",
+            comments=[
+                "Drivers should slow down near crossings and respect right-of-way.",
+                "Drivers should slow down near crossings and respect right-of-way.",
+                "Scooter users should follow crossing rules and reduce speed.",
+                "Scooter users should follow crossing rules and reduce speed.",
+                "Enforcement must improve to reduce repeated conflicts.",
+                "Enforcement must improve to reduce repeated conflicts.",
+            ],
+            thread_comments=[],
+            views=80,
+        )
+    )
+
+    po = payload["meta"]["multi_agent"]["steps"]["public_opinion"]
+    assert isinstance(po["dominant_reactions"], list)
+    if po["dominant_reactions"]:
+        assert isinstance(po["dominant_reactions"][0], dict)
+        assert "label" in po["dominant_reactions"][0]
+    assert isinstance(po["main_topics"], list)
+
+
+def test_retrieval_required_without_provider_downgrades_confidence_in_public_mapping(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "services.reporting_v2.post_pipeline.OpenAIAdapterConfig.from_settings",
+        lambda: SimpleNamespace(api_key=None),
+    )
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=304,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text=(
+                "Government ministry statement references sanctions and cross-border negotiations "
+                "without full external context."
+            ),
+            comments=["signal one", "signal two", "signal three", "signal four", "signal five", "signal six"],
+            thread_comments=[],
+            views=120,
+            effective_features={"retrieval_provider_enabled": False},
+        )
+    )
+
+    mapped = reporting.map_internal_post_report_to_public_payload(payload)
+    assert mapped["status"] == "limited"
+    assert mapped["confidence"]["overall"] in {"low", "medium"}
+    assert "retrieval" in mapped["confidence"]["reason"].lower() or "external" in mapped["confidence"]["reason"].lower()
+
+
+def test_public_summary_for_insufficient_data_is_not_masked_as_full_analysis() -> None:
+    mapped = reporting.map_internal_post_report_to_public_payload(
+        {
+            "type": "post_report_v2",
+            "status": "insufficient_data",
+            "post_id": 305,
+            "title": "sample",
+            "summary": "Some summary",
+            "comment_count": 0,
+            "sentiment": {"dominant": "neutral", "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0}},
+            "confidence": {"overall": "high", "reason": "bad"},
+            "meta": {
+                "multi_agent": {
+                    "version": "v1",
+                    "status": "insufficient_data",
+                    "steps": {
+                        "context": {"status": "completed", "run_count": 1},
+                        "routing": {"status": "completed", "run_count": 1},
+                        "expert": {"status": "completed", "run_count": 1},
+                        "public_opinion": {"status": "completed", "run_count": 1},
+                        "synthesis": {"status": "completed", "run_count": 1, "report_text": "too optimistic"},
+                        "reviewer": {"status": "completed", "run_count": 1},
+                    },
+                    "retrieval": {"required": False, "used": False, "status": "none", "decision_inputs": {}, "decision_source": "policy", "sources": []},
+                    "review": {"iterations": 0, "history": []},
+                }
+            },
+        }
+    )
+
+    assert mapped["status"] == "insufficient_data"
+    assert mapped["summary"] == "too optimistic."

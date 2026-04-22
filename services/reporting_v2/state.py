@@ -53,12 +53,20 @@ class PublicOpinionOutput(BaseModel):
 
     discussion_state: str = "unclear"
     signals: list[dict[str, Any]] = Field(default_factory=list)
+    main_topics: list[str] = Field(default_factory=list)
+    dominant_reactions: list[dict[str, Any]] = Field(default_factory=list)
+    data_status: str = "insufficient"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
 
 
 class SynthesisOutput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     summary: str = ""
+    report_text: str = ""
+    components: dict[str, bool] = Field(default_factory=dict)
+    sentence_count: int = Field(default=0, ge=0)
+    quality: str = "needs_revision"
     confidence_reason: str = ""
 
 

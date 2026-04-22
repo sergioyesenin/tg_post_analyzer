@@ -130,7 +130,7 @@ def test_build_event_report_draft_uses_reporting_v2_event_impl(monkeypatch) -> N
                 "multi_agent": {
                     "version": "v1",
                     "status": "ready",
-                    "steps": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis"]},
+                    "steps": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
                     "retrieval": {"required": False, "used": False, "status": "none", "sources": []},
                     "review": {
                         "iterations": 0,

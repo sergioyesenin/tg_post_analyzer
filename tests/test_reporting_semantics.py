@@ -88,9 +88,45 @@ def test_map_internal_post_report_to_public_payload_normalizes_public_semantics(
     validated = PostReportPayload.model_validate(payload)
 
     assert validated.status == "limited"
-    assert validated.summary.startswith("Анализ ограничен:")
+    assert validated.summary == "interpretive summary that should not leak as-is"
     assert [item.name for item in validated.topics] == ["budget", "regions"]
     assert validated.confidence.overall == "medium"
+
+
+def test_map_internal_post_report_to_public_payload_restores_topics_from_multi_agent_public_opinion():
+    payload = reporting.map_internal_post_report_to_public_payload(
+        {
+            "type": "post_report_v2",
+            "status": "ready",
+            "post_id": 885,
+            "title": "post 885",
+            "summary": "internal synthesis summary",
+            "comment_count": 181,
+            "sentiment": {
+                "dominant": "neutral",
+                "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+            },
+            "topics": [],
+            "confidence": {"overall": "high", "reason": "deterministic_orchestrator_v1"},
+            "meta": {
+                "multi_agent": {
+                    "version": "v1",
+                    "status": "ready",
+                    "public_opinion": {
+                        "discussion_state": "polarized",
+                        "signals": [
+                            {"name": "comments_count", "value": 181},
+                            {"name": "top_topics", "value": ["шутка", "ананас", "донер"]},
+                        ],
+                    },
+                }
+            },
+        }
+    )
+
+    validated = PostReportPayload.model_validate(payload)
+    assert [item.name for item in validated.topics] == ["шутка", "ананас", "донер"]
+    assert validated.summary == "internal synthesis summary"
 
 
 def test_post_report_payload_rejects_unknown_status_literal():
@@ -139,11 +175,7 @@ def test_render_post_report_uses_compact_spec_aligned_text():
         }
     )
 
-    assert text.startswith("Post 42 discussion snapshot")
-    assert "Status: limited" in text
-    assert "Summary:" in text
-    assert "Top topics:" in text
-    assert "Confidence rationale:" in text
+    assert text == "Limited signal."
 
 
 def test_mark_report_payload_stale_preserves_context():
@@ -964,3 +996,36 @@ def test_failed_post_report_payload_remains_schema_compatible():
     assert validated.meta["validation_error"] == "bad output"
 
 
+
+
+def test_map_internal_post_report_to_public_payload_canonicalizes_multi_agent_review_shape():
+    payload = reporting.map_internal_post_report_to_public_payload(
+        {
+            "type": "post_report_v2",
+            "status": "limited",
+            "post_id": 777,
+            "title": "post 777",
+            "summary": "raw summary",
+            "comment_count": 3,
+            "sentiment": {"dominant": "neutral", "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0}},
+            "confidence": {"overall": "medium", "reason": "raw"},
+            "meta": {
+                "multi_agent": {
+                    "version": "v1",
+                    "status": "limited",
+                    "context": {"article_sufficiency": "limited"},
+                    "routing": {"reasoning": "deterministic"},
+                    "expert": {"claims": []},
+                    "public_opinion": {"signals": []},
+                    "synthesis": {"summary": "raw synthesis"},
+                    "reviewer": {"decision": "accept_with_limitations", "iterations": 1, "history": []},
+                }
+            },
+        }
+    )
+
+    multi_agent = payload["meta"]["multi_agent"]
+    assert "reviewer" not in multi_agent
+    assert "review" in multi_agent
+    assert set(multi_agent["steps"].keys()) == {"context", "routing", "expert", "public_opinion", "synthesis", "reviewer"}
+    assert multi_agent["steps"]["reviewer"]["provenance_source"] == "default_filled"

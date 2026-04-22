@@ -1,165 +1,73 @@
-"""Tests for internal multi-agent meta schema validation (P2)."""
+"""Contract-focused tests for internal meta.multi_agent schema."""
+
+from __future__ import annotations
 
 import pytest
-from agents.reporter import (
+
+from services.reporting_v2.contracts_internal import (
     EPISTEMIC_LABELS,
-    SUFFICIENCY_LABELS,
-    REPORT_STATUSES,
     FALLBACK_STATUSES,
-    EpistemicEntry,
-    MultiAgentMeta,
+    REPORT_STATUSES,
+    STEP_KEYS,
+    SUFFICIENCY_LABELS,
+    validate_multi_agent_meta,
 )
 
 
-class TestSpecDerivedConstants:
-    """Test spec-derived constants are properly defined."""
-
-    def test_epistemic_labels_frozen_set(self):
-        expected = {"fact", "derived", "interpretation", "external", "uncertain"}
-        assert EPISTEMIC_LABELS == expected
-        assert isinstance(EPISTEMIC_LABELS, frozenset)
-
-    def test_sufficiency_labels_frozen_set(self):
-        expected = {"sufficient", "limited", "weak_signal", "insufficient"}
-        assert SUFFICIENCY_LABELS == expected
-        assert isinstance(SUFFICIENCY_LABELS, frozenset)
-
-    def test_report_statuses_frozen_set(self):
-        expected = {"ready", "limited", "insufficient_data"}
-        assert REPORT_STATUSES == expected
-        assert isinstance(REPORT_STATUSES, frozenset)
-
-    def test_fallback_statuses_frozen_set(self):
-        expected = {"ready", "limited", "insufficient_data", "failed"}
-        assert FALLBACK_STATUSES == expected
-        assert isinstance(FALLBACK_STATUSES, frozenset)
-
-
-class TestEpistemicEntry:
-    """Test EpistemicEntry dataclass."""
-
-    def test_valid_epistemic_entry(self):
-        entry = EpistemicEntry(
-            label="fact",
-            evidence="Direct quote from post",
-            confidence="high"
-        )
-        assert entry.label == "fact"
-        assert entry.evidence == "Direct quote from post"
-        assert entry.confidence == "high"
-
-    def test_epistemic_entry_immutable(self):
-        entry = EpistemicEntry(
-            label="interpretation",
-            evidence="Analysis of patterns",
-            confidence="medium"
-        )
-        with pytest.raises(AttributeError):
-            entry.label = "fact"
-
-    @pytest.mark.parametrize("invalid_label", ["invalid", "FACTS", ""])
-    def test_invalid_epistemic_label_raises_error(self, invalid_label):
-        """While dataclass allows any string, validation should catch invalid labels."""
-        entry = EpistemicEntry(
-            label=invalid_label,
-            evidence="test",
-            confidence="high"
-        )
-        # Note: dataclass doesn't validate, but future validation should
-        assert entry.label == invalid_label
+def _base_meta() -> dict:
+    return {
+        "version": "v1",
+        "status": "limited",
+        "epistemic_claims": [
+            {"text": "Observed recurring thesis in comments.", "type": "derived", "confidence": 0.6, "source": "comments"}
+        ],
+        "steps": {
+            "context": {"status": "completed", "run_count": 1},
+            "routing": {"status": "completed", "run_count": 1},
+            "expert": {"status": "completed", "run_count": 1},
+            "public_opinion": {"status": "completed", "run_count": 1},
+            "synthesis": {"status": "completed", "run_count": 1},
+            "reviewer": {"status": "completed", "run_count": 1},
+        },
+        "retrieval": {
+            "required": False,
+            "used": False,
+            "status": "none",
+            "decision_inputs": {},
+            "decision_source": "policy",
+            "sources": [],
+        },
+        "review": {
+            "iterations": 0,
+            "history": [{"iteration": 1, "decision": "accept_with_limitations", "target": None, "reason": "limited", "confidence": 0.6}],
+        },
+    }
 
 
-class TestMultiAgentMeta:
-    """Test MultiAgentMeta dataclass."""
-
-    def test_default_multi_agent_meta(self):
-        meta = MultiAgentMeta()
-        assert meta.epistemic_labels == []
-        assert meta.sufficiency == "insufficient"
-        assert meta.stages == {}
-        assert meta.review_iterations == 0
-        assert meta.final_status == "insufficient_data"
-
-    def test_multi_agent_meta_with_values(self):
-        epistemic_labels = [
-            EpistemicEntry(label="fact", evidence="Post text", confidence="high"),
-            EpistemicEntry(label="interpretation", evidence="Comment analysis", confidence="medium")
-        ]
-        stages = {"context": {"status": "completed"}, "expert": {"status": "pending"}}
-        meta = MultiAgentMeta(
-            epistemic_labels=epistemic_labels,
-            sufficiency="sufficient",
-            stages=stages,
-            review_iterations=1,
-            final_status="ready"
-        )
-        assert len(meta.epistemic_labels) == 2
-        assert meta.sufficiency == "sufficient"
-        assert meta.stages == stages
-        assert meta.review_iterations == 1
-        assert meta.final_status == "ready"
-
-    def test_multi_agent_meta_immutable(self):
-        meta = MultiAgentMeta()
-        with pytest.raises(AttributeError):
-            meta.sufficiency = "sufficient"
+def test_contract_constants_are_canonical_sets() -> None:
+    assert EPISTEMIC_LABELS == frozenset({"fact", "derived", "interpretation", "external", "uncertain"})
+    assert SUFFICIENCY_LABELS == frozenset({"sufficient", "limited", "weak_signal", "insufficient"})
+    assert REPORT_STATUSES == frozenset({"ready", "limited", "insufficient_data"})
+    assert FALLBACK_STATUSES == frozenset({"ready", "limited", "insufficient_data", "failed"})
+    assert STEP_KEYS == frozenset({"context", "routing", "expert", "public_opinion", "synthesis", "reviewer"})
 
 
-class TestInternalMetaSchemaValidation:
-    """Test validation of internal meta.multi_agent structure."""
+def test_validate_multi_agent_meta_accepts_canonical_6_step_shape() -> None:
+    validated = validate_multi_agent_meta(_base_meta())
+    assert set(validated.steps.keys()) == {"context", "routing", "expert", "public_opinion", "synthesis", "reviewer"}
+    assert validated.version == "v1"
 
-    def test_valid_multi_agent_meta_dict(self):
-        """Test that a valid multi_agent dict can be created."""
-        meta_dict = {
-            "epistemic_labels": [
-                {"label": "fact", "evidence": "Post content", "confidence": "high"},
-                {"label": "derived", "evidence": "Comment sentiment", "confidence": "medium"}
-            ],
-            "sufficiency": "sufficient",
-            "stages": {"context": {"completed": True}},
-            "review_iterations": 0,
-            "final_status": "ready"
-        }
-        # Convert to MultiAgentMeta for validation
-        epistemic_entries = [
-            EpistemicEntry(**entry) for entry in meta_dict["epistemic_labels"]
-        ]
-        meta = MultiAgentMeta(
-            epistemic_labels=epistemic_entries,
-            sufficiency=meta_dict["sufficiency"],
-            stages=meta_dict["stages"],
-            review_iterations=meta_dict["review_iterations"],
-            final_status=meta_dict["final_status"]
-        )
-        assert len(meta.epistemic_labels) == 2
-        assert meta.sufficiency == "sufficient"
 
-    def test_invalid_epistemic_label_rejected(self):
-        """Test that invalid epistemic labels are detected."""
-        invalid_meta = {
-            "epistemic_labels": [
-                {"label": "invalid_label", "evidence": "test", "confidence": "high"}
-            ],
-            "sufficiency": "sufficient",
-            "stages": {},
-            "review_iterations": 0,
-            "final_status": "ready"
-        }
-        # This should be caught by validation logic (to be added)
-        epistemic_entries = [
-            EpistemicEntry(**entry) for entry in invalid_meta["epistemic_labels"]
-        ]
-        # For now, just check that the entry is created but validation would fail
-        assert epistemic_entries[0].label == "invalid_label"
-        # Future: add validation that raises error
+def test_validate_multi_agent_meta_rejects_legacy_stage_shape() -> None:
+    payload = _base_meta()
+    payload.pop("steps")
+    payload["stages"] = {"context": {"status": "completed"}}
+    with pytest.raises(ValueError):
+        validate_multi_agent_meta(payload)
 
-    def test_invalid_sufficiency_label_rejected(self):
-        """Test that invalid sufficiency labels are detected."""
-        with pytest.raises(ValueError):
-            # This should be validated when setting
-            MultiAgentMeta(sufficiency="invalid")
 
-    def test_invalid_final_status_rejected(self):
-        """Test that invalid final statuses are detected."""
-        with pytest.raises(ValueError):
-            MultiAgentMeta(final_status="invalid_status")
+def test_validate_multi_agent_meta_rejects_missing_reviewer_step() -> None:
+    payload = _base_meta()
+    del payload["steps"]["reviewer"]
+    with pytest.raises(ValueError, match="Invalid steps keys"):
+        validate_multi_agent_meta(payload)

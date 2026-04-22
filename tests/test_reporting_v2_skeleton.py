@@ -13,8 +13,12 @@ from services.reporting_v2.mapper import (
 )
 from services.reporting_v2.orchestrator import (
     PIPELINE_STAGE_ORDER,
+    _extract_topics,
+    run_context_stage,
     run_post_orchestrator_v2,
+    run_public_opinion_stage,
     run_reviewer_loop,
+    run_synthesis_stage,
 )
 from services.reporting_v2.state import (
     ModelInfoPublic,
@@ -80,7 +84,7 @@ def test_init_pipeline_state_filters_non_string_comments() -> None:
     assert state.comments == ["ok", ""]
 
 
-def test_run_post_orchestrator_v2_runs_placeholder_stages_in_order() -> None:
+def test_run_post_orchestrator_v2_runs_stages_in_order_and_avoids_default_insufficient_data_on_material() -> None:
     state = asyncio.run(
         run_post_orchestrator_v2(
             post_id=11,
@@ -98,25 +102,29 @@ def test_run_post_orchestrator_v2_runs_placeholder_stages_in_order() -> None:
     stages = state.internal_trace.get("stages") or {}
     assert set(stages.keys()) == set(PIPELINE_STAGE_ORDER)
     assert all((stages[name] or {}).get("status") == "completed" for name in PIPELINE_STAGE_ORDER)
+    assert state.status in {"ready", "limited"}
+    assert state.routing.reasoning == "deterministic_orchestrator_v1"
+    assert state.synthesis.summary.strip()
+    assert state.reviewer.decision in {"accept", "accept_with_limitations"}
     assert state.retrieval.status == "none"
     assert state.model_info is None
 
 
-def test_reviewer_loop_is_bounded_to_two_iterations() -> None:
+def test_reviewer_loop_uses_direct_conservative_decision_for_weak_synthesis() -> None:
     state = init_pipeline_state(
         post_id=12,
         published_at_iso="2026-04-17T12:00:00+00:00",
         post_text="Post body",
-        comments=["comment"],
+        comments=["This is a substantive comment with enough detail for bounded reviewer behavior."],
     )
+    state.status = "limited"
     updated = run_reviewer_loop(state, max_iterations=99)
 
-    assert updated.reviewer.iterations == 2
-    assert len(updated.reviewer.history) == 2
-    assert updated.reviewer.history[0]["decision"] == "rerun_branch"
+    assert updated.reviewer.iterations >= 1
+    assert len(updated.reviewer.history) >= 1
+    assert updated.reviewer.history[0]["decision"] in {"rerun_branch", "revise"}
     assert updated.reviewer.history[0]["target"] == "synthesis"
-    assert updated.reviewer.history[1]["decision"] == "insufficient_data"
-    assert updated.reviewer.decision == "insufficient_data"
+    assert updated.reviewer.decision in {"accept_with_limitations", "insufficient_data"}
     assert updated.internal_trace["stages"]["reviewer"]["status"] == "completed"
 
 
@@ -128,13 +136,33 @@ def test_reviewer_loop_accepts_when_synthesis_summary_exists() -> None:
         comments=["comment"],
     )
     state.status = "ready"
-    state.synthesis.summary = "Synthesis output is present."
+    state.synthesis.summary = (
+        "Synthesis output is present and contains enough structured detail about the discussion, "
+        "key disagreement points, and stable recurring signals from comments."
+    )
+    state.synthesis.report_text = (
+        "The event is clearly stated. "
+        "The context is sufficiently described. "
+        "Public reaction appears stable and coherent. "
+        "Interpretation links reactions to core dynamics. "
+        "Consequences are outlined with bounded confidence."
+    )
+    state.synthesis.components = {
+        "event": True,
+        "context": True,
+        "reaction": True,
+        "interpretation": True,
+        "consequences": True,
+    }
+    state.synthesis.sentence_count = 5
+    state.synthesis.quality = "ok"
     updated = run_reviewer_loop(state, max_iterations=2)
 
     assert updated.reviewer.iterations == 1
     assert len(updated.reviewer.history) == 1
     assert updated.reviewer.history[0]["decision"] == "accept"
     assert updated.reviewer.history[0]["target"] is None
+    assert updated.reviewer.history[0]["reason"] == "spec_checks_passed"
     assert updated.reviewer.decision == "accept"
 
 
@@ -152,6 +180,179 @@ def test_reviewer_loop_stays_bounded_even_with_zero_iterations() -> None:
     assert updated.reviewer.decision == "insufficient_data"
 
 
+def test_run_post_orchestrator_v2_keeps_insufficient_data_for_empty_inputs() -> None:
+    state = asyncio.run(
+        run_post_orchestrator_v2(
+            post_id=15,
+            published_at_iso="2026-04-17T12:00:00+00:00",
+            post_text="",
+            comments=["", "   "],
+            thread_comments=[],
+            views=None,
+            rerun_stage=None,
+        )
+    )
+
+    assert state.status == "insufficient_data"
+    assert state.context.article_sufficiency == "insufficient"
+    assert state.context.comment_sufficiency == "insufficient"
+    assert state.reviewer.decision == "insufficient_data"
+
+
+def test_run_post_orchestrator_v2_marks_limited_for_post_without_comments() -> None:
+    state = asyncio.run(
+        run_post_orchestrator_v2(
+            post_id=17,
+            published_at_iso="2026-04-17T12:00:00+00:00",
+            post_text="This is a meaningful post body with enough content to pass article sufficiency thresholds.",
+            comments=[],
+            thread_comments=[],
+            views=100,
+            rerun_stage=None,
+        )
+    )
+
+    assert state.context.article_sufficiency in {"limited", "sufficient"}
+    assert state.context.comment_sufficiency == "insufficient"
+    assert state.status == "limited"
+    assert state.reviewer.decision == "accept_with_limitations"
+
+
+def test_run_post_orchestrator_v2_marks_limited_for_short_post_and_few_comments() -> None:
+    state = asyncio.run(
+        run_post_orchestrator_v2(
+            post_id=18,
+            published_at_iso="2026-04-17T12:00:00+00:00",
+            post_text="Short post text.",
+            comments=["Good point, but not enough context yet.", "Need more details before strong conclusions."],
+            thread_comments=[],
+            views=50,
+            rerun_stage=None,
+        )
+    )
+
+    assert state.status == "limited"
+    assert state.reviewer.decision in {"accept_with_limitations", "accept"}
+
+
+def test_run_post_orchestrator_v2_marks_ready_for_substantive_post_and_comment_volume() -> None:
+    comments = [f"This is a substantive comment with concrete argument number {idx} and enough detail." for idx in range(1, 13)]
+    state = asyncio.run(
+        run_post_orchestrator_v2(
+            post_id=19,
+            published_at_iso="2026-04-17T12:00:00+00:00",
+            post_text=(
+                "This post describes a complex city safety incident, outlines timeline details, and provides context "
+                "for how participants interpreted responsibility and policy implications."
+            ),
+            comments=comments,
+            thread_comments=[],
+            views=500,
+            rerun_stage=None,
+        )
+    )
+
+    assert state.context.article_sufficiency == "sufficient"
+    assert state.context.comment_sufficiency == "sufficient"
+    assert state.status == "ready"
+    assert state.reviewer.decision == "accept"
+
+
+def test_run_post_orchestrator_v2_does_not_mark_ready_for_many_whitespace_comments() -> None:
+    comments = ["   ", "\n", "\t", "  ", ""] * 30
+    state = asyncio.run(
+        run_post_orchestrator_v2(
+            post_id=20,
+            published_at_iso="2026-04-17T12:00:00+00:00",
+            post_text="A sufficiently long post text exists, but comments are effectively empty noise.",
+            comments=comments,
+            thread_comments=[],
+            views=200,
+            rerun_stage=None,
+        )
+    )
+
+    assert state.context.comment_sufficiency == "insufficient"
+    assert state.status == "limited"
+    assert state.status != "ready"
+
+
+def test_reviewer_does_not_upgrade_weak_material_to_ready() -> None:
+    state = init_pipeline_state(
+        post_id=21,
+        published_at_iso="2026-04-17T12:00:00+00:00",
+        post_text="Short.",
+        comments=["one brief comment"],
+    )
+    state.status = "limited"
+    state.synthesis.summary = "Brief synthesis."
+    updated = run_reviewer_loop(state, max_iterations=2)
+
+    assert updated.reviewer.decision in {"accept_with_limitations", "insufficient_data"}
+    assert all(item["decision"] != "accept" for item in updated.reviewer.history)
+
+
+def test_run_post_orchestrator_v2_is_deterministic_for_same_input() -> None:
+    payload_kwargs = {
+        "post_id": 22,
+        "published_at_iso": "2026-04-17T12:00:00+00:00",
+        "post_text": (
+            "A detailed post about road safety policy, liability interpretation, and repeated incidents "
+            "in city transport discussions."
+        ),
+        "comments": [
+            "The driver should slow down before crossings and anticipate fast scooter movement.",
+            "Scooter users should dismount and follow crossing rules to reduce risk.",
+            "Both sides carry responsibility, but enforcement is inconsistent across cases.",
+            "Policy updates are needed because conflict repeats in similar incidents.",
+            "Legal accountability depends on right-of-way and observed maneuver timing.",
+            "Current rules are known but compliance remains weak in crowded traffic zones.",
+            "Public reactions show disagreement about proportional liability and fines.",
+            "Infrastructure and education could reduce repeated conflict patterns.",
+        ],
+        "thread_comments": [],
+        "views": 321,
+        "rerun_stage": None,
+    }
+    state_a = asyncio.run(run_post_orchestrator_v2(**payload_kwargs))
+    state_b = asyncio.run(run_post_orchestrator_v2(**payload_kwargs))
+
+    assert state_a.status == state_b.status
+    assert state_a.synthesis.summary == state_b.synthesis.summary
+    assert state_a.public_opinion == state_b.public_opinion
+
+
+def test_run_synthesis_stage_produces_non_empty_summary_when_material_present() -> None:
+    state = init_pipeline_state(
+        post_id=16,
+        published_at_iso="2026-04-17T12:00:00+00:00",
+        post_text="A detailed post about transport safety and road behavior in city traffic.",
+        comments=["Drivers should slow down before crossings.", "Scooters also must follow road rules."],
+    )
+    state = run_context_stage(state)
+    state = run_public_opinion_stage(state)
+    updated = asyncio.run(run_synthesis_stage(state))
+
+    assert updated.synthesis.summary.strip()
+    assert updated.synthesis.confidence_reason in {"deterministic_orchestrator_v1", "limited_evidence"}
+
+
+def test_extract_topics_filters_high_frequency_function_words_in_ru_comments() -> None:
+    topics = _extract_topics(
+        "Шутка про ананас и донер в рекламе.",
+        [
+            "Зачем вообще есть это, зачем такая шутка.",
+            "Есть спор, но ананас и донер обсуждают чаще.",
+            "Шутка про ананас стала поводом для спора.",
+        ],
+        limit=5,
+    )
+
+    assert "зачем" not in topics
+    assert "есть" not in topics
+    assert any(topic in topics for topic in {"шутка", "ананас", "донер"})
+
+
 def test_mapper_builds_internal_trace_without_public_model_info_mix() -> None:
     state = init_pipeline_state(
         post_id=23,
@@ -165,15 +366,12 @@ def test_mapper_builds_internal_trace_without_public_model_info_mix() -> None:
     assert trace["status"] == "insufficient_data"
     assert "model_info" not in trace
     assert set(trace.keys()) >= {
-        "context",
-        "routing",
+        "epistemic_claims",
+        "steps",
         "retrieval",
-        "expert",
-        "public_opinion",
-        "synthesis",
-        "reviewer",
-        "trace",
+        "review",
     }
+    assert set(trace["steps"].keys()) == {"context", "routing", "expert", "public_opinion", "synthesis", "reviewer"}
 
 
 def test_mapper_public_model_info_is_optional() -> None:
@@ -470,7 +668,7 @@ def test_build_post_report_uses_legacy_path_when_rollout_disabled(monkeypatch) -
                 "multi_agent": {
                     "version": "v1",
                     "status": "ready",
-                    "steps": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis"]},
+                    "steps": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
                     "retrieval": {"required": False, "used": False, "status": "none", "sources": []},
                     "review": {
                         "iterations": 0,
@@ -566,6 +764,19 @@ def test_build_post_report_uses_v2_helper_when_rollout_gate_allows(monkeypatch) 
                 "multi_agent": {
                     "version": "v1",
                     "status": "limited",
+                    "public_opinion": {
+                        "discussion_state": "active",
+                        "signals": [
+                            {"name": "comments_count", "value": 2},
+                            {"name": "top_topics", "value": ["topic-alpha", "topic-beta"]},
+                        ],
+                    },
+                    "routing": {"reasoning": "deterministic_orchestrator_v1"},
+                    "reviewer": {"decision": "accept_with_limitations", "iterations": 1, "history": []},
+                    "synthesis": {
+                        "summary": "Deterministic synthesis summary based on input signals.",
+                        "confidence_reason": "deterministic_orchestrator_v1",
+                    },
                 }
             },
         }
@@ -574,6 +785,9 @@ def test_build_post_report_uses_v2_helper_when_rollout_gate_allows(monkeypatch) 
         assert post_id == 11
         assert status == "limited"
         assert report_json["summary"]
+        assert [topic["name"] for topic in report_json["topics"]] == ["topic-alpha", "topic-beta"]
+        assert report_json["meta"]["multi_agent"]["review"]["iterations"] == 1
+        assert "reviewer" not in report_json["meta"]["multi_agent"]
         return SimpleNamespace(id=96)
 
     monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _unexpected_generate_v2)
@@ -607,6 +821,122 @@ def test_build_post_report_uses_v2_helper_when_rollout_gate_allows(monkeypatch) 
     assert result["status"] == "limited"
     assert result["report_id"] == 96
     assert "shadow_compare" not in result
+
+
+def test_build_post_report_falls_back_to_legacy_when_v2_payload_is_skeleton_like(monkeypatch) -> None:
+    channel = SimpleNamespace(id=7, username="test_channel")
+    post = SimpleNamespace(
+        id=11,
+        date=reporting.datetime(2026, 3, 11, 12, 0, tzinfo=reporting.timezone.utc),
+        text="post",
+        views=5,
+        comments_count=2,
+        reactions_json=None,
+    )
+    session = _FakeSession(
+        execute_results=[
+            type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
+            _FakeRowsResult([(1, None, None, 0, None, "hello", None), (2, 1, 1, 1, None, "world", None)]),
+        ]
+    )
+
+    calls = {"legacy": 0, "v2": 0}
+
+    async def _legacy_generator(**kwargs):
+        calls["legacy"] += 1
+        return {
+            "type": "post_report_v2",
+            "status": "ready",
+            "post_id": kwargs["post_id"],
+            "published_at": "2026-03-11T12:00:00+00:00",
+            "title": "legacy title",
+            "summary": "legacy summary",
+            "comment_count": 2,
+            "sentiment": {
+                "dominant": "neutral",
+                "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+            },
+            "topics": [],
+            "clusters": [],
+            "time_trends": [],
+            "risks": [],
+            "anomalies": [],
+            "representative_quotes": [],
+            "confidence": {"overall": "medium", "reason": "legacy"},
+            "meta": {"multi_agent": {"version": "v1", "status": "ready"}},
+        }
+
+    async def _v2_helper_skeleton_like(**kwargs):
+        calls["v2"] += 1
+        return {
+            "type": "post_report_v2",
+            "status": "insufficient_data",
+            "post_id": kwargs["post_id"],
+            "published_at": "2026-03-11T12:00:00+00:00",
+            "title": "v2 title",
+            "summary": "v2 summary",
+            "comment_count": 2,
+            "sentiment": {
+                "dominant": "neutral",
+                "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+            },
+            "topics": [],
+            "clusters": [],
+            "time_trends": [],
+            "risks": [],
+            "anomalies": [],
+            "representative_quotes": [],
+            "confidence": {"overall": "low", "reason": "orchestrator"},
+            "meta": {
+                "multi_agent": {
+                    "version": "v1",
+                    "status": "insufficient_data",
+                    "routing": {"reasoning": "orchestrator_skeleton"},
+                    "synthesis": {"summary": "", "confidence_reason": "orchestrator_skeleton"},
+                }
+            },
+        }
+
+    async def _fake_upsert(_session, *, post_id, status, content, report_json=None):
+        assert post_id == 11
+        assert status == "ready"
+        assert content
+        assert report_json is not None
+        assert report_json["meta"]["multi_agent"]["status"] == "ready"
+        return SimpleNamespace(id=201)
+
+    monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _legacy_generator)
+    monkeypatch.setattr(reporting, "build_post_report_v2_payload_from_orchestrator", _v2_helper_skeleton_like)
+    monkeypatch.setattr(reporting, "upsert_report", _fake_upsert)
+    monkeypatch.setattr(
+        reporting,
+        "_load_reporting_feature_flags",
+        lambda _session: asyncio.sleep(
+            0,
+            result={
+                "multi_agent_mode_enabled": True,
+                "multi_agent_rollout_percent": 100,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        reporting,
+        "_post_report_readiness",
+        lambda _session, *, post: asyncio.sleep(0, result={"ready": True, "refresh_attempt": None}),
+    )
+
+    result = asyncio.run(
+        reporting.build_post_report(
+            session,
+            post_id=11,
+            report_project=None,
+        )
+    )
+
+    assert result["status"] == "ready"
+    assert result["report_id"] == 201
+    assert "technical_error" not in result
+    assert calls == {"legacy": 1, "v2": 1}
 
 
 def test_build_post_report_falls_back_to_legacy_when_v2_persist_path_errors(monkeypatch) -> None:

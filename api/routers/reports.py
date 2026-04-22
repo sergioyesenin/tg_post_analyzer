@@ -32,7 +32,7 @@ from services.orchestration import (
     enqueue_post_report_batch_job,
     enqueue_process_report_job,
 )
-from services.reporting import report_status_from_payload
+from services.reporting import canonicalize_multi_agent_trace, report_status_from_payload
 
 router = APIRouter()
 
@@ -59,6 +59,9 @@ def _job_accepted_response(*, job_id: int, job_type: str) -> JSONResponse:
 def _extract_multi_agent_trace(report_json: dict | None) -> dict | None:
     if not isinstance(report_json, dict):
         return None
+    canonical = canonicalize_multi_agent_trace(report_json)
+    if canonical:
+        return canonical
     meta = report_json.get("meta")
     if not isinstance(meta, dict):
         return None

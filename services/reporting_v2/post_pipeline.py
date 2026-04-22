@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import re
+from collections import Counter
 from typing import Any
 
 from schemas.report import PostReportPayload
@@ -18,14 +20,250 @@ from services.reporting_v2.contracts_internal import (
 )
 
 PIPELINE_SEQUENCE = ("context", "routing", "expert", "public_opinion", "synthesis", "reviewer")
-PIPELINE_STEP_KEYS = ("context", "routing", "expert", "public_opinion", "synthesis")
+PIPELINE_STEP_KEYS = ("context", "routing", "expert", "public_opinion", "synthesis", "reviewer")
 REVIEW_MAX_ITERATIONS = 2
+_TOKEN_RE = re.compile(r"[A-Za-zА-Яа-я0-9_]+", flags=re.UNICODE)
+_SENTENCE_RE = re.compile(r"[.!?]+")
 
 
 def _safe_text(value: str | None, *, max_len: int = 300) -> str:
     return " ".join((value or "").split())[:max_len]
 
 
+def _sentence_count(text: str) -> int:
+    return len([part for part in _SENTENCE_RE.split(text) if part.strip()])
+
+
+def _default_step_provenance() -> dict[str, Any]:
+    return {
+        "provider": "deterministic",
+        "model": "reporting_v2_policy",
+        "executed": True,
+        "success": True,
+        "latency_ms": None,
+        "input_ref": None,
+        "input_hash": None,
+        "output_ref": None,
+        "output_hash": None,
+        "fallback_used": False,
+        "fallback_reason": None,
+        "attempt_index": 0,
+        "status": "completed",
+    }
+
+
+def _sync_step_provenance(step_traces: dict[str, dict[str, Any]]) -> None:
+    for _step_name, trace in step_traces.items():
+        provenance = dict(trace.get("provenance") or _default_step_provenance())
+        run_count = int(trace.get("run_count") or 1)
+        trace_status = str(trace.get("status") or "completed")
+        provenance["attempt_index"] = max(0, run_count - 1)
+        provenance["status"] = trace_status if trace_status in {"completed", "failed", "skipped"} else "completed"
+        if provenance["status"] == "failed":
+            provenance["success"] = False
+        trace["provenance"] = provenance
+
+
+def _provider_from_adapter(adapter: OpenAIClientAdapter | None) -> str:
+    if adapter is None:
+        return "deterministic"
+    base_url = str(getattr(adapter.config, "base_url", "") or "").lower()
+    if "openrouter" in base_url:
+        return "openrouter"
+    return "openai_compatible"
+
+
+def _is_canonical_openrouter_ready_path(step_traces: dict[str, dict[str, Any]]) -> bool:
+    for step in PIPELINE_SEQUENCE:
+        trace = dict(step_traces.get(step) or {})
+        provenance = dict(trace.get("provenance") or {})
+        if provenance.get("provider") != "openrouter":
+            return False
+        if provenance.get("executed") is not True:
+            return False
+        if provenance.get("success") is not True:
+            return False
+        if provenance.get("fallback_used") is True:
+            return False
+        if str(provenance.get("status") or "") != "completed":
+            return False
+    return True
+
+
+def _mark_provider_backed_execution(
+    *,
+    step_traces: dict[str, dict[str, Any]],
+    provider: str,
+    model: str,
+) -> None:
+    for step_name in PIPELINE_SEQUENCE:
+        trace = dict(step_traces.get(step_name) or {})
+        provenance = dict(trace.get("provenance") or _default_step_provenance())
+        provenance["provider"] = provider
+        provenance["model"] = model
+        trace["provenance"] = provenance
+        step_traces[step_name] = trace
+
+
+def _extract_topics(post_text: str, comments: list[str], *, limit: int = 4) -> list[str]:
+    stopwords = {
+        "this",
+        "that",
+        "with",
+        "have",
+        "from",
+        "about",
+        "there",
+        "their",
+        "they",
+        "were",
+        "what",
+    }
+    merged = " ".join([_safe_text(post_text, max_len=1200), *[_safe_text(item, max_len=200) for item in comments]])
+    tokens = [token.lower() for token in _TOKEN_RE.findall(merged)]
+    candidates = [token for token in tokens if len(token) >= 4 and token not in stopwords and not token.isdigit()]
+    ranked = Counter(candidates).most_common(limit)
+    return [token for token, _count in ranked]
+
+
+def _build_public_opinion_trace(*, post_text: str, comments: list[str], comment_sufficiency: str, analytical_sufficiency: str) -> dict[str, Any]:
+    cleaned_comments = [_safe_text(item, max_len=280) for item in comments if _safe_text(item, max_len=280)]
+    comments_count = len(cleaned_comments)
+    merged = " ".join(cleaned_comments).lower()
+    conflict_markers = ("must", "should", "fault", "blame", "ban", "fine", "illegal")
+    conflict_hits = sum(merged.count(marker) for marker in conflict_markers)
+    if comments_count == 0:
+        discussion_state = "no_discussion"
+    elif conflict_hits >= 3:
+        discussion_state = "polarized"
+    elif comments_count < 6:
+        discussion_state = "emerging"
+    else:
+        discussion_state = "active"
+    topics = _extract_topics(post_text, cleaned_comments, limit=4)
+    data_status = comment_sufficiency if comment_sufficiency != "sufficient" else analytical_sufficiency
+    confidence = 0.25 if data_status in {"insufficient", "weak_signal"} else (0.5 if data_status == "limited" else 0.75)
+    dominant_reactions = (
+        [{"label": "disagreement", "share": round(min(1.0, conflict_hits / max(1, comments_count)), 4), "evidence_count": conflict_hits}]
+        if conflict_hits > 0
+        else []
+    )
+    signals: list[dict[str, Any]] = [
+        {"name": "comments_count", "value": comments_count},
+        {"name": "conflict_hits", "value": conflict_hits},
+    ]
+    if topics:
+        signals.append({"name": "top_topics", "value": topics})
+    return {
+        "discussion_state": discussion_state,
+        "main_topics": topics,
+        "dominant_reactions": dominant_reactions,
+        "data_status": data_status,
+        "confidence": confidence,
+        "signals": signals,
+    }
+
+
+def _build_deterministic_synthesis(
+    *,
+    post_text: str,
+    comment_count: int,
+    status: str,
+    public_opinion: dict[str, Any],
+    retrieval_required: bool,
+    retrieval_status: str,
+) -> dict[str, Any]:
+    topics = list(public_opinion.get("main_topics") or [])
+    topics_text = ", ".join(topics[:3]) if topics else "no stable repeated topics"
+    discussion_state = str(public_opinion.get("discussion_state") or "unclear")
+    limitations = status in {"limited", "insufficient_data"}
+    retrieval_limited = retrieval_required and retrieval_status in {"failed", "insufficient", "none"}
+    limitation_sentence = (
+        "Evidence is limited, so this interpretation should be treated as provisional."
+        if limitations
+        else "Available evidence supports a bounded but coherent interpretation."
+    )
+    retrieval_sentence = (
+        "Required external retrieval was unavailable, so external context remains unverified."
+        if retrieval_limited
+        else "No blocking external retrieval gap was detected for this synthesis."
+    )
+    report_text = " ".join(
+        [
+            f"The event centers on this post: {_safe_text(post_text, max_len=170) or 'insufficient source detail'}.",
+            f"The context is evaluated as {status}, based on source detail and discussion signal quality.",
+            f"Public reaction is {discussion_state}, with {comment_count} usable comments and main topics around {topics_text}.",
+            f"The interpretation is that observed reactions indicate {'stable' if status == 'ready' else 'partial'} signal rather than definitive consensus. {limitation_sentence}",
+            f"The consequence is that downstream actions should scale confidence to evidence quality. {retrieval_sentence}",
+        ]
+    ).strip()
+    components = {
+        "event": True,
+        "context": True,
+        "reaction": True,
+        "interpretation": True,
+        "consequences": True,
+    }
+    return {
+        "report_text": report_text,
+        "components": components,
+        "sentence_count": _sentence_count(report_text),
+        "quality": "ok",
+        "confidence_reason": "deterministic_spec_synthesis",
+    }
+
+
+def _normalize_synthesis_output(*, candidate: dict[str, Any] | None, fallback: dict[str, Any]) -> dict[str, Any]:
+    data = dict(candidate or {})
+    report_text = _safe_text(str(data.get("report_text") or data.get("summary") or fallback["report_text"]), max_len=1800)
+    sentence_count = int(data.get("sentence_count") or _sentence_count(report_text))
+    components_raw = data.get("components")
+    components = dict(components_raw) if isinstance(components_raw, dict) else dict(fallback["components"])
+    quality = str(data.get("quality") or ("ok" if 5 <= sentence_count <= 7 else "needs_revision"))
+    confidence_reason = _safe_text(str(data.get("confidence_reason") or fallback["confidence_reason"]), max_len=500)
+    return {
+        "report_text": report_text,
+        "components": {
+            "event": bool(components.get("event")),
+            "context": bool(components.get("context")),
+            "reaction": bool(components.get("reaction")),
+            "interpretation": bool(components.get("interpretation")),
+            "consequences": bool(components.get("consequences")),
+        },
+        "sentence_count": sentence_count,
+        "quality": quality,
+        "confidence_reason": confidence_reason,
+    }
+
+
+def _collect_reviewer_defects(
+    *,
+    status: str,
+    synthesis: dict[str, Any],
+    public_opinion: dict[str, Any],
+    retrieval_required: bool,
+    retrieval_status: str,
+    retrieval_used: bool,
+    retrieval_sources: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    defects: list[dict[str, Any]] = []
+    components = dict(synthesis.get("components") or {})
+    missing = [name for name in ("event", "context", "reaction", "interpretation", "consequences") if components.get(name) is not True]
+    sentence_count = int(synthesis.get("sentence_count") or 0)
+    report_text = _safe_text(str(synthesis.get("report_text") or ""), max_len=1800).lower()
+    if missing or sentence_count < 5 or sentence_count > 7:
+        defects.append({"code": "D1", "reason": f"structural_missing:{','.join(missing) or 'sentence_count'}", "target": "synthesis"})
+    if str(synthesis.get("quality") or "") != "ok":
+        defects.append({"code": "D2", "reason": "weak_analysis", "target": "synthesis"})
+    if retrieval_required and retrieval_status in {"failed", "insufficient", "none"} and status == "ready":
+        defects.append({"code": "D3", "reason": "ready_forbidden_without_required_retrieval", "target": "routing"})
+    if status == "insufficient_data" and ("indicates" in report_text or "supports" in report_text):
+        defects.append({"code": "D4", "reason": "insufficient_data_overclaim", "target": "synthesis"})
+    if retrieval_used and not retrieval_sources:
+        defects.append({"code": "D5", "reason": "missing_retrieval_evidence", "target": "routing"})
+    if status == "ready" and str(public_opinion.get("data_status") or "") in {"weak_signal", "insufficient"}:
+        defects.append({"code": "D6", "reason": "status_vs_signal_inconsistency", "target": "public_opinion"})
+    return defects
 def _build_retrieval_decision_inputs(*, post_text: str, comments: list[str]) -> dict[str, bool]:
     normalized_post = _safe_text(post_text, max_len=2000).lower()
     normalized_comments = " ".join(_safe_text(item, max_len=200).lower() for item in comments[:10])
@@ -196,6 +434,7 @@ async def generate_post_report_payload_v2(
     views: int | None,
     job_timeout_seconds: int | None = None,
     rerun_stage: str | None = None,
+    effective_features: dict[str, Any] | None = None,
     prompt_loader: PromptLoader | None = None,
     llm_adapter: OpenAIClientAdapter | None = None,
 ) -> dict[str, Any]:
@@ -205,16 +444,19 @@ async def generate_post_report_payload_v2(
     prompts = loader.load_bundle("post")
 
     step_traces: dict[str, dict[str, Any]] = {
-        step: {"status": "completed", "run_count": 1}
+        step: {"status": "completed", "run_count": 1, "provenance": _default_step_provenance(), "provenance_source": "observed"}
         for step in PIPELINE_STEP_KEYS
     }
     article_sufficiency = assess_article_sufficiency(text=post_text)
     comment_sufficiency = assess_comment_sufficiency(comments=comments)
     retrieval_inputs = _build_retrieval_decision_inputs(post_text=post_text, comments=comments)
     retrieval_required = decide_retrieval_required(**retrieval_inputs)
+    provider_enabled = bool((effective_features or {}).get("retrieval_provider_enabled", False))
     retrieval_trace = build_retrieval_trace_without_provider(
         required=retrieval_required,
-        provider_enabled=False,
+        provider_enabled=provider_enabled,
+        decision_inputs=retrieval_inputs,
+        decision_source="policy",
     )
     retrieval_used = bool(retrieval_trace["used"])
     retrieval_status = str(retrieval_trace["status"])
@@ -238,6 +480,16 @@ async def generate_post_report_payload_v2(
     }
     step_traces["context"]["retrieval_hints"] = retrieval_inputs
     step_traces["context"]["retrieval_required"] = retrieval_required
+    step_traces["routing"]["retrieval_hints"] = retrieval_inputs
+    step_traces["routing"]["reasoning"] = "deterministic_policy"
+
+    public_opinion_trace = _build_public_opinion_trace(
+        post_text=post_text,
+        comments=comments,
+        comment_sufficiency=comment_sufficiency,
+        analytical_sufficiency=analytical_sufficiency,
+    )
+    step_traces["public_opinion"].update(public_opinion_trace)
 
     requested_rerun = (rerun_stage or "").strip() or None
 
@@ -248,8 +500,14 @@ async def generate_post_report_payload_v2(
         analytical=analytical_sufficiency,
     )
 
-    summary = "Generated by reporting_v2 pipeline."
-    confidence_reason = "Deterministic fallback synthesis"
+    synthesis_data = _build_deterministic_synthesis(
+        post_text=post_text,
+        comment_count=len([item for item in comments if _safe_text(item)]),
+        status=target_status,
+        public_opinion=public_opinion_trace,
+        retrieval_required=retrieval_required,
+        retrieval_status=retrieval_status,
+    )
 
     if llm_adapter is None:
         cfg = OpenAIAdapterConfig.from_settings()
@@ -268,11 +526,21 @@ async def generate_post_report_payload_v2(
                 status_hint=target_status,
             )
             if isinstance(llm_output, dict):
-                summary = _safe_text(str(llm_output.get("summary") or summary), max_len=1200) or summary
-                confidence_reason = _safe_text(str(llm_output.get("confidence_reason") or "LLM synthesis"), max_len=500)
+                synthesis_data = _normalize_synthesis_output(candidate=llm_output, fallback=synthesis_data)
+                provider = _provider_from_adapter(llm_adapter)
+                model = str(llm_adapter.config.model or "")
+                _mark_provider_backed_execution(
+                    step_traces=step_traces,
+                    provider=provider,
+                    model=model,
+                )
         except Exception as exc:
             llm_error = f"{type(exc).__name__}: {exc}"
             step_traces["synthesis"]["status"] = "failed"
+            step_traces["synthesis"]["provenance"]["success"] = False
+            step_traces["synthesis"]["provenance"]["fallback_used"] = True
+            step_traces["synthesis"]["provenance"]["fallback_reason"] = "synthesis_error"
+            step_traces["synthesis"]["provenance"]["status"] = "failed"
 
     review_history: list[dict[str, Any]] = []
     review_reruns = 0
@@ -303,6 +571,96 @@ async def generate_post_report_payload_v2(
         else:
             pending_rerun = None
             pending_reason = ""
+
+    if llm_error is None:
+        reviewer_defects = _collect_reviewer_defects(
+            status=target_status,
+            synthesis=synthesis_data,
+            public_opinion=public_opinion_trace,
+            retrieval_required=retrieval_required,
+            retrieval_status=retrieval_status,
+            retrieval_used=retrieval_used,
+            retrieval_sources=retrieval_sources,
+        )
+
+        if reviewer_defects:
+            primary = reviewer_defects[0]
+            code = str(primary.get("code") or "")
+            target = str(primary.get("target") or "")
+            if code == "D1":
+                if target_status == "ready":
+                    target_status = "limited"
+                review_history.append(
+                    {
+                        "iteration": len(review_history) + 1,
+                        "decision": "rerun_branch",
+                        "target": target or "synthesis",
+                        "reason": f"{code}:{primary.get('reason')}",
+                        "confidence": 0.4,
+                    }
+                )
+                review_reruns += 1
+            elif code == "D2":
+                if target_status == "ready":
+                    target_status = "limited"
+                review_history.append(
+                    {
+                        "iteration": len(review_history) + 1,
+                        "decision": "revise",
+                        "target": target or "synthesis",
+                        "reason": f"{code}:{primary.get('reason')}",
+                        "confidence": 0.45,
+                    }
+                )
+            elif code in {"D3", "D4"}:
+                target_status = "insufficient_data"
+                review_history.append(
+                    {
+                        "iteration": len(review_history) + 1,
+                        "decision": "insufficient_data",
+                        "target": target or None,
+                        "reason": f"{code}:{primary.get('reason')}",
+                        "confidence": 0.0,
+                    }
+                )
+            else:
+                target_status = "limited" if target_status == "ready" else target_status
+                review_history.append(
+                    {
+                        "iteration": len(review_history) + 1,
+                        "decision": "accept_with_limitations",
+                        "target": target or None,
+                        "reason": f"{code}:{primary.get('reason')}",
+                        "confidence": 0.5,
+                    }
+                )
+
+        if reviewer_defects and target_status == "ready":
+            target_status = "limited"
+            review_history.append(
+                {
+                    "iteration": len(review_history) + 1,
+                    "decision": "accept_with_limitations",
+                    "target": None,
+                    "reason": "blocking_defects_present",
+                    "confidence": 0.4,
+                }
+            )
+
+        if retrieval_required and retrieval_status in {"failed", "insufficient", "none"}:
+            target_status = "limited" if target_status == "ready" else target_status
+
+        if target_status == "ready" and not _is_canonical_openrouter_ready_path(step_traces):
+            target_status = "limited"
+            review_history.append(
+                {
+                    "iteration": len(review_history) + 1,
+                    "decision": "accept_with_limitations",
+                    "target": None,
+                    "reason": "non_canonical_execution_path",
+                    "confidence": 0.4,
+                }
+            )
 
     if llm_error is not None:
         final_status = "insufficient_data"
@@ -343,17 +701,57 @@ async def generate_post_report_payload_v2(
             }
         )
         final_status = target_status
+        if final_status == "insufficient_data":
+            synthesis_data["report_text"] = (
+                "The event cannot be assessed reliably because available evidence is insufficient. "
+                "Context remains incomplete and public reaction signals are too weak for a stable interpretation. "
+                "Any inferred interpretation would likely overstate certainty. "
+                "Consequences therefore remain conditional and should not drive definitive action. "
+                "Additional source material and higher-quality discussion evidence are required."
+            )
+            synthesis_data["sentence_count"] = _sentence_count(synthesis_data["report_text"])
+            synthesis_data["quality"] = "ok"
+        elif final_status == "limited" and "limited" not in synthesis_data["report_text"].lower():
+            synthesis_data["report_text"] = (
+                f"{synthesis_data['report_text']} Evidence remains limited, so conclusions are explicitly bounded."
+            )
+            synthesis_data["sentence_count"] = _sentence_count(synthesis_data["report_text"])
+
+        confidence_reason = str(synthesis_data.get("confidence_reason") or "deterministic_spec_synthesis")
+        if final_status == "limited" and retrieval_required and retrieval_status in {"failed", "insufficient", "none"}:
+            confidence_reason = "required_retrieval_unavailable"
         payload = _build_base_payload(
             post_id=post_id,
             published_at_iso=published_at_iso,
             post_text=post_text,
             comments=comments,
             status=target_status,
-            summary=summary,
+            summary=str(synthesis_data["report_text"]),
             confidence_reason=confidence_reason,
         )
         if isinstance(llm_output, dict) and isinstance(llm_output.get("topics"), list):
             payload["topics"] = llm_output.get("topics")
+        elif public_opinion_trace.get("main_topics"):
+            payload["topics"] = [{"name": topic} for topic in list(public_opinion_trace.get("main_topics") or [])]
+
+    step_traces["reviewer"].update(
+        {
+            "decision": review_history[-1]["decision"] if review_history else "insufficient_data",
+            "iterations": len([item for item in review_history if str(item.get("decision")) == "rerun_branch"]),
+            "history": review_history,
+        }
+    )
+
+    step_traces["synthesis"].update(
+        {
+            "report_text": str(synthesis_data.get("report_text") or ""),
+            "components": dict(synthesis_data.get("components") or {}),
+            "sentence_count": int(synthesis_data.get("sentence_count") or 0),
+            "quality": str(synthesis_data.get("quality") or "needs_revision"),
+            "confidence_reason": str(synthesis_data.get("confidence_reason") or ""),
+        }
+    )
+    _sync_step_provenance(step_traces)
 
     multi_agent = {
         "version": "v1",
@@ -371,10 +769,12 @@ async def generate_post_report_payload_v2(
             "required": bool(retrieval_trace["required"]),
             "used": retrieval_used,
             "status": retrieval_status,
+            "decision_inputs": dict(retrieval_trace.get("decision_inputs") or retrieval_inputs),
+            "decision_source": str(retrieval_trace.get("decision_source") or "policy"),
             "sources": retrieval_sources,
         },
         "review": {
-            "iterations": review_reruns,
+            "iterations": len([item for item in review_history if str(item.get("decision")) == "rerun_branch"]),
             "history": review_history,
         },
     }

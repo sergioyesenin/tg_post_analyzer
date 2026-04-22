@@ -29,6 +29,102 @@ def _safe_text(value: str | None, *, max_len: int = 300) -> str:
     return " ".join((value or "").split())[:max_len]
 
 
+def _default_step_provenance() -> dict[str, Any]:
+    return {
+        "provider": "deterministic",
+        "model": "reporting_v2_policy",
+        "executed": True,
+        "success": True,
+        "latency_ms": None,
+        "input_ref": None,
+        "input_hash": None,
+        "output_ref": None,
+        "output_hash": None,
+        "fallback_used": False,
+        "fallback_reason": None,
+        "attempt_index": 0,
+        "status": "completed",
+    }
+
+
+def _sync_step_provenance(step_traces: dict[str, dict[str, Any]]) -> None:
+    for _step_name, trace in step_traces.items():
+        provenance = dict(trace.get("provenance") or _default_step_provenance())
+        run_count = int(trace.get("run_count") or 1)
+        trace_status = str(trace.get("status") or "completed")
+        provenance["attempt_index"] = max(0, run_count - 1)
+        provenance["status"] = trace_status if trace_status in {"completed", "failed", "skipped"} else "completed"
+        if provenance["status"] == "failed":
+            provenance["success"] = False
+        trace["provenance"] = provenance
+
+
+def _provider_from_adapter(adapter: OpenAIClientAdapter | None) -> str:
+    if adapter is None:
+        return "deterministic"
+    base_url = str(getattr(adapter.config, "base_url", "") or "").lower()
+    if "openrouter" in base_url:
+        return "openrouter"
+    return "openai_compatible"
+
+
+def _mark_provider_backed_execution(
+    *,
+    step_traces: dict[str, dict[str, Any]],
+    provider: str,
+    model: str,
+) -> None:
+    for step_name in PIPELINE_SEQUENCE:
+        trace = dict(step_traces.get(step_name) or {})
+        provenance = dict(trace.get("provenance") or _default_step_provenance())
+        provenance["provider"] = provider
+        provenance["model"] = model
+        trace["provenance"] = provenance
+        step_traces[step_name] = trace
+
+
+def _is_canonical_openrouter_ready_path(step_traces: dict[str, dict[str, Any]]) -> bool:
+    for step in PIPELINE_SEQUENCE:
+        trace = dict(step_traces.get(step) or {})
+        provenance = dict(trace.get("provenance") or {})
+        if provenance.get("provider") != "openrouter":
+            return False
+        if provenance.get("executed") is not True:
+            return False
+        if provenance.get("success") is not True:
+            return False
+        if provenance.get("fallback_used") is True:
+            return False
+        if str(provenance.get("status") or "") != "completed":
+            return False
+    return True
+
+
+def _collect_reviewer_defects(
+    *,
+    status: str,
+    summary: str,
+    comment_sufficiency: str,
+    retrieval_required: bool,
+    retrieval_status: str,
+    retrieval_used: bool,
+    retrieval_sources: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    defects: list[dict[str, Any]] = []
+    summary_norm = _safe_text(summary, max_len=1600).lower()
+    if len(summary_norm) < 40:
+        defects.append({"code": "D1", "reason": "summary_too_short", "target": "synthesis"})
+    if retrieval_required and retrieval_status in {"failed", "insufficient", "none"} and status == "ready":
+        defects.append({"code": "D3", "reason": "ready_forbidden_without_required_retrieval", "target": "routing"})
+    if status == "ready" and comment_sufficiency in {"weak_signal", "insufficient"}:
+        defects.append({"code": "D6", "reason": "status_vs_signal_inconsistency", "target": "public_opinion"})
+    if status == "insufficient_data" and ("indicates" in summary_norm or "supports" in summary_norm):
+        defects.append({"code": "D4", "reason": "insufficient_data_overclaim", "target": "synthesis"})
+    if retrieval_used and not retrieval_sources:
+        defects.append({"code": "D5", "reason": "missing_retrieval_evidence", "target": "routing"})
+    return defects
+
+
 def _build_retrieval_decision_inputs(*, event_title: str, root_post_text: str) -> dict[str, bool]:
     merged = f"{_safe_text(event_title, max_len=300)} {_safe_text(root_post_text, max_len=2200)}".lower()
     institutional_context = any(
@@ -265,6 +361,8 @@ async def build_event_report_v2_impl(
     retrieval_trace = build_retrieval_trace_without_provider(
         required=retrieval_required,
         provider_enabled=False,
+        decision_inputs=retrieval_inputs,
+        decision_source="policy",
     )
     retrieval_used = bool(retrieval_trace["used"])
     retrieval_status = str(retrieval_trace["status"])
@@ -290,6 +388,8 @@ async def build_event_report_v2_impl(
         "context": {
             "status": "completed",
             "run_count": 1,
+            "provenance": _default_step_provenance(),
+            "provenance_source": "observed",
             "root_post_id": bundle.get("root_post_id"),
             "source_post_ids": post_ids,
             "comments_total": len(comments),
@@ -302,10 +402,11 @@ async def build_event_report_v2_impl(
             "retrieval_hints": retrieval_inputs,
             "retrieval_required": retrieval_required,
         },
-        "routing": {"status": "completed", "run_count": 1},
-        "expert": {"status": "completed", "run_count": 1},
-        "public_opinion": {"status": "completed", "run_count": 1},
-        "synthesis": {"status": "completed", "run_count": 1},
+        "routing": {"status": "completed", "run_count": 1, "provenance": _default_step_provenance(), "provenance_source": "observed"},
+        "expert": {"status": "completed", "run_count": 1, "provenance": _default_step_provenance(), "provenance_source": "observed"},
+        "public_opinion": {"status": "completed", "run_count": 1, "provenance": _default_step_provenance(), "provenance_source": "observed"},
+        "synthesis": {"status": "completed", "run_count": 1, "provenance": _default_step_provenance(), "provenance_source": "observed"},
+        "reviewer": {"status": "completed", "run_count": 1, "provenance": _default_step_provenance(), "provenance_source": "observed"},
     }
 
     summary = (
@@ -333,9 +434,20 @@ async def build_event_report_v2_impl(
             if isinstance(llm_output, dict):
                 summary = _safe_text(str(llm_output.get("summary") or summary), max_len=1500) or summary
                 confidence_reason = _safe_text(str(llm_output.get("confidence_reason") or "LLM event synthesis"), max_len=500)
+                provider = _provider_from_adapter(llm_adapter)
+                model = str(llm_adapter.config.model or "")
+                _mark_provider_backed_execution(
+                    step_traces=step_traces,
+                    provider=provider,
+                    model=model,
+                )
         except Exception as exc:
             llm_error = f"{type(exc).__name__}: {exc}"
             step_traces["synthesis"]["status"] = "failed"
+            step_traces["synthesis"]["provenance"]["success"] = False
+            step_traces["synthesis"]["provenance"]["fallback_used"] = True
+            step_traces["synthesis"]["provenance"]["fallback_reason"] = "synthesis_error"
+            step_traces["synthesis"]["provenance"]["status"] = "failed"
 
     review_history: list[dict[str, Any]] = []
     review_reruns = 0
@@ -362,6 +474,44 @@ async def build_event_report_v2_impl(
             pending_rerun = None
             pending_reason = ""
 
+    if llm_error is None:
+        reviewer_defects = _collect_reviewer_defects(
+            status=target_status,
+            summary=summary,
+            comment_sufficiency=comment_sufficiency,
+            retrieval_required=retrieval_required,
+            retrieval_status=retrieval_status,
+            retrieval_used=retrieval_used,
+            retrieval_sources=retrieval_sources,
+        )
+
+        if reviewer_defects and target_status == "ready":
+            target_status = "limited"
+            review_history.append(
+                {
+                    "iteration": len(review_history) + 1,
+                    "decision": "accept_with_limitations",
+                    "target": None,
+                    "reason": "blocking_defects_present",
+                    "confidence": 0.4,
+                }
+            )
+
+        if retrieval_required and retrieval_status in {"failed", "insufficient", "none"}:
+            target_status = "limited" if target_status == "ready" else target_status
+
+        if target_status == "ready" and not _is_canonical_openrouter_ready_path(step_traces):
+            target_status = "limited"
+            review_history.append(
+                {
+                    "iteration": len(review_history) + 1,
+                    "decision": "accept_with_limitations",
+                    "target": None,
+                    "reason": "non_canonical_execution_path",
+                    "confidence": 0.4,
+                }
+            )
+
     if llm_error is not None:
         target_status = "insufficient_data"
         review_history.append(
@@ -384,7 +534,7 @@ async def build_event_report_v2_impl(
             review_decision = "insufficient_data"
         review_history.append(
             {
-                "iteration": 1,
+                "iteration": len(review_history) + 1,
                 "decision": review_decision,
                 "target": None,
                 "reason": analytical_sufficiency,
@@ -431,6 +581,15 @@ async def build_event_report_v2_impl(
         },
     }
 
+    step_traces["reviewer"].update(
+        {
+            "decision": review_history[-1]["decision"] if review_history else "insufficient_data",
+            "iterations": len([item for item in review_history if str(item.get("decision")) == "rerun_branch"]),
+            "history": review_history,
+        }
+    )
+    _sync_step_provenance(step_traces)
+
     multi_agent = {
         "version": "v1",
         "status": target_status if target_status in {"ready", "limited", "insufficient_data", "failed"} else "failed",
@@ -448,10 +607,12 @@ async def build_event_report_v2_impl(
             "required": bool(retrieval_trace["required"]),
             "used": retrieval_used,
             "status": retrieval_status,
+            "decision_inputs": dict(retrieval_trace.get("decision_inputs") or retrieval_inputs),
+            "decision_source": str(retrieval_trace.get("decision_source") or "policy"),
             "sources": retrieval_sources,
         },
         "review": {
-            "iterations": review_reruns,
+            "iterations": len([item for item in review_history if str(item.get("decision")) == "rerun_branch"]),
             "history": review_history,
         },
     }

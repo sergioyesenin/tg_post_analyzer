@@ -28,6 +28,7 @@ def test_validate_multi_agent_meta_accepts_valid_payload() -> None:
             "expert": {"status": "completed", "run_count": 1},
             "public_opinion": {"status": "completed", "run_count": 1},
             "synthesis": {"status": "completed", "run_count": 1},
+            "reviewer": {"status": "completed", "run_count": 1},
         },
         "retrieval": {
             "required": False,
@@ -101,6 +102,7 @@ def test_multi_agent_schema_rejects_invalid_epistemic_claim_type_and_source() ->
             "expert": {"status": "completed"},
             "public_opinion": {"status": "completed"},
             "synthesis": {"status": "completed"},
+            "reviewer": {"status": "completed"},
         },
         "retrieval": {"required": False, "used": False, "status": "none", "sources": []},
         "review": {"iterations": 0, "history": []},
@@ -128,6 +130,7 @@ def test_multi_agent_schema_rejects_invalid_epistemic_mapping_transitions() -> N
             "expert": {"status": "completed"},
             "public_opinion": {"status": "completed"},
             "synthesis": {"status": "completed"},
+            "reviewer": {"status": "completed"},
         },
         "retrieval": {"required": True, "used": False, "status": "failed", "sources": []},
         "review": {"iterations": 0, "history": []},
@@ -178,6 +181,7 @@ def test_sufficiency_model_component_evaluators_and_aggregation() -> None:
                     "expert": {"status": "completed"},
                     "public_opinion": {"status": "completed"},
                     "synthesis": {"status": "completed"},
+                    "reviewer": {"status": "completed"},
                 },
                 "retrieval": {"required": True, "used": True, "status": "success", "sources": []},
                 "review": {"iterations": 0, "history": []},
@@ -195,6 +199,7 @@ def test_multi_agent_schema_validates_retrieval_source_evidence() -> None:
             "expert": {"status": "completed"},
             "public_opinion": {"status": "completed"},
             "synthesis": {"status": "completed"},
+            "reviewer": {"status": "completed"},
         },
         "retrieval": {
             "required": True,
@@ -248,6 +253,7 @@ def test_acceptance_matrix_schema_valid_partial_fallback_contract() -> None:
             "expert": {"status": "completed", "run_count": 2},
             "public_opinion": {"status": "completed", "run_count": 1},
             "synthesis": {"status": "completed", "run_count": 1},
+            "reviewer": {"status": "completed", "run_count": 1},
         },
         "retrieval": {"required": False, "used": False, "status": "none", "sources": []},
         "review": {

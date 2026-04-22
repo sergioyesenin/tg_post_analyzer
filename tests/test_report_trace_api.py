@@ -70,7 +70,9 @@ def test_get_post_trace_allows_admin_and_returns_multi_agent_trace() -> None:
     assert body["entity_type"] == "post"
     assert body["entity_id"] == 42
     assert body["report_id"] == 11
-    assert body["trace"]["final_status"] == "ready"
+    assert body["trace"]["status"] == "ready"
+    assert "reviewer" in body["trace"]["steps"]
+    assert "provenance" in body["trace"]["steps"]["context"]
 
 
 def test_get_event_trace_allows_analyst_and_returns_latest_trace() -> None:
@@ -99,7 +101,8 @@ def test_get_event_trace_allows_analyst_and_returns_latest_trace() -> None:
     assert body["entity_id"] == 7
     assert body["version"] == 3
     assert body["status"] == "limited"
-    assert body["trace"]["final_status"] == "limited"
+    assert body["trace"]["status"] == "limited"
+    assert "reviewer" in body["trace"]["steps"]
 
 
 def test_trace_endpoints_forbid_viewer() -> None:
@@ -216,4 +219,5 @@ def test_analyst_gets_trace_but_public_endpoint_stays_sanitized() -> None:
     trace_json = trace_response.json()
     assert trace_json["entity_type"] == "post"
     assert trace_json["entity_id"] == 77
-    assert trace_json["trace"]["final_status"] == "limited"
+    assert trace_json["trace"]["status"] == "limited"
+    assert "reviewer" in trace_json["trace"]["steps"]

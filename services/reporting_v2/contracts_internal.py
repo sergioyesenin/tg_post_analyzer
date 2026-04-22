@@ -10,7 +10,8 @@ SUFFICIENCY_LABELS = frozenset(["sufficient", "limited", "weak_signal", "insuffi
 REPORT_STATUSES = frozenset(["ready", "limited", "insufficient_data"])
 FALLBACK_STATUSES = frozenset(["ready", "limited", "insufficient_data", "failed"])
 RETRIEVAL_STATUSES = frozenset(["none", "success", "failed", "insufficient"])
-STEP_KEYS = frozenset(["context", "routing", "expert", "public_opinion", "synthesis"])
+PROVENANCE_STATUSES = frozenset(["completed", "failed", "skipped"])
+STEP_KEYS = frozenset(["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"])
 
 
 class EpistemicEntry(BaseModel):
@@ -26,6 +27,25 @@ class StageTrace(BaseModel):
     model_config = ConfigDict(extra="allow", strict=True)
     status: str | None = Field(default=None, min_length=1)
     run_count: int | None = Field(default=None, ge=0)
+    provenance: StepProvenance = Field(default_factory=lambda: StepProvenance())
+
+
+class StepProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    provider: str | None = None
+    model: str | None = None
+    executed: bool = False
+    success: bool = False
+    latency_ms: int | None = Field(default=None, ge=0)
+    input_ref: str | None = None
+    input_hash: str | None = None
+    output_ref: str | None = None
+    output_hash: str | None = None
+    fallback_used: bool = False
+    fallback_reason: str | None = None
+    attempt_index: int = Field(default=0, ge=0)
+    status: str = "skipped"
 
 
 class RetrievalTrace(BaseModel):
@@ -34,6 +54,8 @@ class RetrievalTrace(BaseModel):
     required: bool
     used: bool
     status: str
+    decision_inputs: dict[str, Any] = Field(default_factory=dict)
+    decision_source: str = "policy"
     sources: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -85,6 +107,9 @@ class MultiAgentMetaInternal(BaseModel):
             raise ValueError(f"Invalid steps keys: {sorted(model.steps.keys())}")
         if model.retrieval.status not in RETRIEVAL_STATUSES:
             raise ValueError(f"Invalid retrieval.status: {model.retrieval.status}")
+        for step_name, step_trace in model.steps.items():
+            if step_trace.provenance.status not in PROVENANCE_STATUSES:
+                raise ValueError(f"Invalid provenance.status for step {step_name}: {step_trace.provenance.status}")
         if model.retrieval.used and not model.retrieval.sources:
             raise ValueError("retrieval.sources must be non-empty when retrieval.used=true")
         for idx, item in enumerate(model.retrieval.sources):
@@ -174,12 +199,17 @@ def build_retrieval_trace_without_provider(
     *,
     required: bool,
     provider_enabled: bool,
+    decision_inputs: Mapping[str, Any] | None = None,
+    decision_source: str = "policy",
 ) -> dict[str, Any]:
+    normalized_inputs = dict(decision_inputs or {})
     if not required:
         return {
             "required": False,
             "used": False,
             "status": "none",
+            "decision_inputs": normalized_inputs,
+            "decision_source": decision_source,
             "sources": [],
         }
     if not provider_enabled:
@@ -187,6 +217,8 @@ def build_retrieval_trace_without_provider(
             "required": True,
             "used": False,
             "status": "failed",
+            "decision_inputs": normalized_inputs,
+            "decision_source": decision_source,
             "sources": [],
         }
     # Provider remains intentionally out-of-scope in this wave.
@@ -194,6 +226,8 @@ def build_retrieval_trace_without_provider(
         "required": True,
         "used": False,
         "status": "insufficient",
+        "decision_inputs": normalized_inputs,
+        "decision_source": decision_source,
         "sources": [],
     }
 

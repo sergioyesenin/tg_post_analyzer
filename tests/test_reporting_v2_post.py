@@ -4,6 +4,7 @@ import asyncio
 from types import SimpleNamespace
 
 from services import reporting
+from services.llm.openai_client import OpenAIChatCompletionTrace
 from services.reporting_v2.post_pipeline import generate_post_report_payload_v2
 from services.reporting_v2.orchestrator import run_reviewer_loop
 from services.reporting_v2.state import init_pipeline_state
@@ -176,6 +177,47 @@ def test_reporting_v2_post_pipeline_reviewer_loop_caps_at_two_on_synthesis_failu
     ]
 
 
+def test_reporting_v2_post_pipeline_marks_provider_provenance_for_all_six_steps() -> None:
+    class _TraceAdapter:
+        async def create_chat_completion_with_trace(self, **kwargs):
+            del kwargs
+            return OpenAIChatCompletionTrace(
+                content="{}",
+                provider="openrouter",
+                model="qwen/qwen3-coder:free",
+                latency_ms=15,
+                fallback_used=False,
+                fallback_reason=None,
+                executed=True,
+                success=True,
+                attempt_index=0,
+            )
+
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=106,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text=(
+                "This report describes a local community initiative with operational updates, "
+                "timeline milestones, stakeholders, and execution notes."
+            ),
+            comments=[f"comment {idx}" for idx in range(1, 8)],
+            thread_comments=[],
+            views=200,
+            llm_adapter=_TraceAdapter(),
+        )
+    )
+
+    steps = payload["meta"]["multi_agent"]["steps"]
+    for step_name in ("context", "routing", "expert", "public_opinion", "synthesis", "reviewer"):
+        provenance = steps[step_name]["provenance"]
+        assert provenance["provider"] == "openrouter"
+        assert provenance["model"] == "qwen/qwen3-coder:free"
+        assert provenance["executed"] is True
+        assert provenance["latency_ms"] == 15
+
+
 def test_build_post_report_uses_reporting_v2_executor(monkeypatch) -> None:
     channel = SimpleNamespace(id=7, username="test_channel")
     post = SimpleNamespace(
@@ -195,6 +237,25 @@ def test_build_post_report_uses_reporting_v2_executor(monkeypatch) -> None:
 
     async def _fake_generate_v2(**kwargs):
         assert kwargs["post_id"] == 11
+        canonical_step = {
+            "status": "completed",
+            "run_count": 1,
+            "provenance": {
+                "provider": "openrouter",
+                "model": "qwen/qwen3-coder:free",
+                "executed": True,
+                "success": True,
+                "latency_ms": 10,
+                "input_ref": None,
+                "input_hash": None,
+                "output_ref": None,
+                "output_hash": None,
+                "fallback_used": False,
+                "fallback_reason": None,
+                "attempt_index": 0,
+                "status": "completed",
+            },
+        }
         return {
             "type": "post_report_v2",
             "status": "ready",
@@ -214,16 +275,16 @@ def test_build_post_report_uses_reporting_v2_executor(monkeypatch) -> None:
             "anomalies": [],
             "representative_quotes": [],
             "confidence": {"overall": "medium", "reason": "ok"},
-            "meta": {
-                "multi_agent": {
-                    "version": "v1",
-                    "status": "ready",
-                    "steps": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
-                    "retrieval": {"required": False, "used": False, "status": "none", "sources": []},
-                    "review": {
-                        "iterations": 0,
-                        "history": [{"iteration": 1, "decision": "accept", "target": None, "reason": "ok", "confidence": 0.9}],
-                    },
+                "meta": {
+                    "multi_agent": {
+                        "version": "v1",
+                        "status": "ready",
+                        "steps": {name: dict(canonical_step) for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
+                        "retrieval": {"required": False, "used": False, "status": "none", "sources": []},
+                        "review": {
+                            "iterations": 0,
+                            "history": [{"iteration": 1, "decision": "accept", "target": None, "reason": "ok", "confidence": 0.9}],
+                        },
                 }
             },
         }

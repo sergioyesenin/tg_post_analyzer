@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -48,6 +49,19 @@ class OpenAIAdapterConfig:
             local_base_url=settings.REPORT_V2_LOCAL_BASE_URL,
             local_api_key=settings.REPORT_V2_LOCAL_API_KEY,
         )
+
+
+@dataclass(frozen=True)
+class OpenAIChatCompletionTrace:
+    content: str
+    provider: str
+    model: str
+    latency_ms: int | None
+    fallback_used: bool
+    fallback_reason: str | None
+    executed: bool
+    success: bool
+    attempt_index: int
 
 
 class OpenAIClientAdapter:
@@ -102,6 +116,14 @@ class OpenAIClientAdapter:
             ordered.append(name)
         return ordered
 
+    def _provider_for_client(self, *, client_kind: str) -> str:
+        base_url = str(self.config.base_url or "").lower()
+        if client_kind == "local":
+            return "openai_compatible_local"
+        if "openrouter" in base_url:
+            return "openrouter"
+        return "openai_compatible"
+
     async def _create_once(
         self,
         *,
@@ -136,6 +158,113 @@ class OpenAIClientAdapter:
             return "".join(text_parts)
         return ""
 
+    async def create_chat_completion_with_trace(
+        self,
+        *,
+        messages: list[dict[str, str]],
+        model: str | None = None,
+        temperature: float = 0.0,
+        response_format: dict[str, Any] | None = None,
+    ) -> OpenAIChatCompletionTrace:
+        primary_models = self._build_primary_models(model)
+        primary_errors: list[str] = []
+        requested_model = model or self.config.model
+        attempt_index = 0
+
+        if self.config.routing_enabled and len(primary_models) > 1:
+            started = time.perf_counter()
+            try:
+                logger.warning("LLM routing request activated models=%s", primary_models)
+                content = await self._create_once(
+                    client=self.client,
+                    model=primary_models[0],
+                    messages=messages,
+                    temperature=temperature,
+                    response_format=response_format,
+                    routed_models=primary_models,
+                )
+                elapsed_ms = int((time.perf_counter() - started) * 1000)
+                return OpenAIChatCompletionTrace(
+                    content=content,
+                    provider=self._provider_for_client(client_kind="primary"),
+                    model=primary_models[0],
+                    latency_ms=max(0, elapsed_ms),
+                    fallback_used=False,
+                    fallback_reason=None,
+                    executed=True,
+                    success=True,
+                    attempt_index=attempt_index,
+                )
+            except Exception as exc:
+                primary_errors.append(f"routing:{type(exc).__name__}:{exc}")
+                logger.warning("LLM routing request failed err=%r", exc)
+                attempt_index += 1
+
+        for model_name in primary_models:
+            started = time.perf_counter()
+            try:
+                if model_name != requested_model:
+                    logger.warning("LLM model fallback activated model=%s", model_name)
+                content = await self._create_once(
+                    client=self.client,
+                    model=model_name,
+                    messages=messages,
+                    temperature=temperature,
+                    response_format=response_format,
+                )
+                elapsed_ms = int((time.perf_counter() - started) * 1000)
+                fallback_used = model_name != requested_model
+                return OpenAIChatCompletionTrace(
+                    content=content,
+                    provider=self._provider_for_client(client_kind="primary"),
+                    model=model_name,
+                    latency_ms=max(0, elapsed_ms),
+                    fallback_used=fallback_used,
+                    fallback_reason="model_fallback" if fallback_used else None,
+                    executed=True,
+                    success=True,
+                    attempt_index=attempt_index,
+                )
+            except Exception as exc:
+                primary_errors.append(f"{model_name}:{type(exc).__name__}:{exc}")
+                logger.warning("LLM model failed model=%s err=%r", model_name, exc)
+                attempt_index += 1
+
+        if self.local_client is not None and self.config.local_fallback_enabled:
+            started = time.perf_counter()
+            try:
+                logger.warning(
+                    "LLM local fallback activated local_model=%s local_base_url=%s",
+                    self.config.local_model,
+                    self.config.local_base_url,
+                )
+                content = await self._create_once(
+                    client=self.local_client,
+                    model=self.config.local_model,
+                    messages=messages,
+                    temperature=temperature,
+                    response_format=response_format,
+                )
+                elapsed_ms = int((time.perf_counter() - started) * 1000)
+                return OpenAIChatCompletionTrace(
+                    content=content,
+                    provider=self._provider_for_client(client_kind="local"),
+                    model=self.config.local_model,
+                    latency_ms=max(0, elapsed_ms),
+                    fallback_used=True,
+                    fallback_reason="local_fallback",
+                    executed=True,
+                    success=True,
+                    attempt_index=attempt_index,
+                )
+            except Exception as exc:
+                primary_errors.append(f"local:{self.config.local_model}:{type(exc).__name__}:{exc}")
+                logger.warning("LLM local fallback failed model=%s err=%r", self.config.local_model, exc)
+                attempt_index += 1
+
+        summary = " | ".join(primary_errors) if primary_errors else "no_models_configured"
+        raise RuntimeError(f"All LLM fallbacks failed: {summary}")
+
     async def create_chat_completion(
         self,
         *,
@@ -144,56 +273,10 @@ class OpenAIClientAdapter:
         temperature: float = 0.0,
         response_format: dict[str, Any] | None = None,
     ) -> str:
-        primary_models = self._build_primary_models(model)
-        primary_errors: list[str] = []
-
-        if self.config.routing_enabled and len(primary_models) > 1:
-            try:
-                logger.warning("LLM routing request activated models=%s", primary_models)
-                return await self._create_once(
-                    client=self.client,
-                    model=primary_models[0],
-                    messages=messages,
-                    temperature=temperature,
-                    response_format=response_format,
-                    routed_models=primary_models,
-                )
-            except Exception as exc:
-                primary_errors.append(f"routing:{type(exc).__name__}:{exc}")
-                logger.warning("LLM routing request failed err=%r", exc)
-
-        for model_name in primary_models:
-            try:
-                if model_name != (model or self.config.model):
-                    logger.warning("LLM model fallback activated model=%s", model_name)
-                return await self._create_once(
-                    client=self.client,
-                    model=model_name,
-                    messages=messages,
-                    temperature=temperature,
-                    response_format=response_format,
-                )
-            except Exception as exc:
-                primary_errors.append(f"{model_name}:{type(exc).__name__}:{exc}")
-                logger.warning("LLM model failed model=%s err=%r", model_name, exc)
-
-        if self.local_client is not None and self.config.local_fallback_enabled:
-            try:
-                logger.warning(
-                    "LLM local fallback activated local_model=%s local_base_url=%s",
-                    self.config.local_model,
-                    self.config.local_base_url,
-                )
-                return await self._create_once(
-                    client=self.local_client,
-                    model=self.config.local_model,
-                    messages=messages,
-                    temperature=temperature,
-                    response_format=response_format,
-                )
-            except Exception as exc:
-                primary_errors.append(f"local:{self.config.local_model}:{type(exc).__name__}:{exc}")
-                logger.warning("LLM local fallback failed model=%s err=%r", self.config.local_model, exc)
-
-        summary = " | ".join(primary_errors) if primary_errors else "no_models_configured"
-        raise RuntimeError(f"All LLM fallbacks failed: {summary}")
+        trace = await self.create_chat_completion_with_trace(
+            messages=messages,
+            model=model,
+            temperature=temperature,
+            response_format=response_format,
+        )
+        return trace.content

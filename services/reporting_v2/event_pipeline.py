@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Comment, Event, EventPost, Post
 from schemas.report import EventReportPayload
-from services.llm.openai_client import OpenAIAdapterConfig, OpenAIClientAdapter
+from services.llm.openai_client import OpenAIAdapterConfig, OpenAIChatCompletionTrace, OpenAIClientAdapter
 from services.prompts.loader import PromptLoader
 from services.reporting_v2.contracts_internal import (
     aggregate_public_status,
@@ -24,8 +24,6 @@ from services.reporting_v2.steps import (
     SIX_STEP_SEQUENCE,
     build_step_traces,
     is_canonical_openrouter_ready_path,
-    mark_provider_backed_execution,
-    provider_from_adapter,
     request_step_rerun,
     sync_step_provenance,
 )
@@ -235,37 +233,126 @@ async def load_event_input_bundle(session: AsyncSession, *, event_id: int) -> di
     }
 
 
-async def _try_llm_synthesis(
+def _default_provider_trace(*, adapter: OpenAIClientAdapter) -> OpenAIChatCompletionTrace:
+    base_url = str(getattr(getattr(adapter, "config", None), "base_url", "") or "").lower()
+    provider = "openrouter" if "openrouter" in base_url else "openai_compatible"
+    model = str(getattr(getattr(adapter, "config", None), "model", "") or "")
+    return OpenAIChatCompletionTrace(
+        content="",
+        provider=provider,
+        model=model,
+        latency_ms=None,
+        fallback_used=False,
+        fallback_reason=None,
+        executed=True,
+        success=True,
+        attempt_index=0,
+    )
+
+
+def _apply_step_provider_trace(
+    *,
+    step_traces: dict[str, dict[str, Any]],
+    step_name: str,
+    trace: OpenAIChatCompletionTrace,
+) -> None:
+    step = dict(step_traces.get(step_name) or {})
+    provenance = dict(step.get("provenance") or {})
+    provenance.update(
+        {
+            "provider": trace.provider,
+            "model": trace.model,
+            "executed": bool(trace.executed),
+            "success": bool(trace.success),
+            "latency_ms": trace.latency_ms,
+            "fallback_used": bool(trace.fallback_used),
+            "fallback_reason": trace.fallback_reason,
+            "attempt_index": int(trace.attempt_index),
+            "status": "completed" if trace.success else "failed",
+        }
+    )
+    step["provenance"] = provenance
+    if trace.success:
+        step["status"] = str(step.get("status") or "completed")
+    else:
+        step["status"] = "failed"
+    step_traces[step_name] = step
+
+
+def _provider_error_trace(
     *,
     adapter: OpenAIClientAdapter,
-    prompts: dict[str, str],
-    event_title: str,
-    root_post_text: str,
-    comments: list[str],
-    status_hint: str,
-) -> dict[str, Any] | None:
-    request_payload = {
-        "status_hint": status_hint,
-        "event_title": event_title,
-        "root_post_text": _safe_text(root_post_text, max_len=1800),
-        "comments": [_safe_text(item, max_len=300) for item in comments[:60]],
-    }
-    content = await adapter.create_chat_completion(
-        messages=[
-            {"role": "system", "content": prompts["synthesis"]},
-            {"role": "user", "content": json.dumps(request_payload, ensure_ascii=False)},
-        ],
-        response_format={"type": "json_object"},
+    reason: str,
+) -> OpenAIChatCompletionTrace:
+    base = _default_provider_trace(adapter=adapter)
+    return OpenAIChatCompletionTrace(
+        content="",
+        provider=base.provider,
+        model=base.model,
+        latency_ms=base.latency_ms,
+        fallback_used=True,
+        fallback_reason=reason,
+        executed=True,
+        success=False,
+        attempt_index=base.attempt_index,
     )
+
+
+async def _try_llm_json_step(
+    *,
+    adapter: OpenAIClientAdapter,
+    step_name: str,
+    prompt_text: str,
+    request_payload: dict[str, Any],
+) -> tuple[dict[str, Any] | None, OpenAIChatCompletionTrace]:
+    default_trace = _default_provider_trace(adapter=adapter)
+    trace = default_trace
+    if hasattr(adapter, "create_chat_completion_with_trace"):
+        trace = await adapter.create_chat_completion_with_trace(
+            messages=[
+                {"role": "system", "content": prompt_text},
+                {"role": "user", "content": json.dumps(request_payload, ensure_ascii=False)},
+            ],
+            response_format={"type": "json_object"},
+        )
+        content = trace.content
+    else:
+        content = await adapter.create_chat_completion(
+            messages=[
+                {"role": "system", "content": prompt_text},
+                {"role": "user", "content": json.dumps(request_payload, ensure_ascii=False)},
+            ],
+            response_format={"type": "json_object"},
+        )
     if not content:
-        return None
+        return None, trace
     try:
         data = json.loads(content)
     except json.JSONDecodeError:
-        return None
+        return None, OpenAIChatCompletionTrace(
+            content=content,
+            provider=trace.provider,
+            model=trace.model,
+            latency_ms=trace.latency_ms,
+            fallback_used=True,
+            fallback_reason=f"{step_name}_invalid_json",
+            executed=True,
+            success=False,
+            attempt_index=trace.attempt_index,
+        )
     if not isinstance(data, dict):
-        return None
-    return data
+        return None, OpenAIChatCompletionTrace(
+            content=content,
+            provider=trace.provider,
+            model=trace.model,
+            latency_ms=trace.latency_ms,
+            fallback_used=True,
+            fallback_reason=f"{step_name}_invalid_payload",
+            executed=True,
+            success=False,
+            attempt_index=trace.attempt_index,
+        )
+    return data, trace
 
 
 async def build_event_report_v2_impl(
@@ -351,33 +438,143 @@ async def build_event_report_v2_impl(
         if cfg.api_key:
             llm_adapter = OpenAIClientAdapter(cfg)
 
-    if llm_adapter is not None and target_status != "insufficient_data":
+    if llm_adapter is not None:
         try:
-            llm_output = await _try_llm_synthesis(
+            context_output, context_trace = await _try_llm_json_step(
                 adapter=llm_adapter,
-                prompts=prompts,
-                event_title=str(bundle.get("event_title") or ""),
-                root_post_text=root_post_text,
-                comments=comments,
-                status_hint=target_status,
+                step_name="context",
+                prompt_text=prompts["context"],
+                request_payload={
+                    "event_title": str(bundle.get("event_title") or ""),
+                    "root_post_text": _safe_text(root_post_text, max_len=1800),
+                    "comments": [_safe_text(item, max_len=280) for item in comments[:60]],
+                    "status_hint": target_status,
+                },
             )
+            _apply_step_provider_trace(step_traces=step_traces, step_name="context", trace=context_trace)
+            if isinstance(context_output, dict):
+                step_traces["context"]["llm_context"] = context_output
+        except Exception as exc:
+            _apply_step_provider_trace(
+                step_traces=step_traces,
+                step_name="context",
+                trace=_provider_error_trace(adapter=llm_adapter, reason=f"context_error:{type(exc).__name__}"),
+            )
+
+        try:
+            routing_output, routing_trace = await _try_llm_json_step(
+                adapter=llm_adapter,
+                step_name="routing",
+                prompt_text=prompts["routing"],
+                request_payload={
+                    "event_title": str(bundle.get("event_title") or ""),
+                    "root_post_text": _safe_text(root_post_text, max_len=1800),
+                    "status_hint": target_status,
+                    "retrieval_hints": retrieval_inputs,
+                },
+            )
+            _apply_step_provider_trace(step_traces=step_traces, step_name="routing", trace=routing_trace)
+            if isinstance(routing_output, dict):
+                step_traces["routing"]["llm_routing"] = routing_output
+        except Exception as exc:
+            _apply_step_provider_trace(
+                step_traces=step_traces,
+                step_name="routing",
+                trace=_provider_error_trace(adapter=llm_adapter, reason=f"routing_error:{type(exc).__name__}"),
+            )
+
+        try:
+            expert_output, expert_trace = await _try_llm_json_step(
+                adapter=llm_adapter,
+                step_name="expert",
+                prompt_text=prompts["expert"],
+                request_payload={
+                    "event_title": str(bundle.get("event_title") or ""),
+                    "root_post_text": _safe_text(root_post_text, max_len=1800),
+                    "comments": [_safe_text(item, max_len=260) for item in comments[:40]],
+                    "status_hint": target_status,
+                    "analytical_sufficiency": analytical_sufficiency,
+                },
+            )
+            _apply_step_provider_trace(step_traces=step_traces, step_name="expert", trace=expert_trace)
+            if isinstance(expert_output, dict):
+                step_traces["expert"]["llm_expert"] = expert_output
+        except Exception as exc:
+            _apply_step_provider_trace(
+                step_traces=step_traces,
+                step_name="expert",
+                trace=_provider_error_trace(adapter=llm_adapter, reason=f"expert_error:{type(exc).__name__}"),
+            )
+
+        try:
+            public_output, public_trace = await _try_llm_json_step(
+                adapter=llm_adapter,
+                step_name="public_opinion",
+                prompt_text=prompts["public_opinion"],
+                request_payload={
+                    "event_title": str(bundle.get("event_title") or ""),
+                    "comments": [_safe_text(item, max_len=260) for item in comments[:80]],
+                    "status_hint": target_status,
+                },
+            )
+            _apply_step_provider_trace(step_traces=step_traces, step_name="public_opinion", trace=public_trace)
+            if isinstance(public_output, dict):
+                step_traces["public_opinion"]["llm_public_opinion"] = public_output
+        except Exception as exc:
+            _apply_step_provider_trace(
+                step_traces=step_traces,
+                step_name="public_opinion",
+                trace=_provider_error_trace(adapter=llm_adapter, reason=f"public_opinion_error:{type(exc).__name__}"),
+            )
+
+        try:
+            llm_output, synthesis_trace = await _try_llm_json_step(
+                adapter=llm_adapter,
+                step_name="synthesis",
+                prompt_text=prompts["synthesis"],
+                request_payload={
+                    "status_hint": target_status,
+                    "event_title": str(bundle.get("event_title") or ""),
+                    "root_post_text": _safe_text(root_post_text, max_len=1800),
+                    "comments": [_safe_text(item, max_len=300) for item in comments[:60]],
+                },
+            )
+            _apply_step_provider_trace(step_traces=step_traces, step_name="synthesis", trace=synthesis_trace)
             if isinstance(llm_output, dict):
                 summary = _safe_text(str(llm_output.get("summary") or summary), max_len=1500) or summary
-                confidence_reason = _safe_text(str(llm_output.get("confidence_reason") or "LLM event synthesis"), max_len=500)
-                provider = provider_from_adapter(llm_adapter)
-                model = str(llm_adapter.config.model or "")
-                mark_provider_backed_execution(
-                    step_traces=step_traces,
-                    provider=provider,
-                    model=model,
+                confidence_reason = _safe_text(
+                    str(llm_output.get("confidence_reason") or "LLM event synthesis"),
+                    max_len=500,
                 )
         except Exception as exc:
             llm_error = f"{type(exc).__name__}: {exc}"
-            step_traces["synthesis"]["status"] = "failed"
-            step_traces["synthesis"]["provenance"]["success"] = False
-            step_traces["synthesis"]["provenance"]["fallback_used"] = True
-            step_traces["synthesis"]["provenance"]["fallback_reason"] = "synthesis_error"
-            step_traces["synthesis"]["provenance"]["status"] = "failed"
+            _apply_step_provider_trace(
+                step_traces=step_traces,
+                step_name="synthesis",
+                trace=_provider_error_trace(adapter=llm_adapter, reason="synthesis_error"),
+            )
+
+        try:
+            reviewer_output, reviewer_trace = await _try_llm_json_step(
+                adapter=llm_adapter,
+                step_name="reviewer",
+                prompt_text=prompts["reviewer"],
+                request_payload={
+                    "status_hint": target_status,
+                    "summary": summary,
+                    "retrieval_required": retrieval_required,
+                    "retrieval_status": retrieval_status,
+                },
+            )
+            _apply_step_provider_trace(step_traces=step_traces, step_name="reviewer", trace=reviewer_trace)
+            if isinstance(reviewer_output, dict):
+                step_traces["reviewer"]["llm_reviewer"] = reviewer_output
+        except Exception as exc:
+            _apply_step_provider_trace(
+                step_traces=step_traces,
+                step_name="reviewer",
+                trace=_provider_error_trace(adapter=llm_adapter, reason=f"reviewer_error:{type(exc).__name__}"),
+            )
 
     review_history: list[dict[str, Any]] = []
     review_reruns = 0

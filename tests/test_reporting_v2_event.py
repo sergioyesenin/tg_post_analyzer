@@ -4,6 +4,7 @@ import asyncio
 from types import SimpleNamespace
 
 from services import reporting
+from services.llm.openai_client import OpenAIChatCompletionTrace
 from services.reporting_v2.event_pipeline import build_event_report_v2_impl, load_event_input_bundle
 
 
@@ -108,6 +109,26 @@ def test_build_event_report_draft_uses_reporting_v2_event_impl(monkeypatch) -> N
     session = _FakeSession(execute_results=[type("_Scalar", (), {"scalar_one_or_none": lambda self: None})()])
 
     async def _fake_build_event_report_v2_impl(*, session, event_id):
+        del session
+        canonical_step = {
+            "status": "completed",
+            "run_count": 1,
+            "provenance": {
+                "provider": "openrouter",
+                "model": "qwen/qwen3-coder:free",
+                "executed": True,
+                "success": True,
+                "latency_ms": 10,
+                "input_ref": None,
+                "input_hash": None,
+                "output_ref": None,
+                "output_hash": None,
+                "fallback_used": False,
+                "fallback_reason": None,
+                "attempt_index": 0,
+                "status": "completed",
+            },
+        }
         return {
             "type": "event_report_v2",
             "status": "ready",
@@ -126,16 +147,16 @@ def test_build_event_report_draft_uses_reporting_v2_event_impl(monkeypatch) -> N
             "anomalies": [],
             "summary": "ready",
             "confidence": {"overall": "high", "reason": "ok"},
-            "meta": {
-                "multi_agent": {
-                    "version": "v1",
-                    "status": "ready",
-                    "steps": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
-                    "retrieval": {"required": False, "used": False, "status": "none", "sources": []},
-                    "review": {
-                        "iterations": 0,
-                        "history": [{"iteration": 1, "decision": "accept", "target": None, "reason": "ok", "confidence": 0.9}],
-                    },
+                "meta": {
+                    "multi_agent": {
+                        "version": "v1",
+                        "status": "ready",
+                        "steps": {name: dict(canonical_step) for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
+                        "retrieval": {"required": False, "used": False, "status": "none", "sources": []},
+                        "review": {
+                            "iterations": 0,
+                            "history": [{"iteration": 1, "decision": "accept", "target": None, "reason": "ok", "confidence": 0.9}],
+                        },
                 }
             },
         }
@@ -200,3 +221,44 @@ def test_build_event_report_v2_reviewer_loop_caps_at_two_on_synthesis_failure(mo
         "rerun_branch",
         "insufficient_data",
     ]
+
+
+def test_build_event_report_v2_marks_provider_provenance_for_all_six_steps(monkeypatch) -> None:
+    async def _fake_load_bundle(session, *, event_id):
+        del session
+        return {
+            "event_id": event_id,
+            "event_title": "Local Event",
+            "posts": [{"post_id": 101, "event_role": "root", "text": "Root text", "comments_count": 6}],
+            "post_ids": [101],
+            "root_post_id": 101,
+            "root_post_text": "Root text with enough detail for event summary synthesis.",
+            "comments_all_posts": [f"comment {idx}" for idx in range(1, 8)],
+            "comments_by_post": {101: [f"comment {idx}" for idx in range(1, 8)]},
+        }
+
+    class _TraceAdapter:
+        async def create_chat_completion_with_trace(self, **kwargs):
+            del kwargs
+            return OpenAIChatCompletionTrace(
+                content="{}",
+                provider="openrouter",
+                model="qwen/qwen3-coder:free",
+                latency_ms=12,
+                fallback_used=False,
+                fallback_reason=None,
+                executed=True,
+                success=True,
+                attempt_index=0,
+            )
+
+    monkeypatch.setattr("services.reporting_v2.event_pipeline.load_event_input_bundle", _fake_load_bundle)
+    payload = asyncio.run(build_event_report_v2_impl(session=object(), event_id=89, llm_adapter=_TraceAdapter()))
+
+    steps = payload["meta"]["multi_agent"]["steps"]
+    for step_name in ("context", "routing", "expert", "public_opinion", "synthesis", "reviewer"):
+        provenance = steps[step_name]["provenance"]
+        assert provenance["provider"] == "openrouter"
+        assert provenance["model"] == "qwen/qwen3-coder:free"
+        assert provenance["executed"] is True
+        assert provenance["latency_ms"] == 12

@@ -291,3 +291,46 @@ def test_openai_adapter_routes_models_via_extra_body_when_enabled() -> None:
             "openai/gpt-oss-20b:free",
         ]
     }
+
+
+def test_openai_adapter_returns_trace_metadata() -> None:
+    class _FakeCompletions:
+        async def create(self, **kwargs):
+            assert kwargs["model"] == "qwen/qwen3-coder:free"
+            return type(
+                "_Resp",
+                (),
+                {
+                    "choices": [
+                        type("_Choice", (), {"message": type("_Msg", (), {"content": "{\"ok\":true}"})()})()
+                    ]
+                },
+            )()
+
+    class _FakeChat:
+        completions = _FakeCompletions()
+
+    class _FakeClient:
+        chat = _FakeChat()
+
+    cfg = OpenAIAdapterConfig(
+        model="qwen/qwen3-coder:free",
+        fallback_models=(),
+        routing_enabled=False,
+        base_url="https://openrouter.ai/api/v1",
+        api_key="sk-or-real",
+        timeout_sec=12.0,
+        max_retries=2,
+        local_fallback_enabled=False,
+        local_model="llama-local",
+        local_base_url="http://localhost:11434/v1",
+        local_api_key=None,
+    )
+    adapter = OpenAIClientAdapter(cfg, client=_FakeClient())
+    trace = asyncio.run(adapter.create_chat_completion_with_trace(messages=[{"role": "user", "content": "x"}]))
+
+    assert trace.content == "{\"ok\":true}"
+    assert trace.provider == "openrouter"
+    assert trace.model == "qwen/qwen3-coder:free"
+    assert trace.executed is True
+    assert trace.success is True

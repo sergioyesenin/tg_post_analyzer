@@ -23,6 +23,7 @@ from services.reporting_v2 import (
     map_state_to_public_post_payload,
     run_post_orchestrator_v2,
 )
+from services.reporting_v2.steps import is_canonical_openrouter_ready_path
 
 
 REPORT_GENERATION_FAILED_CONTENT = "STATUS: FAILED\nREASON: report_generation_failed"
@@ -38,6 +39,23 @@ AGGREGATABLE_REPORT_STATUSES = {REPORT_STATUS_READY, REPORT_STATUS_LIMITED}
 DEFAULT_MIN_COMMENTS = 20
 logger = logging.getLogger(__name__)
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+_CANONICAL_READY_STEP_NAMES = ("context", "routing", "expert", "public_opinion", "synthesis", "reviewer")
+_PROVENANCE_REQUIRED_KEYS = {
+    "provider",
+    "model",
+    "executed",
+    "success",
+    "latency_ms",
+    "input_ref",
+    "input_hash",
+    "output_ref",
+    "output_hash",
+    "fallback_used",
+    "fallback_reason",
+    "attempt_index",
+    "status",
+}
+_BLOCKING_REVIEWER_CODES = {"D3", "D4", "D6"}
 
 
 def should_use_multi_agent_v2(
@@ -406,10 +424,6 @@ def _build_public_post_summary(payload: dict) -> str:
         if sentences:
             return " ".join(item if item.endswith((".", "!", "?")) else f"{item}." for item in sentences)
         return synthesis_text
-
-    payload_summary = _clean_list_text(payload.get("summary"))
-    if payload_summary:
-        return payload_summary
 
     if status == REPORT_STATUS_INSUFFICIENT_DATA:
         return "Insufficient data."
@@ -865,13 +879,83 @@ def _render_post_report_text(payload: dict) -> str:
     return _build_public_post_summary(payload)
 
 
+def _contains_blocking_reviewer_signal(multi_agent: dict[str, Any]) -> bool:
+    review = multi_agent.get("review")
+    review_history = list(review.get("history") or []) if isinstance(review, dict) else []
+    reviewer_step = ((multi_agent.get("steps") or {}).get("reviewer") or {})
+    reviewer_history = list(reviewer_step.get("history") or []) if isinstance(reviewer_step, dict) else []
+    history = [*review_history, *reviewer_history]
+    for item in history:
+        if not isinstance(item, dict):
+            continue
+        decision = str(item.get("decision") or "")
+        reason = str(item.get("reason") or "")
+        if decision == "insufficient_data":
+            return True
+        defect_code = reason.split(":", 1)[0].strip()
+        if defect_code in _BLOCKING_REVIEWER_CODES:
+            return True
+        if "blocking_defects_present" in reason:
+            return True
+    return False
+
+
+def _has_sufficient_ready_evidence(multi_agent: dict[str, Any]) -> bool:
+    steps = multi_agent.get("steps")
+    if not isinstance(steps, dict):
+        return False
+    context = steps.get("context")
+    if not isinstance(context, dict):
+        return False
+    sufficiency_components = context.get("sufficiency_components")
+    if isinstance(sufficiency_components, dict):
+        if str(sufficiency_components.get("analytical") or "") != "sufficient":
+            return False
+    public_opinion = steps.get("public_opinion")
+    if isinstance(public_opinion, dict):
+        data_status = str(public_opinion.get("data_status") or "")
+        if data_status in {"weak_signal", "insufficient"}:
+            return False
+    return True
+
+
+def _is_canonical_openrouter_ready_payload(payload: dict | None) -> bool:
+    multi_agent = _canonicalize_multi_agent_trace(payload or {})
+    if not isinstance(multi_agent, dict) or not multi_agent:
+        return False
+    steps = multi_agent.get("steps")
+    if not isinstance(steps, dict):
+        return False
+    for step_name in _CANONICAL_READY_STEP_NAMES:
+        step_payload = steps.get(step_name)
+        if not isinstance(step_payload, dict):
+            return False
+        if str(step_payload.get("provenance_source") or "") != "observed":
+            return False
+        provenance = step_payload.get("provenance")
+        if not isinstance(provenance, dict):
+            return False
+        if not _PROVENANCE_REQUIRED_KEYS.issubset(set(provenance.keys())):
+            return False
+    if not is_canonical_openrouter_ready_path(steps):
+        return False
+    if _contains_blocking_reviewer_signal(multi_agent):
+        return False
+    if not _has_sufficient_ready_evidence(multi_agent):
+        return False
+    return True
+
+
 def report_status_from_payload(payload: dict | None, *, fallback: str = REPORT_STATUS_READY) -> str:
     if not isinstance(payload, dict):
-        return fallback
+        return REPORT_STATUS_LIMITED if fallback == REPORT_STATUS_READY else fallback
     status = payload.get("status")
-    if isinstance(status, str) and status:
-        return status
-    return fallback
+    resolved = status if isinstance(status, str) and status else fallback
+    if resolved != REPORT_STATUS_READY:
+        return resolved
+    if _is_canonical_openrouter_ready_payload(payload):
+        return REPORT_STATUS_READY
+    return REPORT_STATUS_LIMITED
 
 
 def mark_report_payload_stale(

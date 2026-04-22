@@ -20,84 +20,22 @@ from services.reporting_v2.contracts_internal import (
     decide_retrieval_required,
     validate_multi_agent_meta,
 )
+from services.reporting_v2.steps import (
+    SIX_STEP_SEQUENCE,
+    build_step_traces,
+    is_canonical_openrouter_ready_path,
+    mark_provider_backed_execution,
+    provider_from_adapter,
+    request_step_rerun,
+    sync_step_provenance,
+)
 
-PIPELINE_SEQUENCE = ("context", "routing", "expert", "public_opinion", "synthesis", "reviewer")
+PIPELINE_SEQUENCE = SIX_STEP_SEQUENCE
 REVIEW_MAX_ITERATIONS = 2
 
 
 def _safe_text(value: str | None, *, max_len: int = 300) -> str:
     return " ".join((value or "").split())[:max_len]
-
-
-def _default_step_provenance() -> dict[str, Any]:
-    return {
-        "provider": "deterministic",
-        "model": "reporting_v2_policy",
-        "executed": True,
-        "success": True,
-        "latency_ms": None,
-        "input_ref": None,
-        "input_hash": None,
-        "output_ref": None,
-        "output_hash": None,
-        "fallback_used": False,
-        "fallback_reason": None,
-        "attempt_index": 0,
-        "status": "completed",
-    }
-
-
-def _sync_step_provenance(step_traces: dict[str, dict[str, Any]]) -> None:
-    for _step_name, trace in step_traces.items():
-        provenance = dict(trace.get("provenance") or _default_step_provenance())
-        run_count = int(trace.get("run_count") or 1)
-        trace_status = str(trace.get("status") or "completed")
-        provenance["attempt_index"] = max(0, run_count - 1)
-        provenance["status"] = trace_status if trace_status in {"completed", "failed", "skipped"} else "completed"
-        if provenance["status"] == "failed":
-            provenance["success"] = False
-        trace["provenance"] = provenance
-
-
-def _provider_from_adapter(adapter: OpenAIClientAdapter | None) -> str:
-    if adapter is None:
-        return "deterministic"
-    base_url = str(getattr(adapter.config, "base_url", "") or "").lower()
-    if "openrouter" in base_url:
-        return "openrouter"
-    return "openai_compatible"
-
-
-def _mark_provider_backed_execution(
-    *,
-    step_traces: dict[str, dict[str, Any]],
-    provider: str,
-    model: str,
-) -> None:
-    for step_name in PIPELINE_SEQUENCE:
-        trace = dict(step_traces.get(step_name) or {})
-        provenance = dict(trace.get("provenance") or _default_step_provenance())
-        provenance["provider"] = provider
-        provenance["model"] = model
-        trace["provenance"] = provenance
-        step_traces[step_name] = trace
-
-
-def _is_canonical_openrouter_ready_path(step_traces: dict[str, dict[str, Any]]) -> bool:
-    for step in PIPELINE_SEQUENCE:
-        trace = dict(step_traces.get(step) or {})
-        provenance = dict(trace.get("provenance") or {})
-        if provenance.get("provider") != "openrouter":
-            return False
-        if provenance.get("executed") is not True:
-            return False
-        if provenance.get("success") is not True:
-            return False
-        if provenance.get("fallback_used") is True:
-            return False
-        if str(provenance.get("status") or "") != "completed":
-            return False
-    return True
 
 
 def _collect_reviewer_defects(
@@ -384,12 +322,9 @@ async def build_event_report_v2_impl(
         retrieval=retrieval_sufficiency,
         analytical=analytical_sufficiency,
     )
-    step_traces: dict[str, dict[str, Any]] = {
-        "context": {
-            "status": "completed",
-            "run_count": 1,
-            "provenance": _default_step_provenance(),
-            "provenance_source": "observed",
+    step_traces: dict[str, dict[str, Any]] = build_step_traces(PIPELINE_SEQUENCE)
+    step_traces["context"].update(
+        {
             "root_post_id": bundle.get("root_post_id"),
             "source_post_ids": post_ids,
             "comments_total": len(comments),
@@ -401,13 +336,8 @@ async def build_event_report_v2_impl(
             },
             "retrieval_hints": retrieval_inputs,
             "retrieval_required": retrieval_required,
-        },
-        "routing": {"status": "completed", "run_count": 1, "provenance": _default_step_provenance(), "provenance_source": "observed"},
-        "expert": {"status": "completed", "run_count": 1, "provenance": _default_step_provenance(), "provenance_source": "observed"},
-        "public_opinion": {"status": "completed", "run_count": 1, "provenance": _default_step_provenance(), "provenance_source": "observed"},
-        "synthesis": {"status": "completed", "run_count": 1, "provenance": _default_step_provenance(), "provenance_source": "observed"},
-        "reviewer": {"status": "completed", "run_count": 1, "provenance": _default_step_provenance(), "provenance_source": "observed"},
-    }
+        }
+    )
 
     summary = (
         f"Event analysis built from root post {bundle.get('root_post_id')} and comments across {len(post_ids)} posts."
@@ -434,9 +364,9 @@ async def build_event_report_v2_impl(
             if isinstance(llm_output, dict):
                 summary = _safe_text(str(llm_output.get("summary") or summary), max_len=1500) or summary
                 confidence_reason = _safe_text(str(llm_output.get("confidence_reason") or "LLM event synthesis"), max_len=500)
-                provider = _provider_from_adapter(llm_adapter)
+                provider = provider_from_adapter(llm_adapter)
                 model = str(llm_adapter.config.model or "")
-                _mark_provider_backed_execution(
+                mark_provider_backed_execution(
                     step_traces=step_traces,
                     provider=provider,
                     model=model,
@@ -455,8 +385,7 @@ async def build_event_report_v2_impl(
     pending_reason = "synthesis_error" if pending_rerun else ""
 
     while pending_rerun is not None and review_reruns < REVIEW_MAX_ITERATIONS:
-        step_traces[pending_rerun]["run_count"] = int(step_traces[pending_rerun].get("run_count") or 1) + 1
-        step_traces[pending_rerun]["rerun_requested"] = True
+        request_step_rerun(step_traces, step_name=pending_rerun)
         review_reruns += 1
         review_history.append(
             {
@@ -500,7 +429,7 @@ async def build_event_report_v2_impl(
         if retrieval_required and retrieval_status in {"failed", "insufficient", "none"}:
             target_status = "limited" if target_status == "ready" else target_status
 
-        if target_status == "ready" and not _is_canonical_openrouter_ready_path(step_traces):
+        if target_status == "ready" and not is_canonical_openrouter_ready_path(step_traces):
             target_status = "limited"
             review_history.append(
                 {
@@ -588,7 +517,7 @@ async def build_event_report_v2_impl(
             "history": review_history,
         }
     )
-    _sync_step_provenance(step_traces)
+    sync_step_provenance(step_traces)
 
     multi_agent = {
         "version": "v1",

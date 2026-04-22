@@ -15,6 +15,7 @@ from services.reporting_v2.state import (
     SynthesisOutput,
     init_pipeline_state,
 )
+from services.reporting_v2.steps import execute_state_step
 
 PIPELINE_STAGE_ORDER = (
     "context",
@@ -447,16 +448,23 @@ async def run_post_orchestrator_v2(
         "pipeline_sequence": list(PIPELINE_STAGE_ORDER),
     }
 
-    state = run_context_stage(state)
+    state = await execute_state_step(state=state, step_name="context", handler=run_context_stage)
     state.status = _derive_status_from_context(
         article=state.context.article_sufficiency,
         comment=state.context.comment_sufficiency,
         analytical=state.context.analytical_sufficiency,
     )
-    state = run_routing_stage(state)
-    state = run_retrieval_decision_stage(state)
-    state = run_expert_stage(state)
-    state = run_public_opinion_stage(state)
-    state = await run_synthesis_stage(state)
-    state = run_reviewer_loop(state, max_iterations=REVIEWER_MAX_ITERATIONS)
+    state = await execute_state_step(state=state, step_name="routing", handler=run_routing_stage)
+    state = await execute_state_step(state=state, step_name="retrieval", handler=run_retrieval_decision_stage)
+    state = await execute_state_step(state=state, step_name="expert", handler=run_expert_stage)
+    state = await execute_state_step(state=state, step_name="public_opinion", handler=run_public_opinion_stage)
+    state = await execute_state_step(state=state, step_name="synthesis", handler=run_synthesis_stage)
+    state = await execute_state_step(
+        state=state,
+        step_name="reviewer",
+        handler=lambda current_state: run_reviewer_loop(
+            current_state,
+            max_iterations=REVIEWER_MAX_ITERATIONS,
+        ),
+    )
     return state

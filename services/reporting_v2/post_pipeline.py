@@ -18,9 +18,19 @@ from services.reporting_v2.contracts_internal import (
     decide_retrieval_required,
     validate_multi_agent_meta,
 )
+from services.reporting_v2.steps import (
+    SIX_STEP_SEQUENCE,
+    apply_step_trace_envelope,
+    build_step_traces,
+    is_canonical_openrouter_ready_path,
+    mark_provider_backed_execution,
+    provider_from_adapter,
+    request_step_rerun,
+    sync_step_provenance,
+)
 
-PIPELINE_SEQUENCE = ("context", "routing", "expert", "public_opinion", "synthesis", "reviewer")
-PIPELINE_STEP_KEYS = ("context", "routing", "expert", "public_opinion", "synthesis", "reviewer")
+PIPELINE_SEQUENCE = SIX_STEP_SEQUENCE
+PIPELINE_STEP_KEYS = SIX_STEP_SEQUENCE
 REVIEW_MAX_ITERATIONS = 2
 _TOKEN_RE = re.compile(r"[A-Za-zА-Яа-я0-9_]+", flags=re.UNICODE)
 _SENTENCE_RE = re.compile(r"[.!?]+")
@@ -32,77 +42,6 @@ def _safe_text(value: str | None, *, max_len: int = 300) -> str:
 
 def _sentence_count(text: str) -> int:
     return len([part for part in _SENTENCE_RE.split(text) if part.strip()])
-
-
-def _default_step_provenance() -> dict[str, Any]:
-    return {
-        "provider": "deterministic",
-        "model": "reporting_v2_policy",
-        "executed": True,
-        "success": True,
-        "latency_ms": None,
-        "input_ref": None,
-        "input_hash": None,
-        "output_ref": None,
-        "output_hash": None,
-        "fallback_used": False,
-        "fallback_reason": None,
-        "attempt_index": 0,
-        "status": "completed",
-    }
-
-
-def _sync_step_provenance(step_traces: dict[str, dict[str, Any]]) -> None:
-    for _step_name, trace in step_traces.items():
-        provenance = dict(trace.get("provenance") or _default_step_provenance())
-        run_count = int(trace.get("run_count") or 1)
-        trace_status = str(trace.get("status") or "completed")
-        provenance["attempt_index"] = max(0, run_count - 1)
-        provenance["status"] = trace_status if trace_status in {"completed", "failed", "skipped"} else "completed"
-        if provenance["status"] == "failed":
-            provenance["success"] = False
-        trace["provenance"] = provenance
-
-
-def _provider_from_adapter(adapter: OpenAIClientAdapter | None) -> str:
-    if adapter is None:
-        return "deterministic"
-    base_url = str(getattr(adapter.config, "base_url", "") or "").lower()
-    if "openrouter" in base_url:
-        return "openrouter"
-    return "openai_compatible"
-
-
-def _is_canonical_openrouter_ready_path(step_traces: dict[str, dict[str, Any]]) -> bool:
-    for step in PIPELINE_SEQUENCE:
-        trace = dict(step_traces.get(step) or {})
-        provenance = dict(trace.get("provenance") or {})
-        if provenance.get("provider") != "openrouter":
-            return False
-        if provenance.get("executed") is not True:
-            return False
-        if provenance.get("success") is not True:
-            return False
-        if provenance.get("fallback_used") is True:
-            return False
-        if str(provenance.get("status") or "") != "completed":
-            return False
-    return True
-
-
-def _mark_provider_backed_execution(
-    *,
-    step_traces: dict[str, dict[str, Any]],
-    provider: str,
-    model: str,
-) -> None:
-    for step_name in PIPELINE_SEQUENCE:
-        trace = dict(step_traces.get(step_name) or {})
-        provenance = dict(trace.get("provenance") or _default_step_provenance())
-        provenance["provider"] = provider
-        provenance["model"] = model
-        trace["provenance"] = provenance
-        step_traces[step_name] = trace
 
 
 def _extract_topics(post_text: str, comments: list[str], *, limit: int = 4) -> list[str]:
@@ -443,10 +382,7 @@ async def generate_post_report_payload_v2(
     loader = prompt_loader or PromptLoader()
     prompts = loader.load_bundle("post")
 
-    step_traces: dict[str, dict[str, Any]] = {
-        step: {"status": "completed", "run_count": 1, "provenance": _default_step_provenance(), "provenance_source": "observed"}
-        for step in PIPELINE_STEP_KEYS
-    }
+    step_traces: dict[str, dict[str, Any]] = build_step_traces(PIPELINE_STEP_KEYS)
     article_sufficiency = assess_article_sufficiency(text=post_text)
     comment_sufficiency = assess_comment_sufficiency(comments=comments)
     retrieval_inputs = _build_retrieval_decision_inputs(post_text=post_text, comments=comments)
@@ -472,16 +408,32 @@ async def generate_post_report_payload_v2(
         comment=comment_sufficiency,
         retrieval=retrieval_sufficiency,
     )
-    step_traces["context"]["sufficiency_components"] = {
-        "article": article_sufficiency,
-        "comment": comment_sufficiency,
-        "retrieval": retrieval_sufficiency,
-        "analytical": analytical_sufficiency,
-    }
-    step_traces["context"]["retrieval_hints"] = retrieval_inputs
-    step_traces["context"]["retrieval_required"] = retrieval_required
-    step_traces["routing"]["retrieval_hints"] = retrieval_inputs
-    step_traces["routing"]["reasoning"] = "deterministic_policy"
+    apply_step_trace_envelope(
+        step_traces,
+        step_name="context",
+        mutator=lambda trace: trace.update(
+            {
+                "sufficiency_components": {
+                    "article": article_sufficiency,
+                    "comment": comment_sufficiency,
+                    "retrieval": retrieval_sufficiency,
+                    "analytical": analytical_sufficiency,
+                },
+                "retrieval_hints": retrieval_inputs,
+                "retrieval_required": retrieval_required,
+            }
+        ),
+    )
+    apply_step_trace_envelope(
+        step_traces,
+        step_name="routing",
+        mutator=lambda trace: trace.update(
+            {
+                "retrieval_hints": retrieval_inputs,
+                "reasoning": "deterministic_policy",
+            }
+        ),
+    )
 
     public_opinion_trace = _build_public_opinion_trace(
         post_text=post_text,
@@ -489,7 +441,11 @@ async def generate_post_report_payload_v2(
         comment_sufficiency=comment_sufficiency,
         analytical_sufficiency=analytical_sufficiency,
     )
-    step_traces["public_opinion"].update(public_opinion_trace)
+    apply_step_trace_envelope(
+        step_traces,
+        step_name="public_opinion",
+        mutator=lambda trace: trace.update(public_opinion_trace),
+    )
 
     requested_rerun = (rerun_stage or "").strip() or None
 
@@ -527,9 +483,9 @@ async def generate_post_report_payload_v2(
             )
             if isinstance(llm_output, dict):
                 synthesis_data = _normalize_synthesis_output(candidate=llm_output, fallback=synthesis_data)
-                provider = _provider_from_adapter(llm_adapter)
+                provider = provider_from_adapter(llm_adapter)
                 model = str(llm_adapter.config.model or "")
-                _mark_provider_backed_execution(
+                mark_provider_backed_execution(
                     step_traces=step_traces,
                     provider=provider,
                     model=model,
@@ -551,10 +507,9 @@ async def generate_post_report_payload_v2(
         pending_reason = "synthesis_error"
 
     while pending_rerun is not None and review_reruns < REVIEW_MAX_ITERATIONS:
-        step_traces[pending_rerun]["run_count"] = int(step_traces[pending_rerun].get("run_count") or 1) + 1
-        step_traces[pending_rerun]["rerun_requested"] = True
+        request_step_rerun(step_traces, step_name=pending_rerun)
         if pending_rerun != "synthesis":
-            step_traces["synthesis"]["run_count"] = int(step_traces["synthesis"].get("run_count") or 1) + 1
+            request_step_rerun(step_traces, step_name="synthesis")
         review_reruns += 1
         review_history.append(
             {
@@ -650,7 +605,7 @@ async def generate_post_report_payload_v2(
         if retrieval_required and retrieval_status in {"failed", "insufficient", "none"}:
             target_status = "limited" if target_status == "ready" else target_status
 
-        if target_status == "ready" and not _is_canonical_openrouter_ready_path(step_traces):
+        if target_status == "ready" and not is_canonical_openrouter_ready_path(step_traces):
             target_status = "limited"
             review_history.append(
                 {
@@ -751,7 +706,7 @@ async def generate_post_report_payload_v2(
             "confidence_reason": str(synthesis_data.get("confidence_reason") or ""),
         }
     )
-    _sync_step_provenance(step_traces)
+    sync_step_provenance(step_traces)
 
     multi_agent = {
         "version": "v1",

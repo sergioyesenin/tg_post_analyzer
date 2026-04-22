@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from services import reporting
+from services.reporting_v2 import orchestrator as orchestrator_module
 from schemas.report import PostReportPayload
 from services.reporting_v2.mapper import (
     map_state_to_internal_multi_agent_trace,
@@ -320,6 +321,32 @@ def test_run_post_orchestrator_v2_is_deterministic_for_same_input() -> None:
     assert state_a.status == state_b.status
     assert state_a.synthesis.summary == state_b.synthesis.summary
     assert state_a.public_opinion == state_b.public_opinion
+
+
+def test_run_post_orchestrator_v2_executes_steps_via_execution_abstraction(monkeypatch) -> None:
+    executed_steps: list[str] = []
+    original_execute = orchestrator_module.execute_state_step
+
+    async def _tracking_execute_state_step(*, state, step_name, handler):
+        executed_steps.append(step_name)
+        return await original_execute(state=state, step_name=step_name, handler=handler)
+
+    monkeypatch.setattr(orchestrator_module, "execute_state_step", _tracking_execute_state_step)
+
+    state = asyncio.run(
+        run_post_orchestrator_v2(
+            post_id=222,
+            published_at_iso="2026-04-17T12:00:00+00:00",
+            post_text="Post body with enough detail to drive deterministic stage flow.",
+            comments=["comment one with enough text for signal", "comment two with enough text for signal"],
+            thread_comments=[],
+            views=42,
+            rerun_stage=None,
+        )
+    )
+
+    assert isinstance(state, PipelineState)
+    assert executed_steps == ["context", "routing", "retrieval", "expert", "public_opinion", "synthesis", "reviewer"]
 
 
 def test_run_synthesis_stage_produces_non_empty_summary_when_material_present() -> None:

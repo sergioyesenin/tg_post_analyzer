@@ -52,11 +52,69 @@ class _FakeSession:
         return None
 
 
-def test_report_status_from_payload_uses_status_only():
-    assert reporting.report_status_from_payload({"type": "unknown_type"}) == "ready"
-    assert reporting.report_status_from_payload({"type": "another_unknown_type"}) == "ready"
-    assert reporting.report_status_from_payload({"status": "ready"}) == "ready"
-    assert reporting.report_status_from_payload(None) == "ready"
+def _canonical_openrouter_steps(*, synthesis_text: str = "Synthesis text.") -> dict:
+    provenance = {
+        "provider": "openrouter",
+        "model": "openai/gpt-5.4",
+        "executed": True,
+        "success": True,
+        "latency_ms": 12,
+        "input_ref": "in://step",
+        "input_hash": "abc",
+        "output_ref": "out://step",
+        "output_hash": "def",
+        "fallback_used": False,
+        "fallback_reason": None,
+        "attempt_index": 0,
+        "status": "completed",
+    }
+    steps = {
+        step: {"status": "completed", "run_count": 1, "provenance_source": "observed", "provenance": dict(provenance)}
+        for step in ("context", "routing", "expert", "public_opinion", "synthesis", "reviewer")
+    }
+    steps["context"]["sufficiency_components"] = {"analytical": "sufficient"}
+    steps["public_opinion"]["data_status"] = "sufficient"
+    steps["synthesis"]["report_text"] = synthesis_text
+    steps["reviewer"]["history"] = [{"iteration": 1, "decision": "accept", "reason": "sufficient"}]
+    return steps
+
+
+def test_report_status_from_payload_requires_canonical_ready_evidence():
+    assert reporting.report_status_from_payload({"type": "unknown_type"}) == "limited"
+    assert reporting.report_status_from_payload({"type": "another_unknown_type"}) == "limited"
+    assert reporting.report_status_from_payload({"status": "ready"}) == "limited"
+    assert reporting.report_status_from_payload(None) == "limited"
+    assert (
+        reporting.report_status_from_payload(
+            {
+                "status": "ready",
+                "meta": {
+                    "multi_agent": {
+                        "steps": _canonical_openrouter_steps(),
+                        "review": {"history": [{"iteration": 1, "decision": "accept", "reason": "sufficient"}]},
+                    }
+                },
+            }
+        )
+        == "ready"
+    )
+
+
+def test_report_status_from_payload_downgrades_ready_on_blocking_reviewer_defect():
+    assert (
+        reporting.report_status_from_payload(
+            {
+                "status": "ready",
+                "meta": {
+                    "multi_agent": {
+                        "steps": _canonical_openrouter_steps(),
+                        "review": {"history": [{"iteration": 1, "decision": "insufficient_data", "reason": "D3:ready_forbidden"}]},
+                    }
+                },
+            }
+        )
+        == "limited"
+    )
 
 
 def test_report_status_from_payload_keeps_unknown_status_unchanged():
@@ -88,7 +146,7 @@ def test_map_internal_post_report_to_public_payload_normalizes_public_semantics(
     validated = PostReportPayload.model_validate(payload)
 
     assert validated.status == "limited"
-    assert validated.summary == "interpretive summary that should not leak as-is"
+    assert validated.summary == "Evidence is limited."
     assert [item.name for item in validated.topics] == ["budget", "regions"]
     assert validated.confidence.overall == "medium"
 
@@ -112,6 +170,7 @@ def test_map_internal_post_report_to_public_payload_restores_topics_from_multi_a
                 "multi_agent": {
                     "version": "v1",
                     "status": "ready",
+                    "steps": _canonical_openrouter_steps(synthesis_text="internal synthesis summary"),
                     "public_opinion": {
                         "discussion_state": "polarized",
                         "signals": [
@@ -126,7 +185,7 @@ def test_map_internal_post_report_to_public_payload_restores_topics_from_multi_a
 
     validated = PostReportPayload.model_validate(payload)
     assert [item.name for item in validated.topics] == ["шутка", "ананас", "донер"]
-    assert validated.summary == "internal synthesis summary"
+    assert validated.summary == "internal synthesis summary."
 
 
 def test_post_report_payload_rejects_unknown_status_literal():
@@ -355,12 +414,10 @@ def test_build_post_report_persists_input_signature(monkeypatch):
             "confidence": {"overall": "medium", "reason": "ok"},
             "meta": {
                 "multi_agent": {
-                    "epistemic_labels": [],
-                    "sufficiency": "sufficient",
-                    "stages": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
-                    "review_iterations": 1,
-                    "final_status": "ready",
-                    "orchestration": {"sequence": ["context", "routing", "expert", "public_opinion", "synthesis"]},
+                    "version": "v1",
+                    "status": "ready",
+                    "steps": _canonical_openrouter_steps(synthesis_text="done"),
+                    "review": {"history": [{"iteration": 1, "decision": "accept", "reason": "sufficient"}]},
                 }
             },
         }
@@ -638,12 +695,10 @@ def test_build_event_report_draft_uses_v2_bridge(monkeypatch):
             "confidence": {"overall": "high", "reason": "ok"},
             "meta": {
                 "multi_agent": {
-                    "epistemic_labels": [],
-                    "sufficiency": "sufficient",
-                    "stages": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
-                    "review_iterations": 1,
-                    "final_status": "ready",
-                    "orchestration": {"sequence": ["context", "routing", "expert", "public_opinion", "synthesis"]},
+                    "version": "v1",
+                    "status": "ready",
+                    "steps": _canonical_openrouter_steps(synthesis_text="ok"),
+                    "review": {"history": [{"iteration": 1, "decision": "accept", "reason": "sufficient"}]},
                 }
             },
         }
@@ -653,7 +708,7 @@ def test_build_event_report_draft_uses_v2_bridge(monkeypatch):
     result = asyncio.run(reporting.build_event_report_draft(session, event_id=7))
 
     assert result == {"status": "ready", "event_id": 7, "report_id": 1}
-    assert session.added[0].report_json["meta"]["multi_agent"]["final_status"] == "ready"
+    assert session.added[0].report_json["meta"]["multi_agent"]["status"] == "ready"
 
 
 def test_build_process_report_draft_defers_when_dependencies_are_not_ready(monkeypatch):

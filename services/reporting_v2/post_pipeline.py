@@ -82,7 +82,7 @@ def _normalize_epistemic_entries(
             source = default_source
             confidence = 0.5
         elif isinstance(value, dict):
-            text = str(value.get("text") or "")
+            text = _extract_entry_text(value)
             claim_type = str(value.get("type") or default_type)
             source = str(value.get("source") or default_source)
             try:
@@ -128,6 +128,35 @@ def _normalize_epistemic_entries(
     return entries
 
 
+def _extract_entry_text(value: dict[str, Any]) -> str:
+    text = str(value.get("text") or "").strip()
+    if text:
+        return text
+
+    # Some weak/free models return {"": "..."} instead of {"text": "..."}.
+    empty_key_text = str(value.get("") or "").strip()
+    if empty_key_text:
+        return empty_key_text
+
+    # Some malformed outputs put text inside a broken key.
+    for key, raw_value in value.items():
+        key_text = str(key or "").strip()
+        raw_text = str(raw_value or "").strip()
+
+        if key_text.startswith("text:") or key_text.startswith("text:**"):
+            cleaned = key_text
+            cleaned = cleaned.replace("text:**", "")
+            cleaned = cleaned.replace("text:", "")
+            cleaned = cleaned.split("|type")[0]
+            cleaned = cleaned.strip(" *:")
+            if cleaned:
+                return cleaned
+
+        if len(raw_text) > 20 and key_text not in {"type", "source", "confidence"}:
+            return raw_text
+
+    return ""
+
 def _normalize_expert_output(
     *,
     candidate: dict[str, Any] | None,
@@ -170,13 +199,27 @@ def _normalize_expert_output(
             0.75,
             sum(float(item["confidence"]) for item in all_entries) / len(all_entries),
         )
+    raw_items_count = 0
+    for raw_group in (background_raw, interpretations_raw, consequences_raw):
+        if isinstance(raw_group, list):
+            raw_items_count += len(raw_group)
+
+    normalized_items_count = len(all_entries)
+    malformed_output = raw_items_count > 0 and normalized_items_count < raw_items_count
+
+    data_status = str(data.get("data_status") or data.get("expert_coverage") or "limited")
+
+    if malformed_output:
+        data_status = "limited"
+        confidence = min(confidence, 0.55)
 
     return {
         "background": background,
         "interpretations": interpretations,
         "consequences": consequences,
-        "data_status": str(data.get("data_status") or data.get("expert_coverage") or "limited"),
+        "data_status": data_status,
         "confidence": max(0.0, min(1.0, confidence)),
+        "malformed_output": malformed_output,
     }
 
 def _extract_topics(post_text: str, comments: list[str], *, limit: int = 4) -> list[str]:

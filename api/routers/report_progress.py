@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, WebSocket
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Job, User
@@ -56,6 +57,50 @@ def _safe_int(value: object) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_request_id(value: str | None) -> int | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"", "undefined", "null", "none"}:
+        return None
+    return _safe_int(value)
+
+
+async def _resolve_report_job(
+    session: AsyncSession,
+    *,
+    request_id: int | None,
+    expected_entity_type: str | None,
+    expected_entity_id: int | None,
+    current_user_id: int,
+) -> Job | None:
+    if request_id is not None:
+        return await session.get(Job, request_id, populate_existing=True)
+
+    if expected_entity_type is None or expected_entity_id is None:
+        return None
+
+    report_job_type = next((job_type for job_type, entity in REPORT_JOB_TYPES.items() if entity == expected_entity_type), None)
+    if report_job_type is None:
+        return None
+
+    stmt = (
+        select(Job)
+        .where(Job.type == report_job_type)
+        .order_by(Job.created_at.desc(), Job.id.desc())
+        .limit(100)
+    )
+    candidates = (await session.execute(stmt)).scalars().all()
+    for candidate in candidates:
+        payload = dict(candidate.payload_json or {})
+        if _safe_int(payload.get("requested_by_user_id")) != current_user_id:
+            continue
+        entity_type, entity_id = _extract_entity(candidate)
+        if entity_type == expected_entity_type and entity_id == expected_entity_id:
+            return candidate
+    return None
 
 
 def _job_is_blocked(*, job: Job, result: dict) -> bool:
@@ -166,23 +211,30 @@ async def report_progress_websocket(
     session: AsyncSession = Depends(get_session),
 ):
     access_token = websocket.query_params.get("access_token")
-    request_id = _safe_int(websocket.query_params.get("request_id"))
+    request_id = _normalize_request_id(websocket.query_params.get("request_id"))
     expected_entity_type = websocket.query_params.get("entity_type")
     expected_entity_id = _safe_int(websocket.query_params.get("entity_id"))
-
-    if request_id is None:
-        await websocket.close(code=4400, reason="request_id is required")
-        return
 
     current_user = await _resolve_current_user(session, access_token=access_token)
     if current_user is None:
         await websocket.close(code=4401, reason="Authentication required")
         return
 
-    job = await session.get(Job, request_id, populate_existing=True)
+    if request_id is None and (expected_entity_type is None or expected_entity_id is None):
+        await websocket.close(code=4400, reason="request_id or entity binding is required")
+        return
+
+    job = await _resolve_report_job(
+        session,
+        request_id=request_id,
+        expected_entity_type=expected_entity_type,
+        expected_entity_id=expected_entity_id,
+        current_user_id=int(current_user.id),
+    )
     if job is None or str(job.type) not in REPORT_JOB_TYPES:
         await websocket.close(code=4404, reason="Report request not found")
         return
+    request_id = int(job.id)
 
     payload = dict(job.payload_json or {})
     if _safe_int(payload.get("requested_by_user_id")) != int(current_user.id):

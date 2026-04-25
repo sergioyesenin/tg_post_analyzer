@@ -33,17 +33,25 @@ type ReportBuildProgressEvent = {
 
 type AsyncJobActionConfig<TVariables> = {
   actionLabel: string;
-  mutationFn: (variables: TVariables) => Promise<AcceptedJobResponse>;
+  mutationFn: (variables: TVariables) => Promise<AsyncJobMutationResponse>;
   onInvalidate: () => Promise<unknown>;
   progress?: ReportBuildProgressConfig;
 };
 
 export type AsyncJobTerminalState = {
   actionLabel: string;
-  jobId: number;
+  jobId: number | null;
   status: 'success' | 'failed' | 'blocked';
   result: JobResultResponse | null;
 };
+
+type BlockedJobResponse = {
+  status: 'blocked';
+  reason?: string;
+  message?: string;
+};
+
+type AsyncJobMutationResponse = AcceptedJobResponse | BlockedJobResponse | Record<string, unknown>;
 
 function isTerminalJobStatus(status: string | undefined) {
   return status === 'done' || status === 'failed';
@@ -51,6 +59,28 @@ function isTerminalJobStatus(status: string | undefined) {
 
 function isTerminalProgressStatus(status: ReportBuildProgressEvent['status'] | null | undefined) {
   return status === 'completed' || status === 'failed' || status === 'blocked';
+}
+
+function isAcceptedJobResponse(value: unknown): value is AcceptedJobResponse {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.status === 'queued' &&
+    typeof candidate.job_id === 'number' &&
+    typeof candidate.job_type === 'string' &&
+    typeof candidate.status_url === 'string' &&
+    typeof candidate.result_url === 'string'
+  );
+}
+
+function isBlockedJobResponse(value: unknown): value is BlockedJobResponse {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return candidate.status === 'blocked';
 }
 
 export function summarizeJobResult(result: JobResultResponse | null) {
@@ -134,10 +164,34 @@ export function useAsyncJobAction<TVariables>({
 
   const mutation = useMutation({
     mutationFn,
-    onSuccess: (job) => {
-      setActiveJob(job);
-      setTerminalState(null);
+    onSuccess: (response) => {
+      if (isAcceptedJobResponse(response)) {
+        setActiveJob(response);
+        setTerminalState(null);
+        setProgressEvent(null);
+        return;
+      }
+
+      setActiveJob(null);
       setProgressEvent(null);
+
+      if (isBlockedJobResponse(response)) {
+        const reason = typeof response.reason === 'string' && response.reason.trim() ? response.reason : 'blocked';
+        const message =
+          typeof response.message === 'string' && response.message.trim()
+            ? response.message
+            : 'Report build request was blocked.';
+        setTerminalState({
+          actionLabel,
+          jobId: null,
+          status: 'blocked',
+          result: {
+            status: 'blocked',
+            reason,
+            error: message,
+          },
+        });
+      }
     },
   });
 

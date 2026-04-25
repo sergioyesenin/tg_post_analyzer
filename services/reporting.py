@@ -65,7 +65,7 @@ def _build_retrieval_provider(features: dict[str, Any] | None) -> SearxngRetriev
     if not enabled:
         return None
 
-    base_url = str(features.get("searxng_base_url") or "http://localhost:8088").strip()
+    base_url = str(features.get("searxng_base_url") or "http://host.docker.internal:8088").strip()
     if not base_url:
         return None
 

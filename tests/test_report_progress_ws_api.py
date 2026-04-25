@@ -18,6 +18,25 @@ class _FakeSession:
     async def get(self, model, object_id: int, **kwargs):
         return self._objects_by_key.get((model, object_id))
 
+    async def execute(self, stmt):
+        report_jobs = [
+            obj
+            for (model, _), obj in self._objects_by_key.items()
+            if model is Job and getattr(obj, "type", None) in report_progress.REPORT_JOB_TYPES
+        ]
+        report_jobs.sort(
+            key=lambda job: (
+                getattr(job, "created_at", datetime.min.replace(tzinfo=timezone.utc)),
+                getattr(job, "id", 0),
+            ),
+            reverse=True,
+        )
+        return SimpleNamespace(
+            scalars=lambda: SimpleNamespace(
+                all=lambda: report_jobs,
+            )
+        )
+
 
 def _build_client(session: _FakeSession) -> TestClient:
     app = FastAPI()
@@ -152,3 +171,28 @@ def test_report_progress_ws_emits_failed_event():
     assert event["type"] == "report_build_failed"
     assert event["status"] == "failed"
     assert event["error"] == {"code": "model_timeout", "message": "Model timed out"}
+
+
+def test_report_progress_ws_allows_undefined_request_id_when_entity_binding_is_valid():
+    user = SimpleNamespace(id=11, username="analyst", is_active=True)
+    job = _build_job(
+        job_id=901,
+        status="running",
+        payload={"post_id": 72, "requested_by_user_id": 11, "source": "api"},
+    )
+    session = _FakeSession({
+        (User, 11): user,
+        (Job, 901): job,
+    })
+    client = _build_client(session)
+
+    with client.websocket_connect(
+        f"/api/reports/progress/ws?access_token={_access_token(11)}&request_id=undefined&entity_type=post&entity_id=72"
+    ) as websocket:
+        event = websocket.receive_json()
+
+    assert event["type"] == "report_build_started"
+    assert event["status"] == "building_report"
+    assert event["request_id"] == 901
+    assert event["entity_type"] == "post"
+    assert event["entity_id"] == 72

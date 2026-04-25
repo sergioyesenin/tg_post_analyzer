@@ -423,6 +423,72 @@ describe('Post detail screen', () => {
 
     globalThis.WebSocket = originalWebSocket;
   });
+
+  it('does not open report progress websocket when update endpoint returns blocked response', async () => {
+    const user = userEvent.setup();
+    const originalWebSocket = globalThis.WebSocket;
+
+    class FakeWebSocket {
+      static instances: FakeWebSocket[] = [];
+      url: string;
+
+      constructor(url: string) {
+        this.url = url;
+        FakeWebSocket.instances.push(this);
+      }
+
+      close() {
+        return undefined;
+      }
+    }
+
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/posts/42') {
+        return createPostDetailResponse();
+      }
+
+      if (path === '/api/posts/42/comments') {
+        return createCommentsResponse();
+      }
+
+      if (path === '/api/reports/post/42') {
+        return null;
+      }
+
+      if (path === '/api/posts/42/links') {
+        return createLinksResponse();
+      }
+
+      if (path.startsWith('/api/dashboard/posts')) {
+        return createPostsDashboardResponse();
+      }
+
+      throw new Error(`Unhandled GET path in test: ${path}`);
+    });
+
+    vi.spyOn(apiClient, 'post').mockResolvedValue({
+      status: 'blocked',
+      reason: 'duplicate_request',
+      message: 'Report is already building.',
+    });
+
+    renderPostDetail();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043e\u0442\u0447\u0435\u0442') })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043e\u0442\u0447\u0435\u0442') }));
+
+    await waitFor(() => {
+      expect(screen.getByText(ru('\u0417\u0430\u0434\u0430\u043d\u0438\u0435 \u043e\u0442\u0447\u0435\u0442\u0430'))).toBeInTheDocument();
+    });
+
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    globalThis.WebSocket = originalWebSocket;
+  });
   it('hides mutation actions for viewer', async () => {
     installDetailGetMock();
 

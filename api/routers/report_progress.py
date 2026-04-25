@@ -4,8 +4,10 @@ import asyncio
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, WebSocket
+from starlette.websockets import WebSocketDisconnect, WebSocketState
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from uvicorn.protocols.utils import ClientDisconnected
 
 from db.models import Job, User
 from deps import get_session
@@ -205,6 +207,23 @@ def _event_fingerprint(event: dict) -> tuple[object, ...]:
     )
 
 
+async def _release_session(session: AsyncSession) -> None:
+    try:
+        await session.rollback()
+    except Exception:
+        # Session may already be closed/invalid; best effort to release resources.
+        return
+
+
+async def _safe_close_websocket(websocket: WebSocket, *, code: int = 1000, reason: str = "") -> None:
+    if websocket.application_state is not WebSocketState.CONNECTED:
+        return
+    try:
+        await websocket.close(code=code, reason=reason)
+    except (RuntimeError, WebSocketDisconnect, ClientDisconnected):
+        return
+
+
 @router.websocket("/ws")
 async def report_progress_websocket(
     websocket: WebSocket,
@@ -252,14 +271,20 @@ async def report_progress_websocket(
         await websocket.close(code=4404, reason="Entity id mismatch")
         return
 
+    # Release DB connection before entering long-lived websocket loop.
+    await _release_session(session)
     await websocket.accept()
     last_fingerprint: tuple[object, ...] | None = None
 
     try:
         while True:
-            job = await session.get(Job, request_id, populate_existing=True)
+            try:
+                job = await session.get(Job, request_id, populate_existing=True)
+            finally:
+                # Do not keep transaction open between websocket polls.
+                await _release_session(session)
             if job is None:
-                await websocket.close(code=4404, reason="Report request not found")
+                await _safe_close_websocket(websocket, code=4404, reason="Report request not found")
                 return
 
             event = _build_progress_event(job)
@@ -272,5 +297,7 @@ async def report_progress_websocket(
                     return
 
             await asyncio.sleep(1.0)
-    except Exception:
-        await websocket.close()
+    except (WebSocketDisconnect, ClientDisconnected):
+        return
+    finally:
+        await _safe_close_websocket(websocket)

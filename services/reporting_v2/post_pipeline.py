@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from collections import Counter
@@ -14,10 +15,11 @@ from services.reporting_v2.contracts_internal import (
     assess_article_sufficiency,
     assess_comment_sufficiency,
     assess_retrieval_sufficiency,
-    build_retrieval_trace_without_provider,
+    build_retrieval_trace,
     decide_retrieval_required,
     validate_multi_agent_meta,
 )
+from services.reporting_v2.retrieval import run_retrieval_provider
 from services.reporting_v2.steps import (
     SIX_STEP_SEQUENCE,
     apply_step_trace_envelope,
@@ -38,9 +40,144 @@ def _safe_text(value: str | None, *, max_len: int = 300) -> str:
     return " ".join((value or "").split())[:max_len]
 
 
+def _stable_hash(value: Any) -> str:
+    serialized = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
 def _sentence_count(text: str) -> int:
     return len([part for part in _SENTENCE_RE.split(text) if part.strip()])
 
+def _epistemic_entry(
+    *,
+    text: str,
+    claim_type: str,
+    confidence: float,
+    source: str,
+) -> dict[str, Any]:
+    return {
+        "text": _safe_text(text, max_len=500),
+        "type": claim_type,
+        "confidence": max(0.0, min(1.0, float(confidence))),
+        "source": source,
+    }
+
+
+def _normalize_epistemic_entries(
+    values: Any,
+    *,
+    default_type: str,
+    default_source: str,
+    retrieval_success: bool,
+) -> list[dict[str, Any]]:
+    if not isinstance(values, list):
+        return []
+
+    entries: list[dict[str, Any]] = []
+
+    for value in values:
+        if isinstance(value, str):
+            text = value
+            claim_type = default_type
+            source = default_source
+            confidence = 0.5
+        elif isinstance(value, dict):
+            text = str(value.get("text") or "")
+            claim_type = str(value.get("type") or default_type)
+            source = str(value.get("source") or default_source)
+            try:
+                confidence = float(value.get("confidence", 0.5))
+            except (TypeError, ValueError):
+                confidence = 0.5
+        else:
+            continue
+
+        if not _safe_text(text):
+            continue
+
+        if claim_type not in {"fact", "derived", "interpretation", "external", "uncertain"}:
+            claim_type = default_type
+
+        if source not in {"article", "comments", "retrieval"}:
+            source = default_source
+
+        if source == "retrieval" or claim_type == "external":
+            if not retrieval_success:
+                entries.append(
+                    _epistemic_entry(
+                        text=text,
+                        claim_type="uncertain",
+                        confidence=min(confidence, 0.35),
+                        source="article",
+                    )
+                )
+                continue
+
+            claim_type = "external"
+            source = "retrieval"
+
+        entries.append(
+            _epistemic_entry(
+                text=text,
+                claim_type=claim_type,
+                confidence=confidence,
+                source=source,
+            )
+        )
+
+    return entries
+
+
+def _normalize_expert_output(
+    *,
+    candidate: dict[str, Any] | None,
+    retrieval_success: bool,
+) -> dict[str, Any]:
+    data = dict(candidate or {})
+
+    background_raw = data.get("background") or data.get("background_factors") or []
+    interpretations_raw = data.get("interpretations") or data.get("expert_views") or []
+    consequences_raw = data.get("consequences") or data.get("likely_consequences") or []
+
+    background = _normalize_epistemic_entries(
+        background_raw,
+        default_type="fact",
+        default_source="article",
+        retrieval_success=retrieval_success,
+    )
+    interpretations = _normalize_epistemic_entries(
+        interpretations_raw,
+        default_type="interpretation",
+        default_source="article",
+        retrieval_success=retrieval_success,
+    )
+    consequences = _normalize_epistemic_entries(
+        consequences_raw,
+        default_type="interpretation",
+        default_source="article",
+        retrieval_success=retrieval_success,
+    )
+
+    all_entries = [*background, *interpretations, *consequences]
+
+    try:
+        confidence = float(data.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+
+    if not confidence and all_entries:
+        confidence = min(
+            0.75,
+            sum(float(item["confidence"]) for item in all_entries) / len(all_entries),
+        )
+
+    return {
+        "background": background,
+        "interpretations": interpretations,
+        "consequences": consequences,
+        "data_status": str(data.get("data_status") or data.get("expert_coverage") or "limited"),
+        "confidence": max(0.0, min(1.0, confidence)),
+    }
 
 def _extract_topics(post_text: str, comments: list[str], *, limit: int = 4) -> list[str]:
     stopwords = {
@@ -69,14 +206,14 @@ def _build_public_opinion_trace(*, post_text: str, comments: list[str], comment_
     merged = " ".join(cleaned_comments).lower()
     conflict_markers = ("must", "should", "fault", "blame", "ban", "fine", "illegal")
     conflict_hits = sum(merged.count(marker) for marker in conflict_markers)
-    if comments_count == 0:
-        discussion_state = "no_discussion"
+    if comments_count == 0 or comment_sufficiency in {"insufficient", "weak_signal"}:
+        discussion_state = "weak_signal"
     elif conflict_hits >= 3:
-        discussion_state = "polarized"
-    elif comments_count < 6:
-        discussion_state = "emerging"
+        discussion_state = "conflicted"
+    elif conflict_hits > 0:
+        discussion_state = "mixed"
     else:
-        discussion_state = "active"
+        discussion_state = "mixed"
     topics = _extract_topics(post_text, cleaned_comments, limit=4)
     data_status = comment_sufficiency if comment_sufficiency != "sufficient" else analytical_sufficiency
     confidence = 0.25 if data_status in {"insufficient", "weak_signal"} else (0.5 if data_status == "limited" else 0.75)
@@ -178,29 +315,102 @@ def _collect_reviewer_defects(
     status: str,
     synthesis: dict[str, Any],
     public_opinion: dict[str, Any],
+    expert: dict[str, Any],
     retrieval_required: bool,
     retrieval_status: str,
     retrieval_used: bool,
     retrieval_sources: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     defects: list[dict[str, Any]] = []
+
     components = dict(synthesis.get("components") or {})
-    missing = [name for name in ("event", "context", "reaction", "interpretation", "consequences") if components.get(name) is not True]
+    missing = [
+        name
+        for name in ("event", "context", "reaction", "interpretation", "consequences")
+        if components.get(name) is not True
+    ]
     sentence_count = int(synthesis.get("sentence_count") or 0)
     report_text = _safe_text(str(synthesis.get("report_text") or ""), max_len=1800).lower()
+
     if missing or sentence_count < 5 or sentence_count > 7:
-        defects.append({"code": "D1", "reason": f"structural_missing:{','.join(missing) or 'sentence_count'}", "target": "synthesis"})
+        defects.append(
+            {
+                "code": "D1",
+                "reason": f"structural_missing:{','.join(missing) or 'sentence_count'}",
+                "target": "synthesis",
+            }
+        )
+
     if str(synthesis.get("quality") or "") != "ok":
         defects.append({"code": "D2", "reason": "weak_analysis", "target": "synthesis"})
+
     if retrieval_required and retrieval_status in {"failed", "insufficient", "none"} and status == "ready":
-        defects.append({"code": "D3", "reason": "ready_forbidden_without_required_retrieval", "target": "routing"})
+        defects.append(
+            {
+                "code": "D3",
+                "reason": "ready_forbidden_without_required_retrieval",
+                "target": "routing",
+            }
+        )
+
     if status == "insufficient_data" and ("indicates" in report_text or "supports" in report_text):
-        defects.append({"code": "D4", "reason": "insufficient_data_overclaim", "target": "synthesis"})
+        defects.append(
+            {
+                "code": "D4",
+                "reason": "insufficient_data_overclaim",
+                "target": "synthesis",
+            }
+        )
+
     if retrieval_used and not retrieval_sources:
-        defects.append({"code": "D5", "reason": "missing_retrieval_evidence", "target": "routing"})
+        defects.append(
+            {
+                "code": "D5",
+                "reason": "missing_retrieval_evidence",
+                "target": "routing",
+            }
+        )
+
+    expert_entries: list[dict[str, Any]] = []
+    for key in ("background", "interpretations", "consequences"):
+        value = expert.get(key)
+        if isinstance(value, list):
+            expert_entries.extend([item for item in value if isinstance(item, dict)])
+
+    retrieval_success = retrieval_used and retrieval_status == "success" and bool(retrieval_sources)
+
+    for item in expert_entries:
+        if str(item.get("type") or "") == "external" and not retrieval_success:
+            defects.append(
+                {
+                    "code": "D3",
+                    "reason": "external_expert_claim_without_retrieval",
+                    "target": "expert",
+                }
+            )
+            break
+
+        if str(item.get("source") or "") == "retrieval" and not retrieval_success:
+            defects.append(
+                {
+                    "code": "D3",
+                    "reason": "retrieval_sourced_claim_without_evidence",
+                    "target": "expert",
+                }
+            )
+            break
+
     if status == "ready" and str(public_opinion.get("data_status") or "") in {"weak_signal", "insufficient"}:
-        defects.append({"code": "D6", "reason": "status_vs_signal_inconsistency", "target": "public_opinion"})
+        defects.append(
+            {
+                "code": "D6",
+                "reason": "status_vs_signal_inconsistency",
+                "target": "public_opinion",
+            }
+        )
+
     return defects
+
 def _build_retrieval_decision_inputs(*, post_text: str, comments: list[str]) -> dict[str, bool]:
     normalized_post = _safe_text(post_text, max_len=2000).lower()
     normalized_comments = " ".join(_safe_text(item, max_len=200).lower() for item in comments[:10])
@@ -364,6 +574,10 @@ def _apply_step_provider_trace(
             "fallback_used": bool(trace.fallback_used),
             "fallback_reason": trace.fallback_reason,
             "attempt_index": int(trace.attempt_index),
+            "input_ref": trace.input_ref,
+            "input_hash": trace.input_hash,
+            "output_ref": trace.output_ref,
+            "output_hash": trace.output_hash,
             "status": "completed" if trace.success else "failed",
         }
     )
@@ -401,6 +615,10 @@ async def _try_llm_json_step(
     prompt_text: str,
     request_payload: dict[str, Any],
 ) -> tuple[dict[str, Any] | None, OpenAIChatCompletionTrace]:
+    input_ref = f"inline://{step_name}/input"
+    output_ref = f"inline://{step_name}/output"
+    input_hash = _stable_hash(request_payload)
+
     default_trace = _default_provider_trace(adapter=adapter)
     trace = default_trace
     if hasattr(adapter, "create_chat_completion_with_trace"):
@@ -420,8 +638,52 @@ async def _try_llm_json_step(
             ],
             response_format={"type": "json_object"},
         )
+        trace = OpenAIChatCompletionTrace(
+            content=content,
+            provider=default_trace.provider,
+            model=default_trace.model,
+            latency_ms=default_trace.latency_ms,
+            fallback_used=default_trace.fallback_used,
+            fallback_reason=default_trace.fallback_reason,
+            executed=True,
+            success=True,
+            attempt_index=default_trace.attempt_index,
+            input_ref=input_ref,
+            input_hash=input_hash,
+            output_ref=output_ref,
+            output_hash=_stable_hash(content),
+        )
+    trace = OpenAIChatCompletionTrace(
+        content=trace.content,
+        provider=trace.provider,
+        model=trace.model,
+        latency_ms=trace.latency_ms,
+        fallback_used=trace.fallback_used,
+        fallback_reason=trace.fallback_reason,
+        executed=trace.executed,
+        success=trace.success,
+        attempt_index=trace.attempt_index,
+        input_ref=input_ref,
+        input_hash=input_hash,
+        output_ref=output_ref,
+        output_hash=_stable_hash(content),
+    )
     if not content:
-        return None, trace
+        return None, OpenAIChatCompletionTrace(
+            content=content,
+            provider=trace.provider,
+            model=trace.model,
+            latency_ms=trace.latency_ms,
+            fallback_used=True,
+            fallback_reason=f"{step_name}_empty_output",
+            executed=True,
+            success=False,
+            attempt_index=trace.attempt_index,
+            input_ref=input_ref,
+            input_hash=input_hash,
+            output_ref=output_ref,
+            output_hash=_stable_hash(content),
+        )
     try:
         data = json.loads(content)
     except json.JSONDecodeError:
@@ -435,6 +697,10 @@ async def _try_llm_json_step(
             executed=True,
             success=False,
             attempt_index=trace.attempt_index,
+            input_ref=input_ref,
+            input_hash=input_hash,
+            output_ref=output_ref,
+            output_hash=_stable_hash(content),
         )
     if not isinstance(data, dict):
         return None, OpenAIChatCompletionTrace(
@@ -447,8 +713,26 @@ async def _try_llm_json_step(
             executed=True,
             success=False,
             attempt_index=trace.attempt_index,
+            input_ref=input_ref,
+            input_hash=input_hash,
+            output_ref=output_ref,
+            output_hash=_stable_hash(content),
         )
-    return data, trace
+    return data, OpenAIChatCompletionTrace(
+        content=content,
+        provider=trace.provider,
+        model=trace.model,
+        latency_ms=trace.latency_ms,
+        fallback_used=trace.fallback_used,
+        fallback_reason=trace.fallback_reason,
+        executed=True,
+        success=True,
+        attempt_index=trace.attempt_index,
+        input_ref=input_ref,
+        input_hash=input_hash,
+        output_ref=output_ref,
+        output_hash=_stable_hash(content),
+    )
 
 
 async def generate_post_report_payload_v2(
@@ -465,6 +749,7 @@ async def generate_post_report_payload_v2(
     effective_features: dict[str, Any] | None = None,
     prompt_loader: PromptLoader | None = None,
     llm_adapter: OpenAIClientAdapter | None = None,
+    retrieval_provider: Any | None = None,
 ) -> dict[str, Any]:
     del channel, thread_comments, views, job_timeout_seconds
 
@@ -475,17 +760,44 @@ async def generate_post_report_payload_v2(
     article_sufficiency = assess_article_sufficiency(text=post_text)
     comment_sufficiency = assess_comment_sufficiency(comments=comments)
     retrieval_inputs = _build_retrieval_decision_inputs(post_text=post_text, comments=comments)
-    retrieval_required = decide_retrieval_required(**retrieval_inputs)
-    provider_enabled = bool((effective_features or {}).get("retrieval_provider_enabled", False))
-    retrieval_trace = build_retrieval_trace_without_provider(
+    force_retrieval_for_all_reports = bool(
+        (effective_features or {}).get("force_retrieval_for_all_reports", True)
+    )
+    retrieval_required = (
+        True
+        if force_retrieval_for_all_reports
+        else decide_retrieval_required(**retrieval_inputs)
+    )
+    retrieval_request = {
+        "kind": "post",
+        "post_id": post_id,
+        "post_text": _safe_text(post_text, max_len=2400),
+        "comments": [_safe_text(item, max_len=300) for item in comments[:30]],
+        "decision_inputs": retrieval_inputs,
+    }
+
+    retrieval_provider_sources = (
+        await run_retrieval_provider(retrieval_provider, retrieval_request)
+        if retrieval_required
+        else []
+    )
+
+    provider_enabled = retrieval_provider is not None or bool(
+        (effective_features or {}).get("retrieval_provider_enabled", False)
+    )
+
+    retrieval_trace = build_retrieval_trace(
         required=retrieval_required,
         provider_enabled=provider_enabled,
+        sources=retrieval_provider_sources,
         decision_inputs=retrieval_inputs,
-        decision_source="policy",
+        decision_source="retrieval_policy",
     )
+
     retrieval_used = bool(retrieval_trace["used"])
     retrieval_status = str(retrieval_trace["status"])
     retrieval_sources = list(retrieval_trace["sources"])
+
     retrieval_sufficiency = assess_retrieval_sufficiency(
         required=retrieval_required,
         used=retrieval_used,
@@ -623,14 +935,25 @@ async def generate_post_report_payload_v2(
                     "comments": [_safe_text(item, max_len=260) for item in comments[:20]],
                     "status_hint": target_status,
                     "analytical_sufficiency": analytical_sufficiency,
+                    "retrieval": retrieval_trace,
+                    "retrieval_instruction": "Use retrieval evidence only when retrieval.used is true; otherwise do not add external facts.",
                 },
             )
             _apply_step_provider_trace(step_traces=step_traces, step_name="expert", trace=expert_trace)
             if isinstance(expert_output, dict):
+                normalized_expert = _normalize_expert_output(
+                    candidate=expert_output,
+                    retrieval_success=retrieval_used and retrieval_status == "success",
+                )
                 apply_step_trace_envelope(
                     step_traces,
                     step_name="expert",
-                    mutator=lambda trace: trace.update({"llm_expert": expert_output}),
+                    mutator=lambda trace: trace.update(
+                        {
+                            "llm_expert": expert_output,
+                            **normalized_expert,
+                        }
+                    ),
                 )
         except Exception as exc:
             _apply_step_provider_trace(
@@ -673,6 +996,7 @@ async def generate_post_report_payload_v2(
                     "status_hint": target_status,
                     "post_text": _safe_text(post_text, max_len=1600),
                     "comments": [_safe_text(item, max_len=300) for item in comments[:30]],
+                    "retrieval": retrieval_trace,
                 },
             )
             _apply_step_provider_trace(step_traces=step_traces, step_name="synthesis", trace=synthesis_trace)
@@ -696,6 +1020,8 @@ async def generate_post_report_payload_v2(
                     "synthesis": synthesis_data,
                     "retrieval_required": retrieval_required,
                     "retrieval_status": retrieval_status,
+                    "retrieval": retrieval_trace,
+                    "expert": step_traces.get("expert", {}),
                 },
             )
             _apply_step_provider_trace(step_traces=step_traces, step_name="reviewer", trace=reviewer_trace)
@@ -746,6 +1072,7 @@ async def generate_post_report_payload_v2(
             status=target_status,
             synthesis=synthesis_data,
             public_opinion=public_opinion_trace,
+            expert=step_traces.get("expert", {}),
             retrieval_required=retrieval_required,
             retrieval_status=retrieval_status,
             retrieval_used=retrieval_used,
@@ -870,21 +1197,6 @@ async def generate_post_report_payload_v2(
             }
         )
         final_status = target_status
-        if final_status == "insufficient_data":
-            synthesis_data["report_text"] = (
-                "The event cannot be assessed reliably because available evidence is insufficient. "
-                "Context remains incomplete and public reaction signals are too weak for a stable interpretation. "
-                "Any inferred interpretation would likely overstate certainty. "
-                "Consequences therefore remain conditional and should not drive definitive action. "
-                "Additional source material and higher-quality discussion evidence are required."
-            )
-            synthesis_data["sentence_count"] = _sentence_count(synthesis_data["report_text"])
-            synthesis_data["quality"] = "ok"
-        elif final_status == "limited" and "limited" not in synthesis_data["report_text"].lower():
-            synthesis_data["report_text"] = (
-                f"{synthesis_data['report_text']} Evidence remains limited, so conclusions are explicitly bounded."
-            )
-            synthesis_data["sentence_count"] = _sentence_count(synthesis_data["report_text"])
 
         confidence_reason = str(synthesis_data.get("confidence_reason") or "deterministic_spec_synthesis")
         if final_status == "limited" and retrieval_required and retrieval_status in {"failed", "insufficient", "none"}:
@@ -957,3 +1269,22 @@ async def generate_post_report_payload_v2(
 
     validated_payload = PostReportPayload.model_validate(payload)
     return validated_payload.model_dump(mode="python")
+
+
+class MockRetrievalProvider:
+    async def retrieve(self, request: dict) -> dict:
+        text = request.get("post_text") or request.get("root_post_text") or ""
+        if not text:
+            return {"sources": []}
+
+        return {
+            "sources": [
+                {
+                    "title": "Mock source for retrieval integration test",
+                    "source": "mock://retrieval/test",
+                    "tier": "2",
+                    "supports": "Mock evidence confirms that retrieval evidence can be passed into expert and synthesis.",
+                    "relevance": 0.8,
+                }
+            ]
+        }

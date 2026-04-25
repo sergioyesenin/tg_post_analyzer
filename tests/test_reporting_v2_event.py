@@ -256,9 +256,123 @@ def test_build_event_report_v2_marks_provider_provenance_for_all_six_steps(monke
     payload = asyncio.run(build_event_report_v2_impl(session=object(), event_id=89, llm_adapter=_TraceAdapter()))
 
     steps = payload["meta"]["multi_agent"]["steps"]
+    required_keys = {
+        "provider",
+        "model",
+        "executed",
+        "success",
+        "latency_ms",
+        "input_ref",
+        "input_hash",
+        "output_ref",
+        "output_hash",
+        "fallback_used",
+        "fallback_reason",
+        "attempt_index",
+        "status",
+    }
     for step_name in ("context", "routing", "expert", "public_opinion", "synthesis", "reviewer"):
         provenance = steps[step_name]["provenance"]
+        assert required_keys.issubset(set(provenance.keys()))
         assert provenance["provider"] == "openrouter"
         assert provenance["model"] == "qwen/qwen3-coder:free"
         assert provenance["executed"] is True
+        assert provenance["success"] is True
         assert provenance["latency_ms"] == 12
+        assert provenance["input_ref"] == f"inline://{step_name}/input"
+        assert isinstance(provenance["input_hash"], str) and len(provenance["input_hash"]) == 64
+        assert provenance["output_ref"] == f"inline://{step_name}/output"
+        assert isinstance(provenance["output_hash"], str) and len(provenance["output_hash"]) == 64
+        assert provenance["fallback_used"] is False
+        assert provenance["fallback_reason"] is None
+        assert provenance["attempt_index"] == 0
+        assert provenance["status"] == "completed"
+
+
+def test_build_event_report_v2_keeps_summary_in_synthesis_step_as_source_of_truth(monkeypatch) -> None:
+    async def _fake_load_bundle(session, *, event_id):
+        del session
+        return {
+            "event_id": event_id,
+            "event_title": "Local Event",
+            "posts": [{"post_id": 101, "event_role": "root", "text": "Root text", "comments_count": 6}],
+            "post_ids": [101],
+            "root_post_id": 101,
+            "root_post_text": "Root text with enough detail for event summary synthesis.",
+            "comments_all_posts": [f"comment {idx}" for idx in range(1, 8)],
+            "comments_by_post": {101: [f"comment {idx}" for idx in range(1, 8)]},
+        }
+
+    class _SummaryAdapter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def create_chat_completion_with_trace(self, **kwargs):
+            del kwargs
+            self.calls += 1
+            if self.calls == 5:
+                content = '{"summary":"EVENT_SYNTHESIS_TEXT","confidence_reason":"llm_event"}'
+            else:
+                content = "{}"
+            return OpenAIChatCompletionTrace(
+                content=content,
+                provider="openrouter",
+                model="qwen/qwen3-coder:free",
+                latency_ms=12,
+                fallback_used=False,
+                fallback_reason=None,
+                executed=True,
+                success=True,
+                attempt_index=0,
+            )
+
+    monkeypatch.setattr("services.reporting_v2.event_pipeline.load_event_input_bundle", _fake_load_bundle)
+    payload = asyncio.run(build_event_report_v2_impl(session=object(), event_id=90, llm_adapter=_SummaryAdapter()))
+
+    synthesis = payload["meta"]["multi_agent"]["steps"]["synthesis"]
+    assert payload["summary"] == "EVENT_SYNTHESIS_TEXT"
+    assert synthesis["report_text"] == "EVENT_SYNTHESIS_TEXT"
+
+
+def test_build_event_report_draft_persists_canonicalized_status(monkeypatch) -> None:
+    session = _FakeSession(execute_results=[type("_Scalar", (), {"scalar_one_or_none": lambda self: None})()])
+
+    async def _fake_build_event_report_v2_impl(*, session, event_id):
+        del session
+        return {
+            "type": "event_report_v2",
+            "status": "ready",
+            "event_id": event_id,
+            "event_title": "Event",
+            "posts_count": 1,
+            "source_post_reports": [101],
+            "sentiment": {
+                "dominant": "neutral",
+                "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+            },
+            "cross_post_topics": [],
+            "post_dynamics": [],
+            "event_trends": [],
+            "risks": [],
+            "anomalies": [],
+            "summary": "ready",
+            "confidence": {"overall": "high", "reason": "ok"},
+            "meta": {
+                "multi_agent": {
+                    "version": "v1",
+                    "status": "ready",
+                    "steps": {
+                        name: {"status": "completed", "run_count": 1}
+                        for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]
+                    },
+                    "retrieval": {"required": False, "used": False, "status": "none", "sources": []},
+                    "review": {"iterations": 0, "history": []},
+                }
+            },
+        }
+
+    monkeypatch.setattr(reporting, "build_event_report_v2_impl", _fake_build_event_report_v2_impl)
+    result = asyncio.run(reporting.build_event_report_draft(session, event_id=91))
+
+    assert result["status"] == "limited"
+    assert session.added[0].report_json["status"] == "limited"

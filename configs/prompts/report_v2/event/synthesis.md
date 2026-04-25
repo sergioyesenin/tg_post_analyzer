@@ -9,6 +9,10 @@ Produce one compact analytical report in 5-7 sentences, strictly in this order:
 5. Consequences
 
 Hard constraints:
+Retrieval constraints:
+- Используй external context только из retrieval.sources и только если retrieval.used=true.
+- Если retrieval.required=true, но retrieval.used=false, явно напиши, что внешний контекст не проверен.
+- Не выдавай отсутствие retrieval за проверенный внешний контекст.
 - Sentence 1 must describe the core event clearly.
 - The report must integrate cross-post evidence, not retell one post.
 - Include at least one sentence on public reaction quality/limits.

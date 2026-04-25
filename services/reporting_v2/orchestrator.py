@@ -231,6 +231,33 @@ def _collect_reviewer_defects(state: PipelineState) -> list[dict[str, Any]]:
     if state.retrieval.used and not state.retrieval.sources:
         defects.append({"code": "D5", "reason": "retrieval_used_without_sources", "target": "routing"})
 
+        retrieval_success = (
+        state.retrieval.used
+        and state.retrieval.status == "success"
+        and bool(state.retrieval.sources)
+    )
+
+    for item in [*state.expert.background, *state.expert.interpretations, *state.expert.consequences]:
+        if str(item.get("type") or "") == "external" and not retrieval_success:
+            defects.append(
+                {
+                    "code": "D3",
+                    "reason": "external_expert_claim_without_retrieval",
+                    "target": "expert",
+                }
+            )
+            break
+
+        if str(item.get("source") or "") == "retrieval" and not retrieval_success:
+            defects.append(
+                {
+                    "code": "D3",
+                    "reason": "retrieval_sourced_claim_without_evidence",
+                    "target": "expert",
+                }
+            )
+            break
+
     if state.status == "insufficient_data" and state.retrieval.status == "success" and state.context.analytical_sufficiency == "sufficient":
         defects.append({"code": "D6", "reason": "status_inconsistent_with_signals", "target": "synthesis"})
 
@@ -283,8 +310,71 @@ def run_retrieval_decision_stage(state: PipelineState) -> PipelineState:
     return state
 
 
+def _entry(text: str, claim_type: str, confidence: float, source: str) -> dict[str, Any]:
+    return {
+        "text": text,
+        "type": claim_type,
+        "confidence": max(0.0, min(1.0, confidence)),
+        "source": source,
+    }
+
+
 def run_expert_stage(state: PipelineState) -> PipelineState:
-    state.expert = ExpertOutput(claims=[])
+    background: list[dict[str, Any]] = []
+
+    if _clean_text(state.post_text):
+        background.append(
+            _entry(
+                _clean_text(state.post_text)[:240],
+                "fact",
+                0.65,
+                "article",
+            )
+        )
+
+    if state.retrieval.used and state.retrieval.status == "success":
+        for source in state.retrieval.sources[:3]:
+            if isinstance(source, dict) and source.get("supports"):
+                background.append(
+                    _entry(
+                        str(source.get("supports")),
+                        "external",
+                        0.7,
+                        "retrieval",
+                    )
+                )
+
+    interpretations = [
+        _entry(
+            "Interpretation is bounded by the available article, comments, and retrieval evidence.",
+            "interpretation",
+            0.55 if state.status != "ready" else 0.7,
+            "article",
+        )
+    ]
+
+    consequences = [
+        _entry(
+            "Consequences should be treated cautiously unless retrieval evidence and discussion signals are sufficient.",
+            "uncertain" if state.status != "ready" else "interpretation",
+            0.45 if state.status != "ready" else 0.6,
+            "article",
+        )
+    ]
+
+    state.expert = ExpertOutput(
+        background=background,
+        interpretations=interpretations,
+        consequences=consequences,
+        data_status=(
+            "limited"
+            if state.retrieval.required and not state.retrieval.used
+            else state.context.analytical_sufficiency
+        ),
+        confidence=0.55 if state.status != "ready" else 0.7,
+        claims=[*background, *interpretations, *consequences],
+    )
+
     _mark_stage(state, stage="expert")
     return state
 
@@ -295,14 +385,14 @@ def run_public_opinion_stage(state: PipelineState) -> PipelineState:
     merged_comments = " ".join(cleaned_comments).lower()
     conflict_markers = ("виноват", "виноваты", "должен", "должны", "запрет", "штраф", "наруш")
     conflict_hits = sum(merged_comments.count(marker) for marker in conflict_markers)
-    if comments_count == 0:
-        discussion_state = "no_discussion"
+    if comments_count == 0 or state.context.comment_sufficiency in {"insufficient", "weak_signal"}:
+        discussion_state = "weak_signal"
     elif conflict_hits >= 3:
-        discussion_state = "polarized"
-    elif comments_count < 6:
-        discussion_state = "emerging"
+        discussion_state = "conflicted"
+    elif conflict_hits > 0:
+        discussion_state = "mixed"
     else:
-        discussion_state = "active"
+        discussion_state = "mixed"
     topics = _extract_topics(state.post_text, cleaned_comments, limit=3)
     signals: list[dict[str, Any]] = [
         {"name": "comments_count", "value": comments_count},
@@ -359,7 +449,7 @@ def run_reviewer_loop(state: PipelineState, *, max_iterations: int = REVIEWER_MA
     history: list[dict[str, Any]] = []
     decision = "insufficient_data"
     defects = _collect_reviewer_defects(state)
-
+    
     for idx in range(bounded_iterations):
         if not defects:
             decision = "accept" if state.status == "ready" else "accept_with_limitations"

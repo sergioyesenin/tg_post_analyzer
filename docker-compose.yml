@@ -138,6 +138,17 @@ services:
       - scripts/run_ai_pipeline.py
       - --daemon
       - --skip-db-migrations
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    ports:
+      - "8088:8080"
+    environment:
+      - BASE_URL=http://localhost:8088/
+      - INSTANCE_NAME=reporting-retrieval
+    volumes:
+      - ./searxng:/etc/searxng
+    restart: unless-stopped
 
 volumes:
   pgdata:

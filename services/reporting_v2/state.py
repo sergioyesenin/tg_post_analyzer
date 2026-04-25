@@ -45,6 +45,15 @@ class RetrievalDecisionOutput(BaseModel):
 class ExpertOutput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
+    background: list[dict[str, Any]] = Field(default_factory=list)
+    interpretations: list[dict[str, Any]] = Field(default_factory=list)
+    consequences: list[dict[str, Any]] = Field(default_factory=list)
+    data_status: str = "insufficient"
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+    # Backward-compatible aggregate list.
+    # Mapper/reporting code can still read expert.claims,
+    # but new pipeline code should prefer structured sections above.
     claims: list[dict[str, Any]] = Field(default_factory=list)
 
 

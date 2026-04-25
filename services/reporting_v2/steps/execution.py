@@ -60,7 +60,8 @@ def sync_step_provenance(step_traces: dict[str, dict[str, Any]]) -> None:
         provenance = dict(trace.get("provenance") or default_step_provenance())
         run_count = int(trace.get("run_count") or 1)
         trace_status = str(trace.get("status") or "completed")
-        provenance["attempt_index"] = max(0, run_count - 1)
+        provenance_attempt = int(provenance.get("attempt_index") or 0)
+        provenance["attempt_index"] = max(provenance_attempt, max(0, run_count - 1))
         provenance["status"] = trace_status if trace_status in {"completed", "failed", "skipped"} else "completed"
         if provenance["status"] == "failed":
             provenance["success"] = False

@@ -210,12 +210,37 @@ def test_reporting_v2_post_pipeline_marks_provider_provenance_for_all_six_steps(
     )
 
     steps = payload["meta"]["multi_agent"]["steps"]
+    required_keys = {
+        "provider",
+        "model",
+        "executed",
+        "success",
+        "latency_ms",
+        "input_ref",
+        "input_hash",
+        "output_ref",
+        "output_hash",
+        "fallback_used",
+        "fallback_reason",
+        "attempt_index",
+        "status",
+    }
     for step_name in ("context", "routing", "expert", "public_opinion", "synthesis", "reviewer"):
         provenance = steps[step_name]["provenance"]
+        assert required_keys.issubset(set(provenance.keys()))
         assert provenance["provider"] == "openrouter"
         assert provenance["model"] == "qwen/qwen3-coder:free"
         assert provenance["executed"] is True
+        assert provenance["success"] is True
         assert provenance["latency_ms"] == 15
+        assert provenance["input_ref"] == f"inline://{step_name}/input"
+        assert isinstance(provenance["input_hash"], str) and len(provenance["input_hash"]) == 64
+        assert provenance["output_ref"] == f"inline://{step_name}/output"
+        assert isinstance(provenance["output_hash"], str) and len(provenance["output_hash"]) == 64
+        assert provenance["fallback_used"] is False
+        assert provenance["fallback_reason"] is None
+        assert provenance["attempt_index"] == 0
+        assert provenance["status"] == "completed"
 
 
 def test_build_post_report_uses_reporting_v2_executor(monkeypatch) -> None:
@@ -609,3 +634,52 @@ def test_public_summary_for_insufficient_data_is_not_masked_as_full_analysis() -
 
     assert mapped["status"] == "insufficient_data"
     assert mapped["summary"] == "too optimistic."
+
+
+def test_post_pipeline_keeps_synthesis_text_as_source_of_truth_without_downstream_overwrite() -> None:
+    class _SynthesisAdapter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def create_chat_completion_with_trace(self, **kwargs):
+            from services.llm.openai_client import OpenAIChatCompletionTrace
+
+            del kwargs
+            self.calls += 1
+            if self.calls == 5:
+                content = (
+                    '{"report_text":"SYNTHESIS_CANONICAL_TEXT","components":{"event":true,"context":true,'
+                    '"reaction":true,"interpretation":true,"consequences":true},"sentence_count":1,'
+                    '"quality":"ok","confidence_reason":"llm"}'
+                )
+            else:
+                content = "{}"
+            return OpenAIChatCompletionTrace(
+                content=content,
+                provider="openrouter",
+                model="qwen/qwen3-coder:free",
+                latency_ms=11,
+                fallback_used=False,
+                fallback_reason=None,
+                executed=True,
+                success=True,
+                attempt_index=0,
+            )
+
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=306,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Detailed post body with context and clear event framing.",
+            comments=["c1", "c2", "c3", "c4"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_SynthesisAdapter(),
+        )
+    )
+
+    multi_agent = payload["meta"]["multi_agent"]
+    synthesis_text = multi_agent["steps"]["synthesis"]["report_text"]
+    assert synthesis_text == "SYNTHESIS_CANONICAL_TEXT"
+    assert payload["summary"] == "SYNTHESIS_CANONICAL_TEXT"

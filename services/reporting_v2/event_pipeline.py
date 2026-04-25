@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -16,10 +17,11 @@ from services.reporting_v2.contracts_internal import (
     assess_article_sufficiency,
     assess_comment_sufficiency,
     assess_retrieval_sufficiency,
-    build_retrieval_trace_without_provider,
+    build_retrieval_trace,
     decide_retrieval_required,
     validate_multi_agent_meta,
 )
+from services.reporting_v2.retrieval import run_retrieval_provider
 from services.reporting_v2.steps import (
     SIX_STEP_SEQUENCE,
     build_step_traces,
@@ -34,6 +36,11 @@ REVIEW_MAX_ITERATIONS = 2
 
 def _safe_text(value: str | None, *, max_len: int = 300) -> str:
     return " ".join((value or "").split())[:max_len]
+
+
+def _stable_hash(value: Any) -> str:
+    serialized = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 def _collect_reviewer_defects(
@@ -268,6 +275,10 @@ def _apply_step_provider_trace(
             "fallback_used": bool(trace.fallback_used),
             "fallback_reason": trace.fallback_reason,
             "attempt_index": int(trace.attempt_index),
+            "input_ref": trace.input_ref,
+            "input_hash": trace.input_hash,
+            "output_ref": trace.output_ref,
+            "output_hash": trace.output_hash,
             "status": "completed" if trace.success else "failed",
         }
     )
@@ -305,6 +316,10 @@ async def _try_llm_json_step(
     prompt_text: str,
     request_payload: dict[str, Any],
 ) -> tuple[dict[str, Any] | None, OpenAIChatCompletionTrace]:
+    input_ref = f"inline://{step_name}/input"
+    output_ref = f"inline://{step_name}/output"
+    input_hash = _stable_hash(request_payload)
+
     default_trace = _default_provider_trace(adapter=adapter)
     trace = default_trace
     if hasattr(adapter, "create_chat_completion_with_trace"):
@@ -324,8 +339,54 @@ async def _try_llm_json_step(
             ],
             response_format={"type": "json_object"},
         )
+        trace = OpenAIChatCompletionTrace(
+            content=content,
+            provider=default_trace.provider,
+            model=default_trace.model,
+            latency_ms=default_trace.latency_ms,
+            fallback_used=default_trace.fallback_used,
+            fallback_reason=default_trace.fallback_reason,
+            executed=True,
+            success=True,
+            attempt_index=default_trace.attempt_index,
+            input_ref=input_ref,
+            input_hash=input_hash,
+            output_ref=output_ref,
+            output_hash=_stable_hash(content),
+        )
+
+    trace = OpenAIChatCompletionTrace(
+        content=trace.content,
+        provider=trace.provider,
+        model=trace.model,
+        latency_ms=trace.latency_ms,
+        fallback_used=trace.fallback_used,
+        fallback_reason=trace.fallback_reason,
+        executed=trace.executed,
+        success=trace.success,
+        attempt_index=trace.attempt_index,
+        input_ref=input_ref,
+        input_hash=input_hash,
+        output_ref=output_ref,
+        output_hash=_stable_hash(content),
+    )
+
     if not content:
-        return None, trace
+        return None, OpenAIChatCompletionTrace(
+            content=content,
+            provider=trace.provider,
+            model=trace.model,
+            latency_ms=trace.latency_ms,
+            fallback_used=True,
+            fallback_reason=f"{step_name}_empty_output",
+            executed=True,
+            success=False,
+            attempt_index=trace.attempt_index,
+            input_ref=input_ref,
+            input_hash=input_hash,
+            output_ref=output_ref,
+            output_hash=_stable_hash(content),
+        )
     try:
         data = json.loads(content)
     except json.JSONDecodeError:
@@ -339,6 +400,10 @@ async def _try_llm_json_step(
             executed=True,
             success=False,
             attempt_index=trace.attempt_index,
+            input_ref=input_ref,
+            input_hash=input_hash,
+            output_ref=output_ref,
+            output_hash=_stable_hash(content),
         )
     if not isinstance(data, dict):
         return None, OpenAIChatCompletionTrace(
@@ -351,8 +416,26 @@ async def _try_llm_json_step(
             executed=True,
             success=False,
             attempt_index=trace.attempt_index,
+            input_ref=input_ref,
+            input_hash=input_hash,
+            output_ref=output_ref,
+            output_hash=_stable_hash(content),
         )
-    return data, trace
+    return data, OpenAIChatCompletionTrace(
+        content=content,
+        provider=trace.provider,
+        model=trace.model,
+        latency_ms=trace.latency_ms,
+        fallback_used=trace.fallback_used,
+        fallback_reason=trace.fallback_reason,
+        executed=True,
+        success=True,
+        attempt_index=trace.attempt_index,
+        input_ref=input_ref,
+        input_hash=input_hash,
+        output_ref=output_ref,
+        output_hash=_stable_hash(content),
+    )
 
 
 async def build_event_report_v2_impl(
@@ -361,6 +444,7 @@ async def build_event_report_v2_impl(
     event_id: int,
     prompt_loader: PromptLoader | None = None,
     llm_adapter: OpenAIClientAdapter | None = None,
+    retrieval_provider: Any | None = None,
 ) -> dict[str, Any]:
     bundle = await load_event_input_bundle(session, event_id=event_id)
     if bundle is None:
@@ -382,12 +466,26 @@ async def build_event_report_v2_impl(
         event_title=str(bundle.get("event_title") or ""),
         root_post_text=root_post_text,
     )
-    retrieval_required = decide_retrieval_required(**retrieval_inputs)
-    retrieval_trace = build_retrieval_trace_without_provider(
+    retrieval_required = True
+    retrieval_request = {
+        "kind": "event",
+        "event_id": event_id,
+        "event_title": str(bundle.get("event_title") or ""),
+        "root_post_text": _safe_text(root_post_text, max_len=2400),
+        "comments": [_safe_text(item, max_len=300) for item in comments[:60]],
+        "decision_inputs": retrieval_inputs,
+    }
+    retrieval_provider_sources = (
+        await run_retrieval_provider(retrieval_provider, retrieval_request)
+        if retrieval_required
+        else []
+    )
+    retrieval_trace = build_retrieval_trace(
         required=retrieval_required,
-        provider_enabled=False,
+        provider_enabled=retrieval_provider is not None,
+        sources=retrieval_provider_sources,
         decision_inputs=retrieval_inputs,
-        decision_source="policy",
+        decision_source="retrieval_policy",
     )
     retrieval_used = bool(retrieval_trace["used"])
     retrieval_status = str(retrieval_trace["status"])
@@ -494,6 +592,8 @@ async def build_event_report_v2_impl(
                     "comments": [_safe_text(item, max_len=260) for item in comments[:40]],
                     "status_hint": target_status,
                     "analytical_sufficiency": analytical_sufficiency,
+                    "retrieval": retrieval_trace,
+                    "retrieval_instruction": "Use retrieval evidence only when retrieval.used is true; otherwise do not add external facts.",
                 },
             )
             _apply_step_provider_trace(step_traces=step_traces, step_name="expert", trace=expert_trace)
@@ -537,6 +637,7 @@ async def build_event_report_v2_impl(
                     "event_title": str(bundle.get("event_title") or ""),
                     "root_post_text": _safe_text(root_post_text, max_len=1800),
                     "comments": [_safe_text(item, max_len=300) for item in comments[:60]],
+                    "retrieval": retrieval_trace,
                 },
             )
             _apply_step_provider_trace(step_traces=step_traces, step_name="synthesis", trace=synthesis_trace)
@@ -564,6 +665,8 @@ async def build_event_report_v2_impl(
                     "summary": summary,
                     "retrieval_required": retrieval_required,
                     "retrieval_status": retrieval_status,
+                    "retrieval": retrieval_trace,
+                    "expert": step_traces.get("expert", {}),
                 },
             )
             _apply_step_provider_trace(step_traces=step_traces, step_name="reviewer", trace=reviewer_trace)
@@ -706,6 +809,13 @@ async def build_event_report_v2_impl(
             "reason": "Derived from aggregate event comments only.",
         },
     }
+
+    step_traces["synthesis"].update(
+        {
+            "report_text": str(summary or ""),
+            "confidence_reason": str(confidence_reason or ""),
+        }
+    )
 
     step_traces["reviewer"].update(
         {

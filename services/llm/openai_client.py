@@ -62,6 +62,10 @@ class OpenAIChatCompletionTrace:
     executed: bool
     success: bool
     attempt_index: int
+    input_ref: str | None = None
+    input_hash: str | None = None
+    output_ref: str | None = None
+    output_hash: str | None = None
 
 
 class OpenAIClientAdapter:
@@ -204,7 +208,7 @@ class OpenAIClientAdapter:
             started = time.perf_counter()
             try:
                 if model_name != requested_model:
-                    logger.warning("LLM model fallback activated model=%s", model_name)
+                    logger.info("LLM model fallback activated model=%s", model_name)
                 content = await self._create_once(
                     client=self.client,
                     model=model_name,

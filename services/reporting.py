@@ -24,6 +24,7 @@ from services.reporting_v2 import (
     run_post_orchestrator_v2,
 )
 from services.reporting_v2.steps import is_canonical_openrouter_ready_path
+from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
 
 
 REPORT_GENERATION_FAILED_CONTENT = "STATUS: FAILED\nREASON: report_generation_failed"
@@ -57,6 +58,23 @@ _PROVENANCE_REQUIRED_KEYS = {
 }
 _BLOCKING_REVIEWER_CODES = {"D3", "D4", "D6"}
 
+def _build_retrieval_provider(features: dict[str, Any] | None) -> SearxngRetrievalProvider | None:
+    features = features if isinstance(features, dict) else {}
+
+    enabled = bool(features.get("retrieval_provider_enabled", True))
+    if not enabled:
+        return None
+
+    base_url = str(features.get("searxng_base_url") or "http://localhost:8088").strip()
+    if not base_url:
+        return None
+
+    return SearxngRetrievalProvider(
+        base_url=base_url,
+        timeout_seconds=float(features.get("retrieval_timeout_seconds", 8.0)),
+        max_results=int(features.get("retrieval_max_results", 6)),
+        fetch_pages=bool(features.get("retrieval_fetch_pages", True)),
+    )
 
 def should_use_multi_agent_v2(
     *,
@@ -1198,6 +1216,8 @@ async def build_post_report(
             use_multi_agent_v2,
             shadow_mode_enabled,
         )
+        retrieval_provider = _build_retrieval_provider(features)
+
         legacy_kwargs = {
             "channel": channel_label,
             "post_id": post.id,
@@ -1209,6 +1229,7 @@ async def build_post_report(
             "job_timeout_seconds": job_timeout_seconds,
             "rerun_stage": rerun_stage,
             "effective_features": features,
+            "retrieval_provider": retrieval_provider,
         }
         v2_kwargs = {
             "post_id": post.id,
@@ -1222,9 +1243,10 @@ async def build_post_report(
         selected_path = "legacy_rollout_disabled"
         fallback_reason: str | None = None
         if shadow_mode_enabled:
-            # Shadow mode keeps legacy payload as the persisted result.
-            selected_path = "legacy_shadow_mode"
+            selected_path = "llm_pipeline_shadow_mode"
             report_json = await generate_post_report_payload_v2(**legacy_kwargs)
+
+            # Orchestrator оставляем только как диагностический shadow path.
             if use_multi_agent_v2:
                 try:
                     v2_shadow_payload = await build_post_report_v2_payload_from_orchestrator(**v2_kwargs)
@@ -1236,33 +1258,13 @@ async def build_post_report(
                     shadow_compare = {
                         "error": f"{type(shadow_exc).__name__}: {shadow_exc}",
                     }
+
         elif use_multi_agent_v2:
-            try:
-                v2_candidate = await build_post_report_v2_payload_from_orchestrator(**v2_kwargs)
-                if _is_orchestrator_v2_payload_skeleton_like(v2_candidate):
-                    selected_path = "legacy_fallback_skeleton_guard"
-                    fallback_reason = "orchestrator_v2_skeleton_payload"
-                    logger.warning(
-                        "build_post_report fallback to legacy post_id=%s reason=%s",
-                        post.id,
-                        fallback_reason,
-                    )
-                    report_json = await generate_post_report_payload_v2(**legacy_kwargs)
-                else:
-                    selected_path = "v2_rollout_persisted"
-                    report_json = v2_candidate
-            except Exception as v2_exc:
-                # Keep rollout safe: fallback to legacy persisted path when v2 path errors.
-                selected_path = "legacy_fallback_v2_exception"
-                fallback_reason = f"{type(v2_exc).__name__}: {v2_exc}"
-                logger.warning(
-                    "build_post_report fallback to legacy post_id=%s reason=%s",
-                    post.id,
-                    fallback_reason,
-                )
-                report_json = await generate_post_report_payload_v2(**legacy_kwargs)
+            selected_path = "llm_pipeline_persisted"
+            report_json = await generate_post_report_payload_v2(**legacy_kwargs)
+
         else:
-            selected_path = "legacy_rollout_disabled"
+            selected_path = "llm_pipeline_default"
             report_json = await generate_post_report_payload_v2(**legacy_kwargs)
         logger.info(
             "build_post_report selected path post_id=%s selected_path=%s fallback_reason=%s",
@@ -1272,6 +1274,21 @@ async def build_post_report(
         )
         report_json = map_internal_post_report_to_public_payload(report_json)
         status = report_status_from_payload(report_json, fallback=REPORT_STATUS_READY)
+
+        multi_agent = ((report_json or {}).get("meta") or {}).get("multi_agent") or {}
+        steps = multi_agent.get("steps") if isinstance(multi_agent, dict) else {}
+        synth = steps.get("synthesis") if isinstance(steps, dict) else {}
+        prov = synth.get("provenance") if isinstance(synth, dict) else {}
+
+        logger.info(
+            "post report provenance post_id=%s provider=%s model=%s success=%s fallback_used=%s status=%s",
+            post.id,
+            prov.get("provider"),
+            prov.get("model"),
+            prov.get("success"),
+            prov.get("fallback_used"),
+            prov.get("status"),
+        )
         report_json = _enrich_post_report_payload(payload=report_json, post=post, comment_rows=comment_rows)
         report_json.setdefault("post_id", post.id)
         report_json.setdefault("published_at", post.date.isoformat())
@@ -1416,6 +1433,8 @@ async def build_event_report_draft(
     if payload.get("status") == "not_found":
         return {"status": "not_found", "event_id": event_id}
     status = report_status_from_payload(payload, fallback=REPORT_STATUS_READY)
+    payload = dict(payload or {})
+    payload["status"] = status
 
     last_version = (
         await session.execute(

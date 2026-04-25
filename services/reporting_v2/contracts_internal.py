@@ -195,14 +195,17 @@ def decide_retrieval_required(
     )
 
 
-def build_retrieval_trace_without_provider(
+def build_retrieval_trace(
     *,
     required: bool,
     provider_enabled: bool,
+    sources: list[dict[str, Any]] | None = None,
     decision_inputs: Mapping[str, Any] | None = None,
-    decision_source: str = "policy",
+    decision_source: str = "retrieval_policy",
 ) -> dict[str, Any]:
     normalized_inputs = dict(decision_inputs or {})
+    normalized_sources = list(sources or [])
+
     if not required:
         return {
             "required": False,
@@ -212,6 +215,7 @@ def build_retrieval_trace_without_provider(
             "decision_source": decision_source,
             "sources": [],
         }
+
     if not provider_enabled:
         return {
             "required": True,
@@ -221,15 +225,41 @@ def build_retrieval_trace_without_provider(
             "decision_source": decision_source,
             "sources": [],
         }
-    # Provider remains intentionally out-of-scope in this wave.
+
+    if not normalized_sources:
+        return {
+            "required": True,
+            "used": False,
+            "status": "insufficient",
+            "decision_inputs": normalized_inputs,
+            "decision_source": decision_source,
+            "sources": [],
+        }
+
     return {
         "required": True,
-        "used": False,
-        "status": "insufficient",
+        "used": True,
+        "status": "success",
         "decision_inputs": normalized_inputs,
         "decision_source": decision_source,
-        "sources": [],
+        "sources": normalized_sources,
     }
+
+
+def build_retrieval_trace_without_provider(
+    *,
+    required: bool,
+    provider_enabled: bool,
+    decision_inputs: Mapping[str, Any] | None = None,
+    decision_source: str = "policy",
+) -> dict[str, Any]:
+    return build_retrieval_trace(
+        required=required,
+        provider_enabled=provider_enabled,
+        sources=[],
+        decision_inputs=decision_inputs,
+        decision_source=decision_source,
+    )
 
 
 def assess_analytical_sufficiency(

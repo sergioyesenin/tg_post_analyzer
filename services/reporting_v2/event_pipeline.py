@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Any
 
 from sqlalchemy import select
@@ -32,6 +33,7 @@ from services.reporting_v2.steps import (
 
 PIPELINE_SEQUENCE = SIX_STEP_SEQUENCE
 REVIEW_MAX_ITERATIONS = 2
+_SENTENCE_RE = re.compile(r"[.!?]+")
 
 
 def _safe_text(value: str | None, *, max_len: int = 300) -> str:
@@ -43,10 +45,274 @@ def _stable_hash(value: Any) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
+def _sentence_count(text: str) -> int:
+    return len([part for part in _SENTENCE_RE.split(text) if part.strip()])
+
+
+def _epistemic_entry(
+    *,
+    text: str,
+    claim_type: str,
+    confidence: float,
+    source: str,
+) -> dict[str, Any]:
+    return {
+        "text": _safe_text(text, max_len=500),
+        "type": claim_type,
+        "confidence": max(0.0, min(1.0, float(confidence))),
+        "source": source,
+    }
+
+
+def _extract_entry_text(value: dict[str, Any]) -> str:
+    text = str(value.get("text") or "").strip()
+    if text:
+        return text
+
+    empty_key_text = str(value.get("") or "").strip()
+    if empty_key_text:
+        return empty_key_text
+
+    for key, raw_value in value.items():
+        key_text = str(key or "").strip()
+        raw_text = str(raw_value or "").strip()
+
+        if key_text.startswith("text:") or key_text.startswith("text:**"):
+            cleaned = key_text.replace("text:**", "").replace("text:", "").split("|type")[0].strip(" *:")
+            if cleaned:
+                return cleaned
+
+        if len(raw_text) > 20 and key_text not in {"type", "source", "confidence"}:
+            return raw_text
+
+    return ""
+
+
+def _normalize_epistemic_entries(
+    values: Any,
+    *,
+    default_type: str,
+    default_source: str,
+    retrieval_success: bool,
+) -> list[dict[str, Any]]:
+    if not isinstance(values, list):
+        return []
+
+    entries: list[dict[str, Any]] = []
+    for value in values:
+        if isinstance(value, str):
+            text = value
+            claim_type = default_type
+            source = default_source
+            confidence = 0.5
+        elif isinstance(value, dict):
+            text = _extract_entry_text(value)
+            claim_type = str(value.get("type") or default_type)
+            source = str(value.get("source") or default_source)
+            try:
+                confidence = float(value.get("confidence", 0.5))
+            except (TypeError, ValueError):
+                confidence = 0.5
+        else:
+            continue
+
+        if not _safe_text(text):
+            continue
+
+        if claim_type not in {"fact", "derived", "interpretation", "external", "uncertain"}:
+            claim_type = default_type
+
+        if source not in {"article", "comments", "retrieval"}:
+            source = default_source
+
+        if source == "retrieval" or claim_type == "external":
+            if not retrieval_success:
+                entries.append(
+                    _epistemic_entry(
+                        text=text,
+                        claim_type="uncertain",
+                        confidence=min(confidence, 0.35),
+                        source="article",
+                    )
+                )
+                continue
+            claim_type = "external"
+            source = "retrieval"
+
+        entries.append(
+            _epistemic_entry(
+                text=text,
+                claim_type=claim_type,
+                confidence=confidence,
+                source=source,
+            )
+        )
+
+    return entries
+
+
+def _normalize_expert_output(
+    *,
+    candidate: dict[str, Any] | None,
+    retrieval_success: bool,
+) -> dict[str, Any]:
+    data = dict(candidate or {})
+    background_raw = data.get("background") or data.get("background_factors") or []
+    interpretations_raw = data.get("interpretations") or data.get("expert_views") or []
+    consequences_raw = data.get("consequences") or data.get("likely_consequences") or []
+
+    background = _normalize_epistemic_entries(
+        background_raw,
+        default_type="fact",
+        default_source="article",
+        retrieval_success=retrieval_success,
+    )
+    interpretations = _normalize_epistemic_entries(
+        interpretations_raw,
+        default_type="interpretation",
+        default_source="article",
+        retrieval_success=retrieval_success,
+    )
+    consequences = _normalize_epistemic_entries(
+        consequences_raw,
+        default_type="interpretation",
+        default_source="article",
+        retrieval_success=retrieval_success,
+    )
+
+    all_entries = [*background, *interpretations, *consequences]
+    try:
+        confidence = float(data.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+
+    if not confidence and all_entries:
+        confidence = min(0.75, sum(float(item["confidence"]) for item in all_entries) / len(all_entries))
+
+    raw_items_count = sum(len(group) for group in (background_raw, interpretations_raw, consequences_raw) if isinstance(group, list))
+    malformed_output = raw_items_count > 0 and len(all_entries) < raw_items_count
+    data_status = str(data.get("data_status") or data.get("expert_coverage") or "limited")
+    if malformed_output:
+        data_status = "limited"
+        confidence = min(confidence, 0.55)
+
+    return {
+        "background": background,
+        "interpretations": interpretations,
+        "consequences": consequences,
+        "data_status": data_status,
+        "confidence": max(0.0, min(1.0, confidence)),
+        "malformed_output": malformed_output,
+    }
+
+
+def _build_deterministic_synthesis(
+    *,
+    event_title: str,
+    root_post_text: str,
+    post_count: int,
+    comment_count: int,
+    status: str,
+    retrieval_required: bool,
+    retrieval_status: str,
+) -> dict[str, Any]:
+    title = _safe_text(event_title, max_len=140) or "Unnamed event"
+    root_excerpt = _safe_text(root_post_text, max_len=180) or "insufficient source detail"
+    limitations = status in {"limited", "insufficient_data"}
+    retrieval_limited = retrieval_required and retrieval_status in {"failed", "insufficient", "none"}
+
+    report_text = " ".join(
+        [
+            f"The event focuses on: {title}.",
+            f"Root context summary: {root_excerpt}.",
+            f"Signal quality is {status}, using {post_count} linked posts and {comment_count} collected comments.",
+            "Public discussion suggests mixed interpretations with no single definitive consensus."
+            if limitations
+            else "Public discussion supports a coherent interpretation with bounded uncertainty.",
+            "External retrieval required by policy was unavailable, so external context remains unverified."
+            if retrieval_limited
+            else "No blocking external retrieval gap was detected for this synthesis.",
+        ]
+    ).strip()
+    components = {
+        "event": True,
+        "context": True,
+        "reaction": True,
+        "interpretation": True,
+        "consequences": True,
+    }
+    return {
+        "report_text": report_text,
+        "components": components,
+        "sentence_count": _sentence_count(report_text),
+        "quality": "ok",
+        "confidence_reason": "deterministic_event_synthesis",
+    }
+
+
+def _normalize_synthesis_output(*, candidate: dict[str, Any] | None, fallback: dict[str, Any]) -> dict[str, Any]:
+    data = dict(candidate or {})
+    report_text = _safe_text(str(data.get("report_text") or data.get("summary") or fallback["report_text"]), max_len=1800)
+    sentence_count = int(data.get("sentence_count") or _sentence_count(report_text))
+    components_raw = data.get("components")
+    components = dict(components_raw) if isinstance(components_raw, dict) else dict(fallback["components"])
+    quality = str(data.get("quality") or ("ok" if 5 <= sentence_count <= 7 else "needs_revision"))
+    confidence_reason = _safe_text(str(data.get("confidence_reason") or fallback["confidence_reason"]), max_len=500)
+    return {
+        "report_text": report_text,
+        "components": {
+            "event": bool(components.get("event")),
+            "context": bool(components.get("context")),
+            "reaction": bool(components.get("reaction")),
+            "interpretation": bool(components.get("interpretation")),
+            "consequences": bool(components.get("consequences")),
+        },
+        "sentence_count": sentence_count,
+        "quality": quality,
+        "confidence_reason": confidence_reason,
+    }
+
+
+def _normalize_cross_post_topics(values: Any, *, limit: int = 8) -> list[dict[str, Any]]:
+    if not isinstance(values, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for value in values:
+        name = ""
+        share: float | None = None
+        if isinstance(value, str):
+            name = value.strip()
+        elif isinstance(value, dict):
+            name = str(value.get("name") or value.get("text") or value.get("topic") or "").strip()
+            raw_share = value.get("share")
+            if raw_share is not None:
+                try:
+                    parsed = float(raw_share)
+                    if 0.0 <= parsed <= 1.0:
+                        share = parsed
+                except (TypeError, ValueError):
+                    share = None
+        if not name:
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        item: dict[str, Any] = {"name": name}
+        if share is not None:
+            item["share"] = share
+        normalized.append(item)
+        if len(normalized) >= limit:
+            break
+    return normalized
+
+
 def _collect_reviewer_defects(
     *,
     status: str,
-    summary: str,
+    synthesis: dict[str, Any],
+    expert: dict[str, Any],
     comment_sufficiency: str,
     retrieval_required: bool,
     retrieval_status: str,
@@ -54,17 +320,35 @@ def _collect_reviewer_defects(
     retrieval_sources: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     defects: list[dict[str, Any]] = []
-    summary_norm = _safe_text(summary, max_len=1600).lower()
-    if len(summary_norm) < 40:
-        defects.append({"code": "D1", "reason": "summary_too_short", "target": "synthesis"})
+    components = dict(synthesis.get("components") or {})
+    missing = [name for name in ("event", "context", "reaction", "interpretation", "consequences") if components.get(name) is not True]
+    sentence_count = int(synthesis.get("sentence_count") or 0)
+    report_text = _safe_text(str(synthesis.get("report_text") or ""), max_len=1800).lower()
+    if missing or sentence_count < 5 or sentence_count > 7:
+        defects.append({"code": "D1", "reason": f"structural_missing:{','.join(missing) or 'sentence_count'}", "target": "synthesis"})
+    if str(synthesis.get("quality") or "") != "ok":
+        defects.append({"code": "D2", "reason": "weak_analysis", "target": "synthesis"})
     if retrieval_required and retrieval_status in {"failed", "insufficient", "none"} and status == "ready":
         defects.append({"code": "D3", "reason": "ready_forbidden_without_required_retrieval", "target": "routing"})
     if status == "ready" and comment_sufficiency in {"weak_signal", "insufficient"}:
         defects.append({"code": "D6", "reason": "status_vs_signal_inconsistency", "target": "public_opinion"})
-    if status == "insufficient_data" and ("indicates" in summary_norm or "supports" in summary_norm):
+    if status == "insufficient_data" and ("indicates" in report_text or "supports" in report_text):
         defects.append({"code": "D4", "reason": "insufficient_data_overclaim", "target": "synthesis"})
     if retrieval_used and not retrieval_sources:
         defects.append({"code": "D5", "reason": "missing_retrieval_evidence", "target": "routing"})
+    expert_entries: list[dict[str, Any]] = []
+    for key in ("background", "interpretations", "consequences"):
+        value = expert.get(key)
+        if isinstance(value, list):
+            expert_entries.extend([item for item in value if isinstance(item, dict)])
+    retrieval_success = retrieval_used and retrieval_status == "success" and bool(retrieval_sources)
+    for item in expert_entries:
+        if str(item.get("type") or "") == "external" and not retrieval_success:
+            defects.append({"code": "D3", "reason": "external_expert_claim_without_retrieval", "target": "expert"})
+            break
+        if str(item.get("source") or "") == "retrieval" and not retrieval_success:
+            defects.append({"code": "D3", "reason": "retrieval_sourced_claim_without_evidence", "target": "expert"})
+            break
     return defects
 
 
@@ -524,10 +808,17 @@ async def build_event_report_v2_impl(
         }
     )
 
-    summary = (
-        f"Event analysis built from root post {bundle.get('root_post_id')} and comments across {len(post_ids)} posts."
+    synthesis_data = _build_deterministic_synthesis(
+        event_title=str(bundle.get("event_title") or ""),
+        root_post_text=root_post_text,
+        post_count=len(post_ids),
+        comment_count=len(comments),
+        status=target_status,
+        retrieval_required=retrieval_required,
+        retrieval_status=retrieval_status,
     )
-    confidence_reason = "Deterministic event synthesis"
+    summary = str(synthesis_data["report_text"])
+    confidence_reason = str(synthesis_data["confidence_reason"])
     llm_error: str | None = None
     llm_output: dict[str, Any] | None = None
 
@@ -598,7 +889,13 @@ async def build_event_report_v2_impl(
             )
             _apply_step_provider_trace(step_traces=step_traces, step_name="expert", trace=expert_trace)
             if isinstance(expert_output, dict):
-                step_traces["expert"]["llm_expert"] = expert_output
+                normalized_expert = _normalize_expert_output(
+                    candidate=expert_output,
+                    retrieval_success=retrieval_used and retrieval_status == "success",
+                )
+                step_traces["expert"]["llm_expert_raw"] = expert_output
+                step_traces["expert"]["llm_expert"] = normalized_expert
+                step_traces["expert"].update(normalized_expert)
         except Exception as exc:
             _apply_step_provider_trace(
                 step_traces=step_traces,
@@ -642,11 +939,9 @@ async def build_event_report_v2_impl(
             )
             _apply_step_provider_trace(step_traces=step_traces, step_name="synthesis", trace=synthesis_trace)
             if isinstance(llm_output, dict):
-                summary = _safe_text(str(llm_output.get("summary") or summary), max_len=1500) or summary
-                confidence_reason = _safe_text(
-                    str(llm_output.get("confidence_reason") or "LLM event synthesis"),
-                    max_len=500,
-                )
+                synthesis_data = _normalize_synthesis_output(candidate=llm_output, fallback=synthesis_data)
+                summary = str(synthesis_data["report_text"])
+                confidence_reason = str(synthesis_data["confidence_reason"])
         except Exception as exc:
             llm_error = f"{type(exc).__name__}: {exc}"
             _apply_step_provider_trace(
@@ -706,7 +1001,8 @@ async def build_event_report_v2_impl(
     if llm_error is None:
         reviewer_defects = _collect_reviewer_defects(
             status=target_status,
-            summary=summary,
+            synthesis=synthesis_data,
+            expert=step_traces.get("expert", {}),
             comment_sufficiency=comment_sufficiency,
             retrieval_required=retrieval_required,
             retrieval_status=retrieval_status,
@@ -754,6 +1050,21 @@ async def build_event_report_v2_impl(
         )
         summary = "Event synthesis failed after reviewer loop; returning insufficient_data."
         confidence_reason = "model_output_invalid"
+        synthesis_data = _normalize_synthesis_output(
+            candidate={
+                "report_text": summary,
+                "quality": "needs_revision",
+                "components": {
+                    "event": True,
+                    "context": False,
+                    "reaction": False,
+                    "interpretation": False,
+                    "consequences": False,
+                },
+                "confidence_reason": confidence_reason,
+            },
+            fallback=synthesis_data,
+        )
     else:
         if target_status == "ready":
             review_decision = "accept"
@@ -783,15 +1094,15 @@ async def build_event_report_v2_impl(
             "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
             "confidence": "low" if target_status != "ready" else "medium",
         },
-        "cross_post_topics": list(llm_output.get("topics") or []) if isinstance(llm_output, dict) else [],
+        "cross_post_topics": _normalize_cross_post_topics(llm_output.get("topics") if isinstance(llm_output, dict) else []),
         "post_dynamics": [],
         "event_trends": [],
         "risks": [],
         "anomalies": ["model_output_invalid"] if llm_error is not None else [],
-        "summary": summary,
+        "summary": str(synthesis_data["report_text"]),
         "confidence": {
             "overall": "low" if target_status in {"insufficient_data", "failed"} else ("medium" if target_status == "limited" else "high"),
-            "reason": confidence_reason,
+            "reason": str(synthesis_data["confidence_reason"]),
         },
         "reactions_coverage": {
             "source": "event_posts_comments",
@@ -812,8 +1123,11 @@ async def build_event_report_v2_impl(
 
     step_traces["synthesis"].update(
         {
-            "report_text": str(summary or ""),
-            "confidence_reason": str(confidence_reason or ""),
+            "report_text": str(synthesis_data.get("report_text") or ""),
+            "components": dict(synthesis_data.get("components") or {}),
+            "sentence_count": int(synthesis_data.get("sentence_count") or 0),
+            "quality": str(synthesis_data.get("quality") or "needs_revision"),
+            "confidence_reason": str(synthesis_data.get("confidence_reason") or ""),
         }
     )
 

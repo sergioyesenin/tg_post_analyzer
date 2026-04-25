@@ -128,8 +128,8 @@ class PostReportPayload(BaseModel):
 
 
 class EventReportPayload(BaseModel):
-    type: str = "event_report_v2"
-    status: str = "ready"
+    type: Literal["event_report_v2"] = "event_report_v2"
+    status: Literal["ready", "limited", "insufficient_data", "failed"] = "ready"
     event_id: int
     event_title: str
     posts_count: int = 0
@@ -145,6 +145,8 @@ class EventReportPayload(BaseModel):
     audience_stance: AudienceStance = Field(default_factory=AudienceStance)
     confidence: ConfidenceSummary = Field(default_factory=ConfidenceSummary)
     meta: dict = Field(default_factory=dict)
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class ProcessReportPayload(BaseModel):

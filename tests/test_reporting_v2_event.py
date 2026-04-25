@@ -334,6 +334,110 @@ def test_build_event_report_v2_keeps_summary_in_synthesis_step_as_source_of_trut
     assert synthesis["report_text"] == "EVENT_SYNTHESIS_TEXT"
 
 
+def test_build_event_report_v2_normalizes_malformed_expert_output(monkeypatch) -> None:
+    async def _fake_load_bundle(session, *, event_id):
+        del session
+        return {
+            "event_id": event_id,
+            "event_title": "Local Event",
+            "posts": [{"post_id": 101, "event_role": "root", "text": "Root text", "comments_count": 6}],
+            "post_ids": [101],
+            "root_post_id": 101,
+            "root_post_text": "Root text with enough detail for event summary synthesis.",
+            "comments_all_posts": [f"comment {idx}" for idx in range(1, 8)],
+            "comments_by_post": {101: [f"comment {idx}" for idx in range(1, 8)]},
+        }
+
+    class _MalformedExpertAdapter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def create_chat_completion_with_trace(self, **kwargs):
+            del kwargs
+            self.calls += 1
+            if self.calls == 3:
+                content = (
+                    '{"background":[{"":"In 2025 there were 107800 microloan contracts.","type":"fact","source":"derived","confidence":0.95}],'
+                    '"interpretations":[{"text":"Loan growth can reflect financial pressure.","type":"interpretation","source":"comments","confidence":0.7}],'
+                    '"consequences":[{"text":"Debt stress may increase.","type":"interpretation","source":"derived","confidence":0.55}],'
+                    '"confidence":0.6,"data_status":"limited"}'
+                )
+            elif self.calls == 5:
+                content = '{"summary":"EVENT_SYNTHESIS_TEXT","confidence_reason":"llm_event"}'
+            else:
+                content = "{}"
+            return OpenAIChatCompletionTrace(
+                content=content,
+                provider="openrouter",
+                model="qwen/qwen3-coder:free",
+                latency_ms=12,
+                fallback_used=False,
+                fallback_reason=None,
+                executed=True,
+                success=True,
+                attempt_index=0,
+            )
+
+    monkeypatch.setattr("services.reporting_v2.event_pipeline.load_event_input_bundle", _fake_load_bundle)
+    payload = asyncio.run(build_event_report_v2_impl(session=object(), event_id=92, llm_adapter=_MalformedExpertAdapter()))
+
+    expert = payload["meta"]["multi_agent"]["steps"]["expert"]["llm_expert"]
+    assert expert["background"][0]["text"] == "In 2025 there were 107800 microloan contracts."
+    assert expert["background"][0]["source"] == "article"
+    assert expert["consequences"][0]["source"] == "article"
+    assert "llm_expert_raw" in payload["meta"]["multi_agent"]["steps"]["expert"]
+
+
+def test_build_event_report_v2_normalizes_cross_post_topics(monkeypatch) -> None:
+    async def _fake_load_bundle(session, *, event_id):
+        del session
+        return {
+            "event_id": event_id,
+            "event_title": "Local Event",
+            "posts": [{"post_id": 101, "event_role": "root", "text": "Root text", "comments_count": 6}],
+            "post_ids": [101],
+            "root_post_id": 101,
+            "root_post_text": "Root text with enough detail for event summary synthesis.",
+            "comments_all_posts": [f"comment {idx}" for idx in range(1, 8)],
+            "comments_by_post": {101: [f"comment {idx}" for idx in range(1, 8)]},
+        }
+
+    class _TopicsAdapter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def create_chat_completion_with_trace(self, **kwargs):
+            del kwargs
+            self.calls += 1
+            if self.calls == 5:
+                content = (
+                    '{"summary":"EVENT_SYNTHESIS_TEXT",'
+                    '"topics":["budget",{"name":"wages","share":"0.4"},{"text":"loans"},{"name":"budget"},{"name":""},123]}'
+                )
+            else:
+                content = "{}"
+            return OpenAIChatCompletionTrace(
+                content=content,
+                provider="openrouter",
+                model="qwen/qwen3-coder:free",
+                latency_ms=12,
+                fallback_used=False,
+                fallback_reason=None,
+                executed=True,
+                success=True,
+                attempt_index=0,
+            )
+
+    monkeypatch.setattr("services.reporting_v2.event_pipeline.load_event_input_bundle", _fake_load_bundle)
+    payload = asyncio.run(build_event_report_v2_impl(session=object(), event_id=93, llm_adapter=_TopicsAdapter()))
+
+    assert payload["cross_post_topics"] == [
+        {"name": "budget"},
+        {"name": "wages", "share": 0.4},
+        {"name": "loans"},
+    ]
+
+
 def test_build_event_report_draft_persists_canonicalized_status(monkeypatch) -> None:
     session = _FakeSession(execute_results=[type("_Scalar", (), {"scalar_one_or_none": lambda self: None})()])
 

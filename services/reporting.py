@@ -663,20 +663,7 @@ async def _post_report_readiness(session: AsyncSession, *, post: Post) -> dict:
 
 
 def _render_event_or_process_text(payload: dict) -> str:
-    is_process = "process_id" in payload or "process_title" in payload
-    title = payload.get("process_title") if is_process else payload.get("event_title")
-    title = _clean_list_text(title) or _clean_list_text(payload.get("title")) or ("Process report" if is_process else "Event report")
-    status = report_status_from_payload(payload, fallback=REPORT_STATUS_READY)
-    summary = _trim_sentence(payload.get("summary"), fallback="Insufficient narrative details in synthesized output.")
-    confidence_reason = _clean_list_text((payload.get("confidence") or {}).get("reason")) or "Not provided."
-    return "\n".join(
-        [
-            title,
-            f"Status: {status}",
-            f"Summary: {summary}",
-            f"Confidence rationale: {confidence_reason}",
-        ]
-    ).strip()
+    return _trim_sentence(payload.get("summary"), fallback="Insufficient narrative details in synthesized output.")
 
 
 def _safe_int(value: object) -> int:
@@ -1631,7 +1618,6 @@ async def build_process_report_draft(
     session.add(report)
     await session.flush()
     return {"status": status, "process_id": process_id, "report_id": report.id}
-
 
 
 

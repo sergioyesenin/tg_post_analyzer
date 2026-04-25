@@ -217,10 +217,7 @@ def test_render_event_or_process_report_uses_compact_spec_aligned_text():
         }
     )
 
-    assert text.startswith("Event discussion")
-    assert "Status:" in text
-    assert "Summary:" in text
-    assert "Confidence rationale:" in text
+    assert text == "Neutral overview."
 
 
 def test_render_post_report_uses_compact_spec_aligned_text():

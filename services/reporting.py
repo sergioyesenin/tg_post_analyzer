@@ -73,7 +73,7 @@ def _build_retrieval_provider(features: dict[str, Any] | None) -> SearxngRetriev
         base_url=base_url,
         timeout_seconds=float(features.get("retrieval_timeout_seconds", 8.0)),
         max_results=int(features.get("retrieval_max_results", 6)),
-        fetch_pages=bool(features.get("retrieval_fetch_pages", True)),
+        fetch_pages=bool(features.get("retrieval_fetch_pages", False)),
     )
 
 def should_use_multi_agent_v2(

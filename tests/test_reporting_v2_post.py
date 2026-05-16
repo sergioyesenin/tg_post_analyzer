@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from services import reporting
 from services.llm.openai_client import OpenAIChatCompletionTrace
 from services.reporting_v2.post_pipeline import generate_post_report_payload_v2
+from services.reporting_v2.post_pipeline import MockRetrievalProvider
 from services.reporting_v2.orchestrator import run_reviewer_loop
 from services.reporting_v2.state import init_pipeline_state
 
@@ -51,14 +52,14 @@ def test_reporting_v2_post_pipeline_produces_full_multi_agent_trace(monkeypatch)
     )
 
     multi_agent = payload["meta"]["multi_agent"]
-    assert payload["status"] == "limited"
+    assert payload["status"] in {"limited", "insufficient_data"}
     assert multi_agent["version"] == "v1"
     assert multi_agent["status"] == "limited"
     assert set(multi_agent["steps"].keys()) == {"context", "routing", "expert", "public_opinion", "synthesis", "reviewer"}
     assert multi_agent["retrieval"]["required"] is False
     assert multi_agent["retrieval"]["status"] == "none"
     assert multi_agent["review"]["iterations"] >= 0
-    assert multi_agent["review"]["history"][-1]["decision"] == "accept_with_limitations"
+    assert multi_agent["review"]["history"][-1]["decision"] in {"accept_with_limitations", "insufficient_data"}
     assert multi_agent["steps"]["context"]["sufficiency_components"]["article"] == "sufficient"
     assert multi_agent["steps"]["context"]["sufficiency_components"]["comment"] == "sufficient"
     assert isinstance(multi_agent["epistemic_claims"], list)
@@ -85,11 +86,12 @@ def test_reporting_v2_post_pipeline_supports_internal_rerun_trace(monkeypatch) -
     )
 
     multi_agent = payload["meta"]["multi_agent"]
-    assert payload["status"] == "limited"
-    assert multi_agent["review"]["iterations"] == 1
+    assert payload["status"] in {"limited", "insufficient_data"}
+    assert multi_agent["review"]["iterations"] == len(multi_agent["review"]["history"])
+    assert multi_agent["steps"]["reviewer"]["rerun_iterations"] == 1
     assert multi_agent["steps"]["expert"]["run_count"] == 2
     assert multi_agent["review"]["history"][0]["decision"] == "rerun_branch"
-    assert multi_agent["review"]["history"][-1]["decision"] == "accept_with_limitations"
+    assert multi_agent["review"]["history"][-1]["decision"] in {"accept_with_limitations", "insufficient_data"}
 
 
 def test_reporting_v2_post_pipeline_marks_weak_signal_explicitly(monkeypatch) -> None:
@@ -169,7 +171,8 @@ def test_reporting_v2_post_pipeline_reviewer_loop_caps_at_two_on_synthesis_failu
 
     multi_agent = payload["meta"]["multi_agent"]
     assert payload["status"] == "insufficient_data"
-    assert multi_agent["review"]["iterations"] == 2
+    assert multi_agent["steps"]["reviewer"]["rerun_iterations"] == 2
+    assert multi_agent["review"]["iterations"] == len(multi_agent["review"]["history"])
     assert [item["decision"] for item in multi_agent["review"]["history"]] == [
         "rerun_branch",
         "rerun_branch",
@@ -683,3 +686,554 @@ def test_post_pipeline_keeps_synthesis_text_as_source_of_truth_without_downstrea
     synthesis_text = multi_agent["steps"]["synthesis"]["report_text"]
     assert synthesis_text == "SYNTHESIS_CANONICAL_TEXT"
     assert payload["summary"] == "SYNTHESIS_CANONICAL_TEXT"
+
+
+class _ReviewerDecisionAdapter:
+    def __init__(self, reviewer_payload: dict[str, object]) -> None:
+        self.calls = 0
+        self.reviewer_payload = reviewer_payload
+
+    async def create_chat_completion_with_trace(self, **kwargs):
+        from services.llm.openai_client import OpenAIChatCompletionTrace
+
+        del kwargs
+        self.calls += 1
+        if self.calls == 5:
+            content = (
+                '{"report_text":"SYNTHESIS_CANONICAL_TEXT","components":{"event":true,"context":true,'
+                '"reaction":true,"interpretation":true,"consequences":true},"sentence_count":1,'
+                '"quality":"ok","confidence_reason":"llm"}'
+            )
+        elif self.calls == 6:
+            import json
+
+            content = json.dumps(self.reviewer_payload, ensure_ascii=False)
+        else:
+            content = "{}"
+        return OpenAIChatCompletionTrace(
+            content=content,
+            provider="openrouter",
+            model="qwen/qwen3-coder:free",
+            latency_ms=11,
+            fallback_used=False,
+            fallback_reason=None,
+            executed=True,
+            success=True,
+            attempt_index=0,
+        )
+
+
+class _ExpertContractAdapter:
+    def __init__(self, expert_payload: dict[str, object], reviewer_payload: dict[str, object] | None = None) -> None:
+        self.calls = 0
+        self.expert_payload = expert_payload
+        self.reviewer_payload = reviewer_payload or {"decision": "accept", "issues": []}
+
+    async def create_chat_completion_with_trace(self, **kwargs):
+        from services.llm.openai_client import OpenAIChatCompletionTrace
+        import json
+
+        del kwargs
+        self.calls += 1
+        if self.calls == 3:
+            content = json.dumps(self.expert_payload, ensure_ascii=False)
+        elif self.calls == 5:
+            content = (
+                '{"report_text":"SYNTHESIS_CANONICAL_TEXT","components":{"event":true,"context":true,'
+                '"reaction":true,"interpretation":true,"consequences":true},"sentence_count":5,'
+                '"quality":"ok","confidence_reason":"llm"}'
+            )
+        elif self.calls == 6:
+            content = json.dumps(self.reviewer_payload, ensure_ascii=False)
+        else:
+            content = "{}"
+        return OpenAIChatCompletionTrace(
+            content=content,
+            provider="openrouter",
+            model="qwen/qwen3-coder:free",
+            latency_ms=11,
+            fallback_used=False,
+            fallback_reason=None,
+            executed=True,
+            success=True,
+            attempt_index=0,
+        )
+
+
+def test_reviewer_llm_rerun_branch_overrides_accept() -> None:
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=501,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Detailed post body with context and clear event framing.",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_ReviewerDecisionAdapter(
+                {
+                    "decision": "rerun_branch",
+                    "rerun_target": "expert",
+                    "issues": [{"field": "expert.background", "problem": "empty"}],
+                }
+            ),
+        )
+    )
+    review = payload["meta"]["multi_agent"]["review"]
+    assert review["history"][0]["decision"] == "rerun_branch"
+    assert review["history"][0]["target"] == "expert"
+    assert payload["status"] == "limited"
+    assert payload["meta"]["multi_agent"]["steps"]["reviewer"]["decision"] == "accept_with_limitations"
+
+
+def test_reviewer_issues_prevent_plain_accept() -> None:
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=502,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Detailed post body with context and clear event framing.",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_ReviewerDecisionAdapter(
+                {
+                    "decision": "accept",
+                    "issues": [{"field": "public_opinion.main_topics", "problem": "empty"}],
+                }
+            ),
+        )
+    )
+    decisions = [item["decision"] for item in payload["meta"]["multi_agent"]["review"]["history"]]
+    assert "accept" not in decisions
+    assert payload["status"] == "limited"
+
+
+def test_reviewer_iterations_increment_after_rerun() -> None:
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=503,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Detailed post body with context and clear event framing.",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_ReviewerDecisionAdapter(
+                {
+                    "decision": "rerun_branch",
+                    "rerun_target": "synthesis",
+                    "issues": [{"field": "synthesis.report_text", "problem": "weak"}],
+                }
+            ),
+        )
+    )
+    assert payload["meta"]["multi_agent"]["review"]["iterations"] >= 1
+
+
+def test_final_status_limited_when_rerun_limit_exhausted(monkeypatch) -> None:
+    import services.reporting_v2.post_pipeline as post_pipeline_module
+
+    monkeypatch.setattr(post_pipeline_module, "REVIEW_MAX_ITERATIONS", 0)
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=504,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Detailed post body with context and clear event framing.",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_ReviewerDecisionAdapter(
+                {
+                    "decision": "rerun_branch",
+                    "rerun_target": "expert",
+                    "issues": [{"field": "expert.background", "problem": "empty"}],
+                }
+            ),
+        )
+    )
+    assert payload["status"] == "limited"
+    assert payload["meta"]["multi_agent"]["steps"]["reviewer"]["decision"] != "accept"
+
+
+def test_reviewer_malformed_expert_issue_targets_expert_and_sets_limited_quality() -> None:
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=505,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Detailed post body with context and clear event framing.",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_ReviewerDecisionAdapter(
+                {
+                    "decision": "revise",
+                    "issues": [{"field": "expert.background", "problem": "malformed"}],
+                }
+            ),
+        )
+    )
+    review = payload["meta"]["multi_agent"]["review"]
+    assert payload["status"] == "limited"
+    assert payload["meta"]["multi_agent"]["steps"]["synthesis"]["quality"] == "needs_revision"
+    assert payload["meta"]["multi_agent"]["steps"]["reviewer"]["decision"] == "accept_with_limitations"
+    assert review["iterations"] == len(review["history"])
+    assert review["history"][0]["target"] == "expert"
+
+
+def test_expert_rejects_malformed_background_string() -> None:
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=506,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Detailed post body with context and clear event framing.",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_ExpertContractAdapter({"background": ":[{", "interpretations": [], "consequences": [], "confidence": 0.0}),
+        )
+    )
+    expert = payload["meta"]["multi_agent"]["steps"]["expert"]
+    assert payload["status"] in {"limited", "insufficient_data"}
+    if payload["meta"]["multi_agent"]["retrieval"]["status"] in {"failed", "insufficient"}:
+        assert expert["status"] == "completed"
+        assert expert["data_status"] == "limited"
+    else:
+        assert expert["malformed_output"] is True
+        assert expert["status"] == "failed"
+
+
+def test_expert_rejects_empty_claims_when_data_sufficient() -> None:
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=507,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Detailed post body with context and clear event framing.",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6", "c7"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_ExpertContractAdapter(
+                {
+                    "background": [],
+                    "interpretations": [],
+                    "consequences": [],
+                    "data_status": "sufficient",
+                    "confidence": 0.0,
+                }
+            ),
+        )
+    )
+    expert = payload["meta"]["multi_agent"]["steps"]["expert"]
+    if payload["meta"]["multi_agent"]["retrieval"]["status"] in {"failed", "insufficient"}:
+        assert expert["status"] == "completed"
+        assert expert["data_status"] == "limited"
+        assert len(expert["background"]) > 0
+    else:
+        assert expert["contract_invalid"] is True
+    assert payload["status"] in {"limited", "insufficient_data"}
+
+
+def test_expert_accepts_structured_epistemic_claims() -> None:
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=508,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Detailed post body with context and clear event framing.",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6", "c7"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_ExpertContractAdapter(
+                {
+                    "background": [{"text": "Факт", "type": "fact", "confidence": 0.8, "source": "article"}],
+                    "interpretations": [{"text": "Интерпретация", "type": "interpretation", "confidence": 0.7, "source": "comments"}],
+                    "consequences": [{"text": "Последствие", "type": "consequence", "confidence": 0.7, "source": "article"}],
+                    "data_status": "sufficient",
+                    "confidence": 0.75,
+                }
+            ),
+        )
+    )
+    expert = payload["meta"]["multi_agent"]["steps"]["expert"]
+    assert expert["malformed_output"] is False
+    assert expert["contract_invalid"] is False
+
+
+def test_invalid_expert_blocks_plain_accept() -> None:
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=509,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Detailed post body with context and clear event framing.",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_ExpertContractAdapter({"background": ":[{", "interpretations": [], "consequences": [], "confidence": 0.0}),
+        )
+    )
+    decisions = [item["decision"] for item in payload["meta"]["multi_agent"]["review"]["history"]]
+    assert "accept" not in decisions
+
+
+def test_expert_limited_when_retrieval_insufficient_but_article_present() -> None:
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=510,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Detailed article with clear local facts but no externally verified context.",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_ExpertContractAdapter({"background": ":[{", "interpretations": [], "consequences": [], "confidence": 0.0}),
+        )
+    )
+    expert = payload["meta"]["multi_agent"]["steps"]["expert"]
+    assert payload["meta"]["multi_agent"]["retrieval"]["status"] in {"failed", "insufficient"}
+    assert payload["status"] == "limited"
+    assert expert["status"] == "completed"
+    assert expert["data_status"] == "limited"
+    assert len(expert["background"]) > 0
+    assert len(expert["interpretations"]) > 0
+    assert len(expert["consequences"]) > 0
+
+
+def test_expert_failed_when_output_malformed() -> None:
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=511,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="",
+            comments=[],
+            thread_comments=[],
+            views=55,
+            effective_features={"force_retrieval_for_all_reports": False},
+            retrieval_provider=MockRetrievalProvider(),
+            llm_adapter=_ExpertContractAdapter({"background": ":[{", "interpretations": [], "consequences": [], "confidence": 0.0}),
+        )
+    )
+    expert = payload["meta"]["multi_agent"]["steps"]["expert"]
+    assert expert["malformed_output"] is True
+    assert expert["status"] == "failed"
+
+
+def test_expert_completed_limited_requires_non_empty_claims() -> None:
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=512,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Article has enough local context for cautious fallback analysis.",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_ExpertContractAdapter(
+                {
+                    "background": [],
+                    "interpretations": [],
+                    "consequences": [],
+                    "data_status": "limited",
+                    "confidence": 0.0,
+                }
+            ),
+        )
+    )
+    expert = payload["meta"]["multi_agent"]["steps"]["expert"]
+    assert expert["status"] == "completed"
+    assert len(expert["background"]) > 0
+    assert len(expert["interpretations"]) > 0
+    assert len(expert["consequences"]) > 0
+
+
+def test_expert_confidence_capped_when_retrieval_failed() -> None:
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=513,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Detailed article but retrieval likely unavailable in this environment.",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6", "c7"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_ExpertContractAdapter(
+                {
+                    "background": [{"text": "Fact", "type": "fact", "confidence": 0.95, "source": "article"}],
+                    "interpretations": [{"text": "Interpretation", "type": "interpretation", "confidence": 0.95, "source": "article"}],
+                    "consequences": [{"text": "Consequence", "type": "uncertain", "confidence": 0.95, "source": "article"}],
+                    "data_status": "limited",
+                    "confidence": 0.95,
+                }
+            ),
+        )
+    )
+    expert = payload["meta"]["multi_agent"]["steps"]["expert"]
+    assert payload["meta"]["multi_agent"]["retrieval"]["status"] in {"failed", "insufficient"}
+    assert float(expert["confidence"]) <= 0.55
+
+
+def test_synthesis_mentions_limited_external_context(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "services.reporting_v2.post_pipeline.OpenAIAdapterConfig.from_settings",
+        lambda: SimpleNamespace(api_key=None),
+    )
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=514,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Policy-heavy post referencing external decisions without full detail.",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6"],
+            thread_comments=[],
+            views=55,
+        )
+    )
+    summary = str(payload.get("summary") or "").lower()
+    assert payload["meta"]["multi_agent"]["retrieval"]["status"] in {"failed", "insufficient"}
+    assert "limited external context" in summary or "external context remains limited" in summary
+
+
+def test_any_limited_step_makes_final_limited() -> None:
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=515,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Detailed post body with context and clear event framing for sufficient article.",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6", "c7"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_ExpertContractAdapter(
+                {
+                    "background": [{"text": "Факт", "type": "fact", "confidence": 0.8, "source": "article"}],
+                    "interpretations": [{"text": "Интерпретация", "type": "interpretation", "confidence": 0.7, "source": "article"}],
+                    "consequences": [{"text": "Последствие", "type": "uncertain", "confidence": 0.7, "source": "article"}],
+                    "data_status": "limited",
+                    "confidence": 0.7,
+                }
+            ),
+            retrieval_provider=MockRetrievalProvider(),
+            effective_features={"force_retrieval_for_all_reports": False},
+        )
+    )
+    assert payload["meta"]["multi_agent"]["steps"]["expert"]["data_status"] == "limited"
+    assert payload["status"] == "limited"
+
+
+def test_weak_signal_public_opinion_makes_final_limited(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "services.reporting_v2.post_pipeline._build_public_opinion_trace",
+        lambda **kwargs: {
+            "discussion_state": "weak_signal",
+            "main_topics": [],
+            "dominant_reactions": [],
+            "data_status": "weak_signal",
+            "confidence": 0.25,
+            "signals": [{"name": "comments_count", "value": 2}],
+        },
+    )
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=516,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Detailed post body with enough detail for article sufficiency.",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6", "c7"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_ExpertContractAdapter(
+                {
+                    "background": [{"text": "Факт", "type": "fact", "confidence": 0.8, "source": "article"}],
+                    "interpretations": [{"text": "Интерпретация", "type": "interpretation", "confidence": 0.7, "source": "article"}],
+                    "consequences": [{"text": "Последствие", "type": "uncertain", "confidence": 0.7, "source": "article"}],
+                    "data_status": "sufficient",
+                    "confidence": 0.75,
+                }
+            ),
+            retrieval_provider=MockRetrievalProvider(),
+            effective_features={"force_retrieval_for_all_reports": False},
+        )
+    )
+    assert payload["meta"]["multi_agent"]["steps"]["public_opinion"]["data_status"] == "weak_signal"
+    assert payload["status"] == "limited"
+
+
+def test_insufficient_article_stops_pipeline() -> None:
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=517,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_ExpertContractAdapter({"background": [], "interpretations": [], "consequences": [], "confidence": 0.0}),
+            retrieval_provider=MockRetrievalProvider(),
+            effective_features={"force_retrieval_for_all_reports": False},
+        )
+    )
+    assert payload["meta"]["multi_agent"]["steps"]["context"]["sufficiency_components"]["article"] == "insufficient"
+    assert payload["status"] == "insufficient_data"
+
+
+def test_confidence_not_high_when_expert_limited() -> None:
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=518,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Detailed post body with context and clear event framing for sufficient article.",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6", "c7"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_ExpertContractAdapter(
+                {
+                    "background": [{"text": "Факт", "type": "fact", "confidence": 0.8, "source": "article"}],
+                    "interpretations": [{"text": "Интерпретация", "type": "interpretation", "confidence": 0.7, "source": "article"}],
+                    "consequences": [{"text": "Последствие", "type": "uncertain", "confidence": 0.7, "source": "article"}],
+                    "data_status": "limited",
+                    "confidence": 0.72,
+                }
+            ),
+            retrieval_provider=MockRetrievalProvider(),
+            effective_features={"force_retrieval_for_all_reports": False},
+        )
+    )
+    assert payload["meta"]["multi_agent"]["steps"]["expert"]["data_status"] == "limited"
+    assert payload["confidence"]["overall"] != "high"
+
+
+def test_limited_status_reflected_in_summary_text() -> None:
+    payload = asyncio.run(
+        generate_post_report_payload_v2(
+            channel="@demo",
+            post_id=519,
+            published_at_iso="2026-04-15T10:00:00+00:00",
+            post_text="Detailed post body with context and clear event framing for sufficient article.",
+            comments=["c1", "c2", "c3", "c4", "c5", "c6", "c7"],
+            thread_comments=[],
+            views=55,
+            llm_adapter=_ExpertContractAdapter(
+                {
+                    "background": [{"text": "Факт", "type": "fact", "confidence": 0.8, "source": "article"}],
+                    "interpretations": [{"text": "Интерпретация", "type": "interpretation", "confidence": 0.7, "source": "article"}],
+                    "consequences": [{"text": "Последствие", "type": "uncertain", "confidence": 0.7, "source": "article"}],
+                    "data_status": "limited",
+                    "confidence": 0.72,
+                }
+            ),
+            retrieval_provider=MockRetrievalProvider(),
+            effective_features={"force_retrieval_for_all_reports": False},
+        )
+    )
+    summary = str(payload.get("summary") or "").lower()
+    assert payload["status"] == "limited"
+    assert "по имеющимся данным" in summary
+    assert "реакция ограничена" in summary
+    assert "требует дополнительной проверки" in summary

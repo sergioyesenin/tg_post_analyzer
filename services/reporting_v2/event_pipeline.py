@@ -22,7 +22,7 @@ from services.reporting_v2.contracts_internal import (
     decide_retrieval_required,
     validate_multi_agent_meta,
 )
-from services.reporting_v2.retrieval import run_retrieval_provider
+from services.reporting_v2.retrieval import run_retrieval_manager, run_retrieval_provider
 from services.reporting_v2.steps import (
     SIX_STEP_SEQUENCE,
     build_step_traces,
@@ -33,6 +33,7 @@ from services.reporting_v2.steps import (
 
 PIPELINE_SEQUENCE = SIX_STEP_SEQUENCE
 REVIEW_MAX_ITERATIONS = 2
+BLOCKING_REVIEW_DECISIONS = {"rerun_branch", "revise", "insufficient_data"}
 _SENTENCE_RE = re.compile(r"[.!?]+")
 
 
@@ -47,6 +48,43 @@ def _stable_hash(value: Any) -> str:
 
 def _sentence_count(text: str) -> int:
     return len([part for part in _SENTENCE_RE.split(text) if part.strip()])
+
+
+def _has_reviewer_issues(llm_reviewer: dict[str, Any] | None) -> bool:
+    if not isinstance(llm_reviewer, dict):
+        return False
+    issues = llm_reviewer.get("issues")
+    return isinstance(issues, list) and len(issues) > 0
+
+
+def resolve_effective_review_decision(wrapper_decision: str, llm_reviewer: dict[str, Any] | None) -> str:
+    normalized_wrapper = str(wrapper_decision or "accept_with_limitations")
+    if not isinstance(llm_reviewer, dict):
+        return normalized_wrapper
+    llm_decision = str(llm_reviewer.get("decision") or "").strip()
+    if _has_reviewer_issues(llm_reviewer) and llm_decision in BLOCKING_REVIEW_DECISIONS:
+        return llm_decision
+    if _has_reviewer_issues(llm_reviewer) and normalized_wrapper == "accept":
+        return "revise"
+    return normalized_wrapper
+
+
+def _infer_reviewer_target(llm_reviewer: dict[str, Any] | None, default_target: str = "synthesis") -> str:
+    explicit = str((llm_reviewer or {}).get("rerun_target") or "").strip()
+    if explicit in {"context", "routing", "expert", "public_opinion", "synthesis"}:
+        return explicit
+    issues = (llm_reviewer or {}).get("issues")
+    if isinstance(issues, list):
+        for item in issues:
+            field = str((item or {}).get("field") or "").lower()
+            problem = str((item or {}).get("problem") or "").lower()
+            if "expert" in field or "malformed expert" in problem or "empty expert" in problem:
+                return "expert"
+            if "public_opinion" in field:
+                return "public_opinion"
+            if "context" in field:
+                return "context"
+    return default_target
 
 
 def _epistemic_entry(
@@ -155,6 +193,7 @@ def _normalize_expert_output(
     *,
     candidate: dict[str, Any] | None,
     retrieval_success: bool,
+    data_sufficient: bool,
 ) -> dict[str, Any]:
     data = dict(candidate or {})
     background_raw = data.get("background") or data.get("background_factors") or []
@@ -191,8 +230,37 @@ def _normalize_expert_output(
 
     raw_items_count = sum(len(group) for group in (background_raw, interpretations_raw, consequences_raw) if isinstance(group, list))
     malformed_output = raw_items_count > 0 and len(all_entries) < raw_items_count
+    if isinstance(background_raw, str) or isinstance(interpretations_raw, str) or isinstance(consequences_raw, str):
+        malformed_output = True
+    for raw_group in (background_raw, interpretations_raw, consequences_raw):
+        if raw_group and not isinstance(raw_group, list):
+            malformed_output = True
     data_status = str(data.get("data_status") or data.get("expert_coverage") or "limited")
     if malformed_output:
+        data_status = "limited"
+        confidence = min(confidence, 0.55)
+
+    allowed_types = {"fact", "derived", "interpretation", "external", "uncertain", "consequence", "forecast"}
+    allowed_sources = {"article", "comments", "retrieval"}
+    contract_invalid = False
+    for row in all_entries:
+        if not isinstance(row.get("text"), str) or not str(row.get("text")).strip():
+            contract_invalid = True
+            break
+        if str(row.get("type") or "") not in allowed_types:
+            contract_invalid = True
+            break
+        if str(row.get("source") or "") not in allowed_sources:
+            contract_invalid = True
+            break
+
+    if (data_sufficient or data_status == "sufficient") and (not background or not interpretations or not consequences):
+        contract_invalid = True
+    if (data_sufficient or data_status == "sufficient") and confidence <= 0.0:
+        contract_invalid = True
+
+    if contract_invalid:
+        malformed_output = True
         data_status = "limited"
         confidence = min(confidence, 0.55)
 
@@ -203,6 +271,7 @@ def _normalize_expert_output(
         "data_status": data_status,
         "confidence": max(0.0, min(1.0, confidence)),
         "malformed_output": malformed_output,
+        "contract_invalid": contract_invalid,
     }
 
 
@@ -349,6 +418,12 @@ def _collect_reviewer_defects(
         if str(item.get("source") or "") == "retrieval" and not retrieval_success:
             defects.append({"code": "D3", "reason": "retrieval_sourced_claim_without_evidence", "target": "expert"})
             break
+    if bool(expert.get("malformed_output")) or bool(expert.get("contract_invalid")):
+        defects.append({"code": "D5", "reason": "expert_contract_invalid_or_malformed", "target": "expert"})
+    expert_confidence = float(expert.get("confidence") or 0.0)
+    expert_status = str(expert.get("status") or "completed")
+    if expert_confidence <= 0.0 and expert_status == "completed":
+        defects.append({"code": "D3", "reason": "expert_zero_confidence_completed", "target": "expert"})
     return defects
 
 
@@ -759,17 +834,40 @@ async def build_event_report_v2_impl(
         "comments": [_safe_text(item, max_len=300) for item in comments[:60]],
         "decision_inputs": retrieval_inputs,
     }
-    retrieval_provider_sources = (
-        await run_retrieval_provider(retrieval_provider, retrieval_request)
+    retrieval_pack = (
+        await run_retrieval_manager(
+            retrieval_provider,
+            {
+                **retrieval_request,
+                "category": "news",
+            },
+        )
         if retrieval_required
-        else []
+        else {
+            "status": "none",
+            "quality_score": 0.0,
+            "sources": [],
+            "facts": [],
+            "conflicts": [],
+            "gaps": [],
+            "diagnostics": {},
+            "raw_results": [],
+        }
     )
+    retrieval_provider_sources = list(retrieval_pack.get("sources") or [])
     retrieval_trace = build_retrieval_trace(
         required=retrieval_required,
         provider_enabled=retrieval_provider is not None,
         sources=retrieval_provider_sources,
         decision_inputs=retrieval_inputs,
         decision_source="retrieval_policy",
+        status_override=str(retrieval_pack.get("status") or "success"),
+        quality_score=float(retrieval_pack.get("quality_score") or 0.0),
+        facts=list(retrieval_pack.get("facts") or []),
+        conflicts=list(retrieval_pack.get("conflicts") or []),
+        gaps=[str(item) for item in list(retrieval_pack.get("gaps") or [])],
+        diagnostics=dict(retrieval_pack.get("diagnostics") or {}),
+        raw_results=list(retrieval_pack.get("raw_results") or []),
     )
     retrieval_used = bool(retrieval_trace["used"])
     retrieval_status = str(retrieval_trace["status"])
@@ -821,6 +919,7 @@ async def build_event_report_v2_impl(
     confidence_reason = str(synthesis_data["confidence_reason"])
     llm_error: str | None = None
     llm_output: dict[str, Any] | None = None
+    reviewer_output: dict[str, Any] | None = None
 
     if llm_adapter is None:
         cfg = OpenAIAdapterConfig.from_settings()
@@ -892,10 +991,13 @@ async def build_event_report_v2_impl(
                 normalized_expert = _normalize_expert_output(
                     candidate=expert_output,
                     retrieval_success=retrieval_used and retrieval_status == "success",
+                    data_sufficient=analytical_sufficiency == "sufficient",
                 )
                 step_traces["expert"]["llm_expert_raw"] = expert_output
                 step_traces["expert"]["llm_expert"] = normalized_expert
                 step_traces["expert"].update(normalized_expert)
+                if bool(normalized_expert.get("contract_invalid")):
+                    step_traces["expert"]["status"] = "failed"
         except Exception as exc:
             _apply_step_provider_trace(
                 step_traces=step_traces,
@@ -974,13 +1076,137 @@ async def build_event_report_v2_impl(
                 trace=_provider_error_trace(adapter=llm_adapter, reason=f"reviewer_error:{type(exc).__name__}"),
             )
 
+    llm_reviewer = reviewer_output if isinstance(reviewer_output, dict) else None
+    effective_llm_decision = resolve_effective_review_decision("accept", llm_reviewer) if llm_error is None else ""
+    llm_rerun_target = _infer_reviewer_target(llm_reviewer, default_target="synthesis")
+
+    async def _execute_rerun_cycle(branch: str) -> None:
+        nonlocal llm_error, llm_output, reviewer_output, synthesis_data, summary, confidence_reason
+        if llm_adapter is None:
+            return
+        try:
+            if branch == "context":
+                context_output, context_trace = await _try_llm_json_step(
+                    adapter=llm_adapter,
+                    step_name="context",
+                    prompt_text=prompts["context"],
+                    request_payload={
+                        "event_title": str(bundle.get("event_title") or ""),
+                        "root_post_text": _safe_text(root_post_text, max_len=1800),
+                        "comments": [_safe_text(item, max_len=280) for item in comments[:60]],
+                        "status_hint": target_status,
+                    },
+                )
+                _apply_step_provider_trace(step_traces=step_traces, step_name="context", trace=context_trace)
+                if isinstance(context_output, dict):
+                    step_traces["context"]["llm_context"] = context_output
+            elif branch == "routing":
+                routing_output, routing_trace = await _try_llm_json_step(
+                    adapter=llm_adapter,
+                    step_name="routing",
+                    prompt_text=prompts["routing"],
+                    request_payload={
+                        "event_title": str(bundle.get("event_title") or ""),
+                        "root_post_text": _safe_text(root_post_text, max_len=1800),
+                        "status_hint": target_status,
+                        "retrieval_hints": retrieval_inputs,
+                    },
+                )
+                _apply_step_provider_trace(step_traces=step_traces, step_name="routing", trace=routing_trace)
+                if isinstance(routing_output, dict):
+                    step_traces["routing"]["llm_routing"] = routing_output
+            elif branch == "expert":
+                expert_output, expert_trace = await _try_llm_json_step(
+                    adapter=llm_adapter,
+                    step_name="expert",
+                    prompt_text=prompts["expert"],
+                    request_payload={
+                        "event_title": str(bundle.get("event_title") or ""),
+                        "root_post_text": _safe_text(root_post_text, max_len=1800),
+                        "comments": [_safe_text(item, max_len=260) for item in comments[:40]],
+                        "status_hint": target_status,
+                        "analytical_sufficiency": analytical_sufficiency,
+                        "retrieval": retrieval_trace,
+                        "retrieval_instruction": "Use retrieval evidence only when retrieval.used is true; otherwise do not add external facts.",
+                    },
+                )
+                _apply_step_provider_trace(step_traces=step_traces, step_name="expert", trace=expert_trace)
+                if isinstance(expert_output, dict):
+                    normalized_expert = _normalize_expert_output(
+                        candidate=expert_output,
+                        retrieval_success=retrieval_used and retrieval_status == "success",
+                        data_sufficient=analytical_sufficiency == "sufficient",
+                    )
+                    step_traces["expert"]["llm_expert_raw"] = expert_output
+                    step_traces["expert"]["llm_expert"] = normalized_expert
+                    step_traces["expert"].update(normalized_expert)
+                    if bool(normalized_expert.get("contract_invalid")):
+                        step_traces["expert"]["status"] = "failed"
+            elif branch == "public_opinion":
+                public_output, public_trace = await _try_llm_json_step(
+                    adapter=llm_adapter,
+                    step_name="public_opinion",
+                    prompt_text=prompts["public_opinion"],
+                    request_payload={
+                        "event_title": str(bundle.get("event_title") or ""),
+                        "comments": [_safe_text(item, max_len=260) for item in comments[:80]],
+                        "status_hint": target_status,
+                    },
+                )
+                _apply_step_provider_trace(step_traces=step_traces, step_name="public_opinion", trace=public_trace)
+                if isinstance(public_output, dict):
+                    step_traces["public_opinion"]["llm_public_opinion"] = public_output
+
+            llm_output, synthesis_trace = await _try_llm_json_step(
+                adapter=llm_adapter,
+                step_name="synthesis",
+                prompt_text=prompts["synthesis"],
+                request_payload={
+                    "status_hint": target_status,
+                    "event_title": str(bundle.get("event_title") or ""),
+                    "root_post_text": _safe_text(root_post_text, max_len=1800),
+                    "comments": [_safe_text(item, max_len=300) for item in comments[:60]],
+                    "retrieval": retrieval_trace,
+                },
+            )
+            _apply_step_provider_trace(step_traces=step_traces, step_name="synthesis", trace=synthesis_trace)
+            if isinstance(llm_output, dict):
+                synthesis_data = _normalize_synthesis_output(candidate=llm_output, fallback=synthesis_data)
+                summary = str(synthesis_data["report_text"])
+                confidence_reason = str(synthesis_data["confidence_reason"])
+            llm_error = None
+
+            reviewer_output, reviewer_trace = await _try_llm_json_step(
+                adapter=llm_adapter,
+                step_name="reviewer",
+                prompt_text=prompts["reviewer"],
+                request_payload={
+                    "status_hint": target_status,
+                    "summary": summary,
+                    "retrieval_required": retrieval_required,
+                    "retrieval_status": retrieval_status,
+                    "retrieval": retrieval_trace,
+                    "expert": step_traces.get("expert", {}),
+                },
+            )
+            _apply_step_provider_trace(step_traces=step_traces, step_name="reviewer", trace=reviewer_trace)
+            if isinstance(reviewer_output, dict):
+                step_traces["reviewer"]["llm_reviewer"] = reviewer_output
+        except Exception as exc:
+            llm_error = f"{type(exc).__name__}: {exc}"
+
     review_history: list[dict[str, Any]] = []
     review_reruns = 0
     pending_rerun = "synthesis" if llm_error is not None else None
     pending_reason = "synthesis_error" if pending_rerun else ""
+    if pending_rerun is None and effective_llm_decision == "rerun_branch":
+        pending_rerun = llm_rerun_target
+        pending_reason = "llm_reviewer_requested_rerun"
 
     while pending_rerun is not None and review_reruns < REVIEW_MAX_ITERATIONS:
         request_step_rerun(step_traces, step_name=pending_rerun)
+        if pending_rerun != "synthesis":
+            request_step_rerun(step_traces, step_name="synthesis")
         review_reruns += 1
         review_history.append(
             {
@@ -991,14 +1217,58 @@ async def build_event_report_v2_impl(
                 "confidence": 1.0,
             }
         )
+        await _execute_rerun_cycle(pending_rerun)
+        llm_reviewer = reviewer_output if isinstance(reviewer_output, dict) else None
+        effective_llm_decision = resolve_effective_review_decision("accept", llm_reviewer) if llm_error is None else ""
+        next_target = _infer_reviewer_target(llm_reviewer, default_target="synthesis")
         if llm_error is not None and review_reruns < REVIEW_MAX_ITERATIONS:
             pending_rerun = "synthesis"
             pending_reason = "synthesis_error"
+        elif effective_llm_decision == "rerun_branch" and review_reruns < REVIEW_MAX_ITERATIONS:
+            pending_rerun = next_target
+            pending_reason = "llm_reviewer_requested_rerun"
         else:
             pending_rerun = None
             pending_reason = ""
 
+    if pending_rerun is not None:
+        target_status = "limited" if target_status == "ready" else target_status
+        review_history.append(
+            {
+                "iteration": len(review_history) + 1,
+                "decision": "accept_with_limitations",
+                "target": pending_rerun,
+                "reason": "rerun_limit_exhausted",
+                "confidence": 0.4,
+            }
+        )
+
+    llm_reviewer_has_issues = _has_reviewer_issues(llm_reviewer)
+
     if llm_error is None:
+        if effective_llm_decision == "revise":
+            target_status = "limited" if target_status == "ready" else target_status
+            review_history.append(
+                {
+                    "iteration": len(review_history) + 1,
+                    "decision": "revise",
+                    "target": _infer_reviewer_target(llm_reviewer, default_target="synthesis"),
+                    "reason": "llm_reviewer_issues",
+                    "confidence": 0.45,
+                }
+            )
+        elif effective_llm_decision == "insufficient_data":
+            target_status = "insufficient_data"
+            review_history.append(
+                {
+                    "iteration": len(review_history) + 1,
+                    "decision": "insufficient_data",
+                    "target": _infer_reviewer_target(llm_reviewer, default_target="synthesis"),
+                    "reason": "llm_reviewer_issues",
+                    "confidence": 0.0,
+                }
+            )
+
         reviewer_defects = _collect_reviewer_defects(
             status=target_status,
             synthesis=synthesis_data,
@@ -1066,21 +1336,42 @@ async def build_event_report_v2_impl(
             fallback=synthesis_data,
         )
     else:
-        if target_status == "ready":
-            review_decision = "accept"
-        elif target_status == "limited":
-            review_decision = "accept_with_limitations"
-        else:
-            review_decision = "insufficient_data"
-        review_history.append(
-            {
-                "iteration": len(review_history) + 1,
-                "decision": review_decision,
-                "target": None,
-                "reason": analytical_sufficiency,
-                "confidence": 0.8 if target_status == "ready" else 0.6,
-            }
+        had_blocking_review_signal = any(
+            str(item.get("decision") or "") in BLOCKING_REVIEW_DECISIONS for item in review_history
         )
+        had_any_issues = llm_reviewer_has_issues or bool(reviewer_defects)
+        if had_blocking_review_signal and target_status == "ready":
+            target_status = "limited"
+
+        if had_any_issues:
+            if target_status == "ready":
+                target_status = "limited"
+            if had_blocking_review_signal:
+                review_decision = "accept_with_limitations" if target_status == "limited" else "insufficient_data"
+                review_reason = "issues_present"
+            else:
+                review_decision = "accept_with_limitations" if target_status == "limited" else "insufficient_data"
+                review_reason = "issues_present"
+        else:
+            if target_status == "ready":
+                review_decision = "accept"
+            elif target_status == "limited":
+                review_decision = "accept_with_limitations"
+            else:
+                review_decision = "insufficient_data"
+            review_reason = analytical_sufficiency
+        if review_decision:
+            review_history.append(
+                {
+                    "iteration": len(review_history) + 1,
+                    "decision": review_decision,
+                    "target": None,
+                    "reason": review_reason,
+                    "confidence": 0.8 if target_status == "ready" else 0.6,
+                }
+            )
+        if had_any_issues:
+            synthesis_data["quality"] = "needs_revision"
 
     payload: dict[str, Any] = {
         "type": "event_report_v2",
@@ -1134,7 +1425,8 @@ async def build_event_report_v2_impl(
     step_traces["reviewer"].update(
         {
             "decision": review_history[-1]["decision"] if review_history else "insufficient_data",
-            "iterations": len([item for item in review_history if str(item.get("decision")) == "rerun_branch"]),
+            "iterations": len(review_history),
+            "rerun_iterations": len([item for item in review_history if str(item.get("decision")) == "rerun_branch"]),
             "history": review_history,
         }
     )
@@ -1162,7 +1454,7 @@ async def build_event_report_v2_impl(
             "sources": retrieval_sources,
         },
         "review": {
-            "iterations": len([item for item in review_history if str(item.get("decision")) == "rerun_branch"]),
+            "iterations": len(review_history),
             "history": review_history,
         },
     }

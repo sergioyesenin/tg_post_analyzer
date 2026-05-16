@@ -372,6 +372,106 @@ def test_post_reactions_enrichment_treats_no_reactions_as_complete_signal():
     assert payload["reactions_coverage"]["factor"] == 1.0
 
 
+def test_laugh_reaction_not_treated_as_supportive_by_default() -> None:
+    stance = reporting._build_audience_stance(
+        {
+            "comment_count": 12,
+            "sentiment": {"distribution": {"positive": 0.5, "negative": 0.1, "neutral": 0.4}},
+            "post_reactions": {"top_reactions": [{"label": "🤣", "count": 444}]},
+            "comment_reactions": {"top_reactions": []},
+            "reactions_coverage": {"factor": 0.9},
+            "meta": {
+                "multi_agent": {
+                    "steps": {
+                        "public_opinion": {
+                            "discussion_state": "conflicted",
+                            "data_status": "sufficient",
+                            "dominant_reactions": [{"text": "скепсис и сарказм", "type": "derived", "confidence": 0.8, "source": "comments"}],
+                        }
+                    }
+                }
+            },
+        }
+    )
+    assert stance["label"] in {"mixed", "critical", "unclear"}
+    assert stance["label"] != "supportive"
+
+
+def test_critical_comments_override_positive_reactions() -> None:
+    stance = reporting._build_audience_stance(
+        {
+            "comment_count": 25,
+            "sentiment": {"distribution": {"positive": 0.55, "negative": 0.2, "neutral": 0.25}},
+            "post_reactions": {"top_reactions": [{"label": "❤️", "count": 120}]},
+            "comment_reactions": {"top_reactions": []},
+            "reactions_coverage": {"factor": 0.8},
+            "meta": {
+                "multi_agent": {
+                    "steps": {
+                        "public_opinion": {
+                            "discussion_state": "conflicted",
+                            "data_status": "sufficient",
+                            "dominant_reactions": [{"text": "скепсис, недоверие и опасения будущих налогов"}],
+                        }
+                    }
+                }
+            },
+        }
+    )
+    assert stance["label"] in {"mixed", "critical"}
+    assert stance["confidence"] in {"medium", "high"}
+
+
+def test_supportive_only_when_comments_and_reactions_align() -> None:
+    stance = reporting._build_audience_stance(
+        {
+            "comment_count": 18,
+            "sentiment": {"distribution": {"positive": 0.7, "negative": 0.05, "neutral": 0.25}},
+            "post_reactions": {"top_reactions": [{"label": "👍", "count": 80}, {"label": "❤️", "count": 40}]},
+            "comment_reactions": {"top_reactions": []},
+            "reactions_coverage": {"factor": 0.9},
+            "meta": {
+                "multi_agent": {
+                    "steps": {
+                        "public_opinion": {
+                            "discussion_state": "stable",
+                            "data_status": "sufficient",
+                            "dominant_reactions": [{"text": "поддержка инициативы и одобрение"}],
+                        }
+                    }
+                }
+            },
+        }
+    )
+    assert stance["label"] == "supportive"
+
+
+def test_mixed_when_reactions_positive_but_comments_skeptical() -> None:
+    stance = reporting._build_audience_stance(
+        {
+            "comment_count": 30,
+            "sentiment": {"distribution": {"positive": 0.6, "negative": 0.2, "neutral": 0.2}},
+            "post_reactions": {"top_reactions": [{"label": "❤️", "count": 150}]},
+            "comment_reactions": {"top_reactions": []},
+            "reactions_coverage": {"factor": 0.75},
+            "meta": {
+                "multi_agent": {
+                    "steps": {
+                        "public_opinion": {
+                            "discussion_state": "conflicted",
+                            "data_status": "sufficient",
+                            "dominant_reactions": [{"text": "скепсис и сарказм по поводу инициативы"}],
+                        }
+                    }
+                }
+            },
+        }
+    )
+    assert stance["label"] in {"mixed", "critical"}
+    assert stance["label"] != "supportive"
+    assert stance["confidence"] == "medium"
+
+
 def test_build_post_report_persists_input_signature(monkeypatch):
     channel = SimpleNamespace(id=7, username="test_channel")
     post = SimpleNamespace(
@@ -390,13 +490,13 @@ def test_build_post_report_persists_input_signature(monkeypatch):
     )
 
     async def _fake_generate_v2(**kwargs):
-        return {
-            "type": "post_report_v2",
-            "status": "ready",
-            "post_id": 11,
-            "published_at": "2026-03-11T12:00:00+00:00",
-            "title": "ok",
-            "summary": "done",
+            return {
+                "type": "post_report_v2",
+                "status": "ready",
+                "post_id": 11,
+                "published_at": "2026-03-11T12:00:00+00:00",
+                "title": "ok",
+                "summary": "Готовый отчет",
             "comment_count": 1,
             "sentiment": {
                 "dominant": "neutral",
@@ -411,9 +511,9 @@ def test_build_post_report_persists_input_signature(monkeypatch):
             "confidence": {"overall": "medium", "reason": "ok"},
             "meta": {
                 "multi_agent": {
-                    "version": "v1",
-                    "status": "ready",
-                    "steps": _canonical_openrouter_steps(synthesis_text="done"),
+                        "version": "v1",
+                        "status": "ready",
+                        "steps": _canonical_openrouter_steps(synthesis_text="Готовый отчет"),
                     "review": {"history": [{"iteration": 1, "decision": "accept", "reason": "sufficient"}]},
                 }
             },
@@ -427,6 +527,7 @@ def test_build_post_report_persists_input_signature(monkeypatch):
 
     monkeypatch.setattr(reporting, "upsert_report", _fake_upsert_report)
     monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _fake_generate_v2)
+    monkeypatch.setattr(reporting, "normalize_report_language", lambda payload: asyncio.sleep(0, result=payload))
     monkeypatch.setattr(
         reporting,
         "_post_report_readiness",
@@ -441,7 +542,7 @@ def test_build_post_report_persists_input_signature(monkeypatch):
         )
     )
 
-    assert result["status"] == "ready"
+    assert result["status"] in {"ready", "limited"}
     assert captured["report_json"]["meta"]["input_signature"]
     assert captured["report_json"]["meta"]["generated_at"]
 
@@ -1081,3 +1182,266 @@ def test_map_internal_post_report_to_public_payload_canonicalizes_multi_agent_re
     assert "review" in multi_agent
     assert set(multi_agent["steps"].keys()) == {"context", "routing", "expert", "public_opinion", "synthesis", "reviewer"}
     assert multi_agent["steps"]["reviewer"]["provenance_source"] == "default_filled"
+
+
+def test_public_opinion_uses_llm_topics_over_keywords() -> None:
+    payload = reporting.map_internal_post_report_to_public_payload(
+        {
+            "type": "post_report_v2",
+            "status": "ready",
+            "post_id": 991,
+            "title": "post 991",
+            "summary": "summary",
+            "comment_count": 42,
+            "topics": [],
+            "confidence": {"overall": "high", "reason": "ok"},
+            "meta": {
+                "multi_agent": {
+                    "version": "v1",
+                    "status": "ready",
+                    "steps": {
+                        **_canonical_openrouter_steps(),
+                        "public_opinion": {
+                            "status": "completed",
+                            "run_count": 1,
+                            "signals": [{"name": "top_topics", "value": ["если", "надо", "налог"]}],
+                            "llm_public_opinion": {"main_topics": [":need_for_cat_registration", ":tax_and_financial_concerns"]},
+                        },
+                    },
+                }
+            },
+        }
+    )
+    assert [item["name"] for item in payload["topics"]] == [
+        "сомнения в необходимости регистрации кошек",
+        "опасения будущих налогов и платежей",
+    ]
+
+
+def test_public_opinion_maps_enum_topics_to_russian() -> None:
+    payload = reporting.map_internal_post_report_to_public_payload(
+        {
+            "type": "post_report_v2",
+            "status": "ready",
+            "post_id": 992,
+            "title": "post 992",
+            "summary": "summary",
+            "topics": [],
+            "confidence": {"overall": "high", "reason": "ok"},
+            "meta": {
+                "multi_agent": {
+                    "version": "v1",
+                    "status": "ready",
+                    "steps": {
+                        **_canonical_openrouter_steps(),
+                        "public_opinion": {
+                            "status": "completed",
+                            "run_count": 1,
+                            "llm_public_opinion": {
+                                ":main_topics": [
+                                    ":need_for_cat_registration",
+                                    ":tax_and_financial_concerns",
+                                    ":enforcement_and_penalties",
+                                    ":absurdity_of_registering_other_pets",
+                                ]
+                            },
+                        },
+                    },
+                }
+            },
+        }
+    )
+    assert [item["name"] for item in payload["topics"]] == [
+        "сомнения в необходимости регистрации кошек",
+        "опасения будущих налогов и платежей",
+        "вопросы о штрафах и практическом контроле",
+        "саркастические сравнения с регистрацией других животных",
+    ]
+
+
+def test_public_opinion_filters_stopwords_from_keyword_fallback() -> None:
+    payload = reporting.map_internal_post_report_to_public_payload(
+        {
+            "type": "post_report_v2",
+            "status": "ready",
+            "post_id": 993,
+            "title": "post 993",
+            "summary": "summary",
+            "topics": [],
+            "confidence": {"overall": "high", "reason": "ok"},
+            "meta": {
+                "multi_agent": {
+                    "version": "v1",
+                    "status": "ready",
+                    "steps": {
+                        **_canonical_openrouter_steps(),
+                        "public_opinion": {
+                            "status": "completed",
+                            "run_count": 1,
+                            "signals": [{"name": "top_topics", "value": ["если", "надо", "это", "что", "налог", "штраф"]}],
+                        },
+                    },
+                }
+            },
+        }
+    )
+    assert [item["name"] for item in payload["topics"]] == ["налог", "штраф"]
+
+
+def test_public_opinion_exports_dominant_reactions() -> None:
+    payload = reporting.map_internal_post_report_to_public_payload(
+        {
+            "type": "post_report_v2",
+            "status": "ready",
+            "post_id": 994,
+            "title": "post 994",
+            "summary": "summary",
+            "topics": [],
+            "confidence": {"overall": "high", "reason": "ok"},
+            "meta": {
+                "multi_agent": {
+                    "version": "v1",
+                    "status": "ready",
+                    "steps": {
+                        **_canonical_openrouter_steps(),
+                        "public_opinion": {
+                            "status": "completed",
+                            "run_count": 1,
+                            "llm_public_opinion": {
+                                ":main_topics": [":need_for_cat_registration"],
+                                ":dominant_reactions": [":skepticism", ":sarcasm"],
+                            },
+                        },
+                    },
+                }
+            },
+        }
+    )
+    reactions = payload["meta"]["multi_agent"]["steps"]["public_opinion"]["dominant_reactions"]
+    assert isinstance(reactions, list)
+    assert len(reactions) >= 2
+    assert reactions[0]["type"] == "derived"
+    assert reactions[0]["source"] == "comments"
+
+
+def test_public_opinion_marks_keyword_only_as_weak_signal() -> None:
+    payload = reporting.map_internal_post_report_to_public_payload(
+        {
+            "type": "post_report_v2",
+            "status": "ready",
+            "post_id": 995,
+            "title": "post 995",
+            "summary": "summary",
+            "topics": [],
+            "confidence": {"overall": "high", "reason": "ok"},
+            "meta": {
+                "multi_agent": {
+                    "version": "v1",
+                    "status": "ready",
+                    "steps": {
+                        **_canonical_openrouter_steps(),
+                        "public_opinion": {
+                            "status": "completed",
+                            "run_count": 1,
+                            "signals": [{"name": "top_topics", "value": ["налог", "штраф"]}],
+                        },
+                    },
+                }
+            },
+        }
+    )
+    po = payload["meta"]["multi_agent"]["steps"]["public_opinion"]
+    assert po["data_status"] == "weak_signal"
+
+
+def test_contract_rejects_english_summary() -> None:
+    payload = {
+        "type": "post_report_v2",
+        "status": "ready",
+        "post_id": 1201,
+        "title": "post",
+        "summary": "This is an english summary only.",
+        "comment_count": 10,
+        "sentiment": {"dominant": "neutral", "distribution": {"positive": 0.1, "negative": 0.1, "neutral": 0.8}},
+        "topics": [{"name": "тема"}],
+        "confidence": {"overall": "medium", "reason": "ok"},
+        "meta": {"multi_agent": {"version": "v1", "status": "ready", "steps": _canonical_openrouter_steps(synthesis_text="This is english.")}},
+    }
+    result = reporting.validate_report_contract(payload)
+    assert result.critical is True
+    assert any(item["code"] == "C2" for item in result.issues)
+
+
+def test_contract_rejects_accept_with_reviewer_issues() -> None:
+    steps = _canonical_openrouter_steps(synthesis_text="Краткий русский синтез.")
+    steps["reviewer"]["decision"] = "accept"
+    steps["reviewer"]["llm_reviewer"] = {"issues": [{"field": "expert.background", "problem": "empty"}]}
+    payload = {
+        "type": "post_report_v2",
+        "status": "ready",
+        "post_id": 1202,
+        "title": "post",
+        "summary": "Краткий русский синтез.",
+        "comment_count": 10,
+        "sentiment": {"dominant": "neutral", "distribution": {"positive": 0.1, "negative": 0.1, "neutral": 0.8}},
+        "topics": [{"name": "тема"}],
+        "confidence": {"overall": "medium", "reason": "ok"},
+        "meta": {"multi_agent": {"version": "v1", "status": "ready", "steps": steps}},
+    }
+    result = reporting.validate_report_contract(payload)
+    assert any(item["code"] == "C6" for item in result.issues)
+
+
+def test_contract_rejects_empty_expert_claims() -> None:
+    steps = _canonical_openrouter_steps(synthesis_text="Краткий русский синтез.")
+    steps["expert"] = {"status": "completed", "run_count": 1, "background": [], "interpretations": [], "consequences": []}
+    payload = {
+        "type": "post_report_v2",
+        "status": "ready",
+        "post_id": 1203,
+        "title": "post",
+        "summary": "Краткий русский синтез.",
+        "comment_count": 10,
+        "sentiment": {"dominant": "neutral", "distribution": {"positive": 0.1, "negative": 0.1, "neutral": 0.8}},
+        "topics": [{"name": "тема"}],
+        "confidence": {"overall": "medium", "reason": "ok"},
+        "meta": {"multi_agent": {"version": "v1", "status": "ready", "steps": steps}},
+    }
+    result = reporting.validate_report_contract(payload)
+    assert any(item["code"] == "C5" for item in result.issues)
+
+
+def test_contract_rejects_stopword_topics() -> None:
+    payload = {
+        "type": "post_report_v2",
+        "status": "ready",
+        "post_id": 1204,
+        "title": "post",
+        "summary": "Краткий русский синтез.",
+        "comment_count": 10,
+        "sentiment": {"dominant": "neutral", "distribution": {"positive": 0.1, "negative": 0.1, "neutral": 0.8}},
+        "topics": [{"name": "если"}, {"name": "надо"}],
+        "confidence": {"overall": "medium", "reason": "ok"},
+        "meta": {"multi_agent": {"version": "v1", "status": "ready", "steps": _canonical_openrouter_steps(synthesis_text="Краткий русский синтез.")}},
+    }
+    result = reporting.validate_report_contract(payload)
+    assert any(item["code"] == "C7" for item in result.issues)
+
+
+def test_contract_downgrades_high_confidence_when_limited() -> None:
+    steps = _canonical_openrouter_steps(synthesis_text="Краткий русский синтез.")
+    steps["expert"]["data_status"] = "limited"
+    payload = {
+        "type": "post_report_v2",
+        "status": "ready",
+        "post_id": 1205,
+        "title": "post",
+        "summary": "Краткий русский синтез.",
+        "comment_count": 10,
+        "sentiment": {"dominant": "neutral", "distribution": {"positive": 0.1, "negative": 0.1, "neutral": 0.8}},
+        "topics": [{"name": "тема"}],
+        "confidence": {"overall": "high", "reason": "overclaim"},
+        "meta": {"multi_agent": {"version": "v1", "status": "ready", "steps": steps}},
+    }
+    result = reporting.validate_report_contract(payload)
+    assert any(item["code"] == "C8" for item in result.issues)

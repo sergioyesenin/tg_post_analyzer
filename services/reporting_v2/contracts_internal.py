@@ -9,7 +9,7 @@ EPISTEMIC_SOURCES = frozenset(["article", "comments", "retrieval"])
 SUFFICIENCY_LABELS = frozenset(["sufficient", "limited", "weak_signal", "insufficient"])
 REPORT_STATUSES = frozenset(["ready", "limited", "insufficient_data"])
 FALLBACK_STATUSES = frozenset(["ready", "limited", "insufficient_data", "failed"])
-RETRIEVAL_STATUSES = frozenset(["none", "success", "failed", "insufficient"])
+RETRIEVAL_STATUSES = frozenset(["none", "success", "partial", "failed", "insufficient"])
 PROVENANCE_STATUSES = frozenset(["completed", "failed", "skipped"])
 STEP_KEYS = frozenset(["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"])
 
@@ -57,6 +57,12 @@ class RetrievalTrace(BaseModel):
     decision_inputs: dict[str, Any] = Field(default_factory=dict)
     decision_source: str = "policy"
     sources: list[dict[str, Any]] = Field(default_factory=list)
+    quality_score: float = Field(default=0.0, ge=0.0, le=1.0)
+    facts: list[dict[str, Any]] = Field(default_factory=list)
+    conflicts: list[dict[str, Any]] = Field(default_factory=list)
+    gaps: list[str] = Field(default_factory=list)
+    diagnostics: dict[str, Any] = Field(default_factory=dict)
+    raw_results: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class RetrievalSourceEvidence(BaseModel):
@@ -202,9 +208,22 @@ def build_retrieval_trace(
     sources: list[dict[str, Any]] | None = None,
     decision_inputs: Mapping[str, Any] | None = None,
     decision_source: str = "retrieval_policy",
+    status_override: str | None = None,
+    quality_score: float | None = None,
+    facts: list[dict[str, Any]] | None = None,
+    conflicts: list[dict[str, Any]] | None = None,
+    gaps: list[str] | None = None,
+    diagnostics: Mapping[str, Any] | None = None,
+    raw_results: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     normalized_inputs = dict(decision_inputs or {})
     normalized_sources = list(sources or [])
+    normalized_quality = max(0.0, min(1.0, float(quality_score or 0.0)))
+    normalized_facts = list(facts or [])
+    normalized_conflicts = list(conflicts or [])
+    normalized_gaps = [str(item) for item in list(gaps or []) if str(item)]
+    normalized_diagnostics = dict(diagnostics or {})
+    normalized_raw_results = list(raw_results or [])
 
     if not required:
         return {
@@ -214,6 +233,12 @@ def build_retrieval_trace(
             "decision_inputs": normalized_inputs,
             "decision_source": decision_source,
             "sources": [],
+            "quality_score": normalized_quality,
+            "facts": normalized_facts,
+            "conflicts": normalized_conflicts,
+            "gaps": normalized_gaps,
+            "diagnostics": normalized_diagnostics,
+            "raw_results": normalized_raw_results,
         }
 
     if not provider_enabled:
@@ -224,6 +249,12 @@ def build_retrieval_trace(
             "decision_inputs": normalized_inputs,
             "decision_source": decision_source,
             "sources": [],
+            "quality_score": normalized_quality,
+            "facts": normalized_facts,
+            "conflicts": normalized_conflicts,
+            "gaps": normalized_gaps,
+            "diagnostics": normalized_diagnostics,
+            "raw_results": normalized_raw_results,
         }
 
     if not normalized_sources:
@@ -234,15 +265,30 @@ def build_retrieval_trace(
             "decision_inputs": normalized_inputs,
             "decision_source": decision_source,
             "sources": [],
+            "quality_score": normalized_quality,
+            "facts": normalized_facts,
+            "conflicts": normalized_conflicts,
+            "gaps": normalized_gaps,
+            "diagnostics": normalized_diagnostics,
+            "raw_results": normalized_raw_results,
         }
 
+    final_status = str(status_override or "success")
+    if final_status not in RETRIEVAL_STATUSES:
+        final_status = "success"
     return {
         "required": True,
         "used": True,
-        "status": "success",
+        "status": final_status,
         "decision_inputs": normalized_inputs,
         "decision_source": decision_source,
         "sources": normalized_sources,
+        "quality_score": normalized_quality,
+        "facts": normalized_facts,
+        "conflicts": normalized_conflicts,
+        "gaps": normalized_gaps,
+        "diagnostics": normalized_diagnostics,
+        "raw_results": normalized_raw_results,
     }
 
 

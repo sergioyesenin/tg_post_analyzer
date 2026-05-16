@@ -215,7 +215,8 @@ def test_build_event_report_v2_reviewer_loop_caps_at_two_on_synthesis_failure(mo
 
     multi_agent = payload["meta"]["multi_agent"]
     assert payload["status"] == "insufficient_data"
-    assert multi_agent["review"]["iterations"] == 2
+    assert multi_agent["steps"]["reviewer"]["rerun_iterations"] == 2
+    assert multi_agent["review"]["iterations"] == len(multi_agent["review"]["history"])
     assert [item["decision"] for item in multi_agent["review"]["history"]] == [
         "rerun_branch",
         "rerun_branch",
@@ -436,6 +437,54 @@ def test_build_event_report_v2_normalizes_cross_post_topics(monkeypatch) -> None
         {"name": "wages", "share": 0.4},
         {"name": "loans"},
     ]
+
+
+def test_event_reviewer_rerun_branch_triggers_real_rerun(monkeypatch) -> None:
+    async def _fake_load_bundle(session, *, event_id):
+        del session
+        return {
+            "event_id": event_id,
+            "event_title": "Local Event",
+            "posts": [{"post_id": 101, "event_role": "root", "text": "Root text", "comments_count": 6}],
+            "post_ids": [101],
+            "root_post_id": 101,
+            "root_post_text": "Root text with enough detail for event summary synthesis.",
+            "comments_all_posts": [f"comment {idx}" for idx in range(1, 8)],
+            "comments_by_post": {101: [f"comment {idx}" for idx in range(1, 8)]},
+        }
+
+    class _ReviewerRerunAdapter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def create_chat_completion_with_trace(self, **kwargs):
+            del kwargs
+            self.calls += 1
+            if self.calls in {6, 8}:
+                content = '{"decision":"rerun_branch","rerun_target":"expert","issues":[{"field":"expert.background","problem":"empty"}]}'
+            elif self.calls in {5, 7, 9}:
+                content = '{"summary":"EVENT_SYNTHESIS_TEXT","confidence_reason":"llm_event"}'
+            else:
+                content = "{}"
+            return OpenAIChatCompletionTrace(
+                content=content,
+                provider="openrouter",
+                model="qwen/qwen3-coder:free",
+                latency_ms=12,
+                fallback_used=False,
+                fallback_reason=None,
+                executed=True,
+                success=True,
+                attempt_index=0,
+            )
+
+    monkeypatch.setattr("services.reporting_v2.event_pipeline.load_event_input_bundle", _fake_load_bundle)
+    adapter = _ReviewerRerunAdapter()
+    payload = asyncio.run(build_event_report_v2_impl(session=object(), event_id=94, llm_adapter=adapter))
+
+    assert adapter.calls > 6
+    assert payload["status"] == "limited"
+    assert payload["meta"]["multi_agent"]["steps"]["reviewer"]["decision"] != "accept"
 
 
 def test_build_event_report_draft_persists_canonicalized_status(monkeypatch) -> None:

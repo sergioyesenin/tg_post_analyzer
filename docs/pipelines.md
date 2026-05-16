@@ -470,6 +470,32 @@ enqueue `build_post_report` -> AI worker `run_ai_jobs` -> `services.reporting.bu
 - reports list/export
 - event/process report dependency chain
 
+### Report language normalization
+
+Этот этап фиксирует правила post-processing после генерации LLM и объясняет, почему мы не делаем retry только ради языка.
+
+**Ключевые правила:**
+
+- Генерация LLM может быть мультиязычной из-за поведения модели и выбранного провайдера.
+- Публичные текстовые поля отчета нормализуются на русский язык отдельным post-processing этапом после генерации.
+- JSON-ключи, enum-значения, URL, model/provider/hash-поля не переводятся.
+- Пользовательские цитаты не переводятся.
+- После нормализации языка всегда выполняется contract validation.
+- Отчет не может оставаться в статусе `ready`, если есть unresolved critical defects по результатам валидации и/или reviewer-контролей.
+
+**Порядок этапов (упрощенно):**
+
+1. LLM генерирует внутренний/публичный payload.
+2. Выполняется language normalization только для публичных текстовых полей.
+3. Выполняется contract validation.
+4. При критических дефектах статус понижается (например, до `limited`), даже если ранее был `ready`.
+
+**Почему не retry ради языка:**
+
+- Retry не гарантирует, что следующий ответ модели будет полностью русскоязычным.
+- Retry увеличивает latency и стоимость без гарантии улучшения качества.
+- Post-processing normalization дает детерминированный и наблюдаемый результат, который дополнительно защищается contract validation.
+
 ## Event Report Pipeline
 
 ### Build event report

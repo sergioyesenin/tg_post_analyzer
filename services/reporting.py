@@ -1,10 +1,11 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import hashlib
 import json
 import logging
 import math
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -25,6 +26,11 @@ from services.reporting_v2 import (
 )
 from services.reporting_v2.steps import is_canonical_openrouter_ready_path
 from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+from services.report_language import (
+    ReportLanguageNormalizationError,
+    iter_public_text_fields,
+    normalize_report_language,
+)
 
 
 REPORT_GENERATION_FAILED_CONTENT = "STATUS: FAILED\nREASON: report_generation_failed"
@@ -57,6 +63,38 @@ _PROVENANCE_REQUIRED_KEYS = {
     "status",
 }
 _BLOCKING_REVIEWER_CODES = {"D3", "D4", "D6"}
+_TOPIC_STOPWORDS_RU = frozenset({"если", "надо", "это", "что", "как", "все", "там", "уже"})
+_CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
+_EN_TO_RU_SECTION_LABELS = {
+    "Context:": "Контекст:",
+    "Public reaction:": "Общественная реакция:",
+    "Interpretation:": "Интерпретация:",
+    "Consequences:": "Последствия:",
+    "Outlook:": "Возможное развитие:",
+    "Post reactions": "Реакции на пост",
+    "Comment reactions": "Реакции на комментарии",
+    "Audience stance": "Позиция аудитории",
+}
+
+
+@dataclass(frozen=True)
+class ReportValidationResult:
+    ok: bool
+    critical: bool
+    issues: list[dict[str, str]]
+_PUBLIC_TOPIC_STOPWORDS = frozenset({"РµСЃР»Рё", "РЅР°РґРѕ", "СЌС‚Рѕ", "С‡С‚Рѕ", "РєР°Рє", "РІСЃРµ", "С‚Р°Рј", "СѓР¶Рµ"})
+_PUBLIC_TOPIC_ENUM_RU: dict[str, str] = {
+    "need_for_cat_registration": "СЃРѕРјРЅРµРЅРёСЏ РІ РЅРµРѕР±С…РѕРґРёРјРѕСЃС‚Рё СЂРµРіРёСЃС‚СЂР°С†РёРё РєРѕС€РµРє",
+    "tax_and_financial_concerns": "РѕРїР°СЃРµРЅРёСЏ Р±СѓРґСѓС‰РёС… РЅР°Р»РѕРіРѕРІ Рё РїР»Р°С‚РµР¶РµР№",
+    "enforcement_and_penalties": "РІРѕРїСЂРѕСЃС‹ Рѕ С€С‚СЂР°С„Р°С… Рё РїСЂР°РєС‚РёС‡РµСЃРєРѕРј РєРѕРЅС‚СЂРѕР»Рµ",
+    "absurdity_of_registering_other_pets": "СЃР°СЂРєР°СЃС‚РёС‡РµСЃРєРёРµ СЃСЂР°РІРЅРµРЅРёСЏ СЃ СЂРµРіРёСЃС‚СЂР°С†РёРµР№ РґСЂСѓРіРёС… Р¶РёРІРѕС‚РЅС‹С…",
+}
+_PUBLIC_REACTION_ENUM_RU: dict[str, tuple[str, float]] = {
+    "skepticism": ("СЃРєРµРїСЃРёСЃ Рє РЅРµРѕР±С…РѕРґРёРјРѕСЃС‚Рё СЂРµРіРёСЃС‚СЂР°С†РёРё", 0.8),
+    "sarcasm": ("СЃР°СЂРєР°Р·Рј Рё РЅР°СЃРјРµС€РєРё РЅР°Рґ Р±СЋСЂРѕРєСЂР°С‚РёС‡РЅРѕСЃС‚СЊСЋ РїСЂР°РІРёР»Р°", 0.75),
+    "humor": ("РёСЂРѕРЅРёС‡РЅС‹Рµ Рё С€СѓС‚Р»РёРІС‹Рµ СЂРµР°РєС†РёРё РЅР° РїСЂР°РІРёР»Рѕ", 0.7),
+    "questioning_necessity": ("СЃРѕРјРЅРµРЅРёРµ РІ РїСЂР°РєС‚РёС‡РµСЃРєРѕР№ РЅРµРѕР±С…РѕРґРёРјРѕСЃС‚Рё РёРЅРёС†РёР°С‚РёРІС‹", 0.75),
+}
 
 def _build_retrieval_provider(features: dict[str, Any] | None) -> SearxngRetrievalProvider | None:
     features = features if isinstance(features, dict) else {}
@@ -196,6 +234,14 @@ def _canonicalize_multi_agent_trace(payload: dict) -> dict:
     routing_step = _extract_step_payload(multi_agent, "routing")
     expert_step = _extract_step_payload(multi_agent, "expert")
     public_opinion_step = _extract_step_payload(multi_agent, "public_opinion")
+    legacy_public_opinion = multi_agent.get("public_opinion")
+    if isinstance(legacy_public_opinion, dict):
+        merged_public_opinion = dict(legacy_public_opinion)
+        if isinstance(public_opinion_step, dict):
+            merged_public_opinion.update(public_opinion_step)
+        public_opinion_step = merged_public_opinion
+    if isinstance(public_opinion_step, dict):
+        public_opinion_step = _normalize_public_opinion_semantics(public_opinion_step)
     synthesis_step = _extract_step_payload(multi_agent, "synthesis")
     reviewer_step = _extract_step_payload(multi_agent, "reviewer")
     review = multi_agent.get("review")
@@ -404,32 +450,12 @@ def _extract_topics_from_multi_agent_public_opinion(payload: dict) -> list[str]:
     public_opinion = ((multi_agent.get("steps") or {}).get("public_opinion") or {})
     if not isinstance(public_opinion, dict):
         return []
+    public_opinion = _normalize_public_opinion_semantics(public_opinion)
     main_topics = public_opinion.get("main_topics")
     if isinstance(main_topics, list) and main_topics:
         out = [_clean_list_text(item) for item in main_topics if isinstance(item, str)]
         return [item for item in out if item][:5]
-    signals = public_opinion.get("signals")
-    if not isinstance(signals, list):
-        return []
-
-    extracted: list[str] = []
-    for signal in signals:
-        if not isinstance(signal, dict):
-            continue
-        if str(signal.get("name") or "").strip().lower() != "top_topics":
-            continue
-        value = signal.get("value")
-        if not isinstance(value, list):
-            continue
-        for item in value:
-            if not isinstance(item, str):
-                continue
-            name = _clean_list_text(item)
-            if name and name not in extracted:
-                extracted.append(name)
-            if len(extracted) >= 5:
-                return extracted
-    return extracted
+    return _extract_keyword_topics_from_public_signals(public_opinion)
 
 
 def _build_public_post_summary(payload: dict) -> str:
@@ -438,18 +464,109 @@ def _build_public_post_summary(payload: dict) -> str:
     synthesis = ((multi_agent.get("steps") or {}).get("synthesis") or {})
     synthesis_text = _clean_list_text(synthesis.get("report_text") or synthesis.get("summary"))
     if synthesis_text:
+        synthesis_text = _localize_public_section_labels(synthesis_text)
         sentences = [item.strip() for item in _SENTENCE_SPLIT_RE.split(synthesis_text) if item.strip()]
         if sentences:
             return " ".join(item if item.endswith((".", "!", "?")) else f"{item}." for item in sentences)
         return synthesis_text
 
     if status == REPORT_STATUS_INSUFFICIENT_DATA:
-        return "Insufficient data."
+        return "Недостаточно данных."
     if status == REPORT_STATUS_LIMITED:
-        return "Evidence is limited."
+        return "Доказательная база ограничена."
     if status == REPORT_STATUS_FAILED:
-        return "Report generation failed."
-    return "Report generated."
+        return "Не удалось сформировать отчет."
+    return "Отчет сформирован."
+
+
+def _localize_public_section_labels(text: str | None) -> str:
+    normalized = str(text or "")
+    for en_label, ru_label in _EN_TO_RU_SECTION_LABELS.items():
+        normalized = normalized.replace(en_label, ru_label)
+    return normalized
+
+
+def _has_structured_expert_claims(expert: dict[str, Any]) -> bool:
+    for key in ("background", "interpretations", "consequences"):
+        value = expert.get(key)
+        if not isinstance(value, list) or not value:
+            return False
+        for item in value:
+            if not isinstance(item, dict):
+                return False
+            if not _clean_list_text(item.get("text")):
+                return False
+    return True
+
+
+def validate_report_contract(payload: dict) -> ReportValidationResult:
+    if not isinstance(payload, dict):
+        return ReportValidationResult(ok=False, critical=True, issues=[{"code": "C0", "severity": "critical", "reason": "payload_not_dict"}])
+
+    issues: list[dict[str, str]] = []
+    summary = _clean_list_text(payload.get("summary")) or ""
+    multi_agent = _canonicalize_multi_agent_trace(payload)
+    steps = dict((multi_agent.get("steps") or {}) if isinstance(multi_agent, dict) else {})
+    synthesis = dict(steps.get("synthesis") or {})
+    synthesis_text = _clean_list_text(synthesis.get("report_text") or synthesis.get("summary")) or ""
+    if not summary and not synthesis_text:
+        issues.append({"code": "C1", "severity": "critical", "reason": "empty_summary_and_synthesis"})
+
+    language_meta = dict((payload.get("meta") or {}).get("language_normalization") or {})
+    language_status = str(language_meta.get("status") or "")
+    if not _CYRILLIC_RE.search(summary or synthesis_text) and language_status not in {"success", "partial"}:
+        issues.append({"code": "C2", "severity": "critical", "reason": "summary_not_russian_and_not_normalized"})
+
+    components = dict(synthesis.get("components") or {})
+    for comp in ("event", "context", "reaction", "interpretation", "consequences"):
+        if components.get(comp) is not True:
+            issues.append({"code": "C3", "severity": "critical", "reason": f"missing_component:{comp}"})
+            break
+
+    retrieval = dict(multi_agent.get("retrieval") or {}) if isinstance(multi_agent, dict) else {}
+    if bool(retrieval.get("used")) and not list(retrieval.get("sources") or []):
+        issues.append({"code": "C4", "severity": "critical", "reason": "retrieval_used_without_sources"})
+
+    expert = dict(steps.get("expert") or {})
+    if str(expert.get("status") or "") == "completed" and not _has_structured_expert_claims(expert):
+        issues.append({"code": "C5", "severity": "critical", "reason": "expert_completed_without_structured_claims"})
+
+    reviewer = dict(steps.get("reviewer") or {})
+    llm_reviewer = dict(reviewer.get("llm_reviewer") or {})
+    reviewer_issues = list(llm_reviewer.get("issues") or [])
+    final_decision = str(reviewer.get("decision") or "")
+    if reviewer_issues and final_decision == "accept":
+        issues.append({"code": "C6", "severity": "critical", "reason": "plain_accept_with_reviewer_issues"})
+
+    topics = list(payload.get("topics") or [])
+    topic_names = [str(item.get("name") or "").strip().lower() for item in topics if isinstance(item, dict)]
+    if topic_names and all(name in _TOPIC_STOPWORDS_RU for name in topic_names):
+        issues.append({"code": "C7", "severity": "critical", "reason": "topics_only_stopwords"})
+
+    confidence = dict(payload.get("confidence") or {})
+    confidence_overall = str(confidence.get("overall") or "")
+    po = dict(steps.get("public_opinion") or {})
+    has_limited_branch = any(
+        str((steps.get(step) or {}).get("data_status") or "") in {"limited", "weak_signal"}
+        for step in ("context", "expert", "public_opinion", "synthesis")
+    )
+    malformed_branch = bool(expert.get("malformed_output")) or bool(expert.get("contract_invalid"))
+    if confidence_overall == "high" and (has_limited_branch or malformed_branch):
+        issues.append({"code": "C8", "severity": "critical", "reason": "high_confidence_for_limited_or_malformed"})
+
+    status = str(payload.get("status") or "")
+    review_history = list((multi_agent.get("review") or {}).get("history") or []) if isinstance(multi_agent, dict) else []
+    unresolved_blocking = any(
+        str(item.get("decision") or "") in {"rerun_branch", "revise", "insufficient_data"}
+        or str(item.get("reason") or "").split(":", 1)[0] in _BLOCKING_REVIEWER_CODES
+        for item in review_history
+        if isinstance(item, dict)
+    )
+    if status == REPORT_STATUS_READY and unresolved_blocking:
+        issues.append({"code": "C9", "severity": "critical", "reason": "ready_with_unresolved_blocking_defects"})
+
+    critical = any(item.get("severity") == "critical" for item in issues)
+    return ReportValidationResult(ok=len(issues) == 0, critical=critical, issues=issues)
 
 
 def map_internal_post_report_to_public_payload(payload: dict | None) -> dict | None:
@@ -472,14 +589,14 @@ def map_internal_post_report_to_public_payload(payload: dict | None) -> dict | N
 
 def _sentiment_label_ru(value: str | None) -> str:
     mapping = {
-        "positive": "позитивный",
-        "negative": "негативный",
-        "neutral": "нейтральный",
-        "mixed": "смешанный",
-        "stable": "стабильный",
+        "positive": "РїРѕР·РёС‚РёРІРЅС‹Р№",
+        "negative": "РЅРµРіР°С‚РёРІРЅС‹Р№",
+        "neutral": "РЅРµР№С‚СЂР°Р»СЊРЅС‹Р№",
+        "mixed": "СЃРјРµС€Р°РЅРЅС‹Р№",
+        "stable": "СЃС‚Р°Р±РёР»СЊРЅС‹Р№",
     }
     normalized = str(value or "").strip().lower()
-    return mapping.get(normalized, normalized or "нейтральный")
+    return mapping.get(normalized, normalized or "РЅРµР№С‚СЂР°Р»СЊРЅС‹Р№")
 
 
 def _share_to_percent(value: object) -> str:
@@ -494,6 +611,134 @@ def _clean_list_text(value: object) -> str | None:
         return None
     text = " ".join(value.strip().split())
     return text or None
+
+
+def _stringify_path(path: tuple[str | int, ...]) -> str:
+    return ".".join(str(part) for part in path)
+
+
+def _value_by_path(payload: dict[str, Any], path: tuple[str | int, ...]) -> str | None:
+    cur: Any = payload
+    for key in path:
+        if isinstance(key, int):
+            if not isinstance(cur, list) or key >= len(cur):
+                return None
+            cur = cur[key]
+        else:
+            if not isinstance(cur, dict) or key not in cur:
+                return None
+            cur = cur[key]
+    return cur if isinstance(cur, str) else None
+
+
+def _strip_enum_prefix(value: str) -> str:
+    return str(value or "").strip().lstrip(":").strip()
+
+
+def _normalized_llm_public_opinion(public_opinion: dict[str, Any]) -> dict[str, Any]:
+    raw = public_opinion.get("llm_public_opinion")
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, Any] = {}
+    for key, value in raw.items():
+        out[_strip_enum_prefix(str(key)).lower()] = value
+    return out
+
+
+def _extract_keyword_topics_from_public_signals(public_opinion: dict[str, Any]) -> list[str]:
+    signals = public_opinion.get("signals")
+    if not isinstance(signals, list):
+        return []
+    extracted: list[str] = []
+    for signal in signals:
+        if not isinstance(signal, dict):
+            continue
+        if str(signal.get("name") or "").strip().lower() != "top_topics":
+            continue
+        value = signal.get("value")
+        if not isinstance(value, list):
+            continue
+        for item in value:
+            if not isinstance(item, str):
+                continue
+            topic = _clean_list_text(item)
+            if not topic:
+                continue
+            if topic.strip().lower() in _PUBLIC_TOPIC_STOPWORDS:
+                continue
+            if topic not in extracted:
+                extracted.append(topic)
+            if len(extracted) >= 5:
+                return extracted
+    return extracted
+
+
+def _map_llm_topic_to_ru(value: str) -> str | None:
+    normalized = _strip_enum_prefix(value)
+    if not normalized:
+        return None
+    enum_key = normalized.lower()
+    if enum_key in _PUBLIC_TOPIC_ENUM_RU:
+        return _PUBLIC_TOPIC_ENUM_RU[enum_key]
+    return _clean_list_text(normalized)
+
+
+def _map_llm_reaction_to_claim(value: str) -> dict[str, Any] | None:
+    normalized = _strip_enum_prefix(value)
+    if not normalized:
+        return None
+    enum_key = normalized.lower()
+    if enum_key in _PUBLIC_REACTION_ENUM_RU:
+        text, confidence = _PUBLIC_REACTION_ENUM_RU[enum_key]
+    else:
+        text, confidence = normalized, 0.65
+    return {
+        "text": text,
+        "type": "derived",
+        "confidence": max(0.0, min(1.0, float(confidence))),
+        "source": "comments",
+    }
+
+
+def _normalize_public_opinion_semantics(public_opinion: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(public_opinion)
+    llm_po = _normalized_llm_public_opinion(public_opinion)
+    llm_topics_raw = llm_po.get("main_topics")
+    llm_reactions_raw = llm_po.get("dominant_reactions")
+
+    semantic_topics: list[str] = []
+    if isinstance(llm_topics_raw, list):
+        for item in llm_topics_raw:
+            if not isinstance(item, str):
+                continue
+            mapped = _map_llm_topic_to_ru(item)
+            if mapped and mapped not in semantic_topics:
+                semantic_topics.append(mapped)
+            if len(semantic_topics) >= 5:
+                break
+
+    dominant_reactions: list[dict[str, Any]] = []
+    if isinstance(llm_reactions_raw, list):
+        for item in llm_reactions_raw:
+            if not isinstance(item, str):
+                continue
+            mapped = _map_llm_reaction_to_claim(item)
+            if mapped and mapped not in dominant_reactions:
+                dominant_reactions.append(mapped)
+            if len(dominant_reactions) >= 5:
+                break
+
+    if semantic_topics:
+        normalized["main_topics"] = semantic_topics
+    else:
+        keyword_topics = _extract_keyword_topics_from_public_signals(public_opinion)
+        if keyword_topics:
+            normalized["main_topics"] = keyword_topics
+            normalized["data_status"] = "weak_signal"
+
+    if dominant_reactions:
+        normalized["dominant_reactions"] = dominant_reactions
+    return normalized
 
 
 def _collect_topic_names(items: object, *, limit: int = 5) -> list[str]:
@@ -663,7 +908,8 @@ async def _post_report_readiness(session: AsyncSession, *, post: Post) -> dict:
 
 
 def _render_event_or_process_text(payload: dict) -> str:
-    return _trim_sentence(payload.get("summary"), fallback="Insufficient narrative details in synthesized output.")
+    summary = _localize_public_section_labels(str(payload.get("summary") or ""))
+    return _trim_sentence(summary, fallback="Недостаточно данных для итогового описания.")
 
 
 def _safe_int(value: object) -> int:
@@ -771,16 +1017,49 @@ def _build_audience_stance(payload: dict) -> dict:
     positive = _safe_float(distribution.get("positive"))
     negative = _safe_float(distribution.get("negative"))
     neutral = _safe_float(distribution.get("neutral"))
+
     positive_reaction_count = 0
     critical_reaction_count = 0
+    ambiguous_reaction_count = 0
+    positive_reaction_labels = {"👍", "❤", "❤️", "🔥", "👏", "🙏", "😃", "👌", "💯"}
+    critical_reaction_labels = {"👎", "🤬", "😡", "💩", "🤮", "😢", "😭"}
+    ambiguous_reaction_labels = {"🤣", "😂", "😆", "😹"}
+
     for source_payload in (payload.get("post_reactions") or {}, payload.get("comment_reactions") or {}):
         for item in list(source_payload.get("top_reactions") or []):
             label = str(item.get("label") or "")
             count = _safe_int(item.get("count"))
-            if label in {"👍", "❤", "❤️", "🔥", "👏", "🙏", "😁", "👌", "💯"}:
+            if label in positive_reaction_labels:
                 positive_reaction_count += count
-            elif label in {"👎", "🤬", "😡", "💩", "🤮", "😢", "😭"}:
+            elif label in critical_reaction_labels:
                 critical_reaction_count += count
+            elif label in ambiguous_reaction_labels:
+                ambiguous_reaction_count += count
+
+    multi_agent = _canonicalize_multi_agent_trace(payload)
+    public_opinion = (((multi_agent.get("steps") or {}).get("public_opinion") or {}) if isinstance(multi_agent, dict) else {})
+    discussion_state = str(public_opinion.get("discussion_state") or "").strip().lower()
+    data_status = str(public_opinion.get("data_status") or "").strip().lower()
+    comment_count = _safe_int(payload.get("comment_count"))
+
+    dominant_reactions = public_opinion.get("dominant_reactions")
+    dominant_texts: list[str] = []
+    if isinstance(dominant_reactions, list):
+        for item in dominant_reactions:
+            if isinstance(item, dict):
+                text = _clean_list_text(item.get("text"))
+            elif isinstance(item, str):
+                text = _clean_list_text(item)
+            else:
+                text = None
+            if text:
+                dominant_texts.append(text.lower())
+
+    critical_markers = ("скеп", "сарказ", "недовер", "крит", "насмеш", "сомнен", "опасен", "штраф", "налог")
+    supportive_markers = ("поддерж", "одобр", "довер", "соглас")
+    semantic_critical = any(any(marker in text for marker in critical_markers) for text in dominant_texts)
+    semantic_supportive = any(any(marker in text for marker in supportive_markers) for text in dominant_texts)
+
     if max(positive, negative) < 0.2 and neutral >= 0.6:
         label = "neutral"
     elif abs(positive - negative) <= 0.15 and positive >= 0.2 and negative >= 0.2:
@@ -791,33 +1070,56 @@ def _build_audience_stance(payload: dict) -> dict:
         label = "critical"
     else:
         label = "unclear"
+
     if positive_reaction_count > critical_reaction_count * 1.5 and positive_reaction_count >= 3:
         label = "supportive"
     elif critical_reaction_count > positive_reaction_count * 1.5 and critical_reaction_count >= 3:
         label = "critical"
+
+    comments_semantically_strong = comment_count >= 5 and data_status not in {"weak_signal", "insufficient"}
+    if semantic_critical or discussion_state in {"conflicted", "noisy"}:
+        if label == "supportive":
+            label = "mixed" if positive_reaction_count > 0 else "critical"
+        if comments_semantically_strong:
+            label = "critical" if critical_reaction_count >= positive_reaction_count else "mixed"
+
+    if ambiguous_reaction_count > 0 and positive_reaction_count == 0 and critical_reaction_count == 0 and not semantic_supportive:
+        label = "mixed" if comments_semantically_strong else "unclear"
+
+    if positive_reaction_count > 0 and semantic_critical:
+        label = "mixed" if positive_reaction_count >= critical_reaction_count else "critical"
+
+    if semantic_supportive and not semantic_critical and positive_reaction_count > 0:
+        label = "supportive"
+
     coverage_factor = _safe_float((payload.get("reactions_coverage") or {}).get("factor"))
     confidence = "high" if coverage_factor >= 0.85 else "medium" if coverage_factor >= 0.45 else "low"
+    if semantic_critical and positive_reaction_count > 0:
+        confidence = "medium"
+    if comments_semantically_strong and label in {"mixed", "critical"} and confidence == "low":
+        confidence = "medium"
+
     return {
         "label": label,
         "confidence": confidence,
         "reason": (
             f"Тональность: позитив {_share_to_percent(positive)}, негатив {_share_to_percent(negative)}, нейтрально {_share_to_percent(neutral)}. "
-            f"Поддерживающих reactions: {positive_reaction_count}, критических: {critical_reaction_count}."
+            f"Reactions: positive={positive_reaction_count}, critical={critical_reaction_count}, ambiguous_laugh={ambiguous_reaction_count}. "
+            f"Public opinion: discussion_state={discussion_state or 'unknown'}, semantic_critical={semantic_critical}."
         ),
     }
-
 
 def _format_reactions_summary_line(title: str, summary: dict) -> str:
     top = list(summary.get("top_reactions") or [])
     if not top:
-        return f"- {title}: выраженных reactions нет."
+        return f"- {title}: РІС‹СЂР°Р¶РµРЅРЅС‹С… reactions РЅРµС‚."
     return f"- {title}: " + ", ".join(f"{item.get('label')} {_safe_int(item.get('count'))}" for item in top[:5]) + "."
 
 
 def _format_reactions_coverage_line(payload: dict) -> str:
     coverage = payload.get("reactions_coverage") or {}
     return (
-        f"- Покрытие reactions: {_share_to_percent(coverage.get('factor'))}; "
+        f"- РџРѕРєСЂС‹С‚РёРµ reactions: {_share_to_percent(coverage.get('factor'))}; "
         f"comment reactions status={coverage.get('comment_status') or 'unknown'}; "
         f"scanned={_safe_int(coverage.get('comments_scanned'))}/{_safe_int(coverage.get('expected_comments'))}."
     )
@@ -852,7 +1154,7 @@ def _aggregate_child_coverage(payloads: list[dict]) -> tuple[dict, dict]:
             {
                 "label": "unclear",
                 "confidence": "low",
-                "reason": "Недостаточно дочерних отчетов для оценки позиции аудитории.",
+                "reason": "РќРµРґРѕСЃС‚Р°С‚РѕС‡РЅРѕ РґРѕС‡РµСЂРЅРёС… РѕС‚С‡РµС‚РѕРІ РґР»СЏ РѕС†РµРЅРєРё РїРѕР·РёС†РёРё Р°СѓРґРёС‚РѕСЂРёРё.",
             },
         )
     factor = round(sum(_safe_float((item.get("reactions_coverage") or {}).get("factor")) for item in payloads) / len(payloads), 4)
@@ -875,7 +1177,7 @@ def _aggregate_child_coverage(payloads: list[dict]) -> tuple[dict, dict]:
         {
             "label": label,
             "confidence": confidence,
-            "reason": f"Агрегация по дочерним отчетам: supportive={stance_counts['supportive']}, critical={stance_counts['critical']}, mixed={stance_counts['mixed']}, neutral={stance_counts['neutral']}.",
+            "reason": f"РђРіСЂРµРіР°С†РёСЏ РїРѕ РґРѕС‡РµСЂРЅРёРј РѕС‚С‡РµС‚Р°Рј: supportive={stance_counts['supportive']}, critical={stance_counts['critical']}, mixed={stance_counts['mixed']}, neutral={stance_counts['neutral']}.",
         },
     )
 
@@ -1233,7 +1535,7 @@ async def build_post_report(
             selected_path = "llm_pipeline_shadow_mode"
             report_json = await generate_post_report_payload_v2(**legacy_kwargs)
 
-            # Orchestrator оставляем только как диагностический shadow path.
+            # Orchestrator РѕСЃС‚Р°РІР»СЏРµРј С‚РѕР»СЊРєРѕ РєР°Рє РґРёР°РіРЅРѕСЃС‚РёС‡РµСЃРєРёР№ shadow path.
             if use_multi_agent_v2:
                 try:
                     v2_shadow_payload = await build_post_report_v2_payload_from_orchestrator(**v2_kwargs)
@@ -1285,6 +1587,101 @@ async def build_post_report(
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "refresh_attempt": readiness.get("refresh_attempt"),
         }
+        report_json = PostReportPayload.model_validate(report_json).model_dump(mode="python")
+        pre_normalization_payload = dict(report_json)
+        pre_normalization_status = str(report_json.get("status") or "")
+        try:
+            report_json = await normalize_report_language(report_json)
+            translated_fields: list[str] = []
+            for path, _text in list(iter_public_text_fields(report_json)):
+                before_text = _value_by_path(pre_normalization_payload, path)
+                after_text = _value_by_path(report_json, path)
+                if isinstance(before_text, str) and isinstance(after_text, str) and before_text != after_text:
+                    translated_fields.append(_stringify_path(path))
+            if translated_fields:
+                logger.warning(
+                    "report language normalized",
+                    extra={
+                        "post_id": post.id,
+                        "fields": translated_fields,
+                        "source_lang": "en_or_mixed",
+                        "target_lang": "ru",
+                    },
+                )
+        except ReportLanguageNormalizationError as language_exc:
+            logger.warning("Post report language normalization was partial post_id=%s err=%s", post.id, language_exc)
+            report_json["status"] = REPORT_STATUS_LIMITED
+            report_json["meta"] = {
+                **dict(report_json.get("meta") or {}),
+                "language_normalization": {
+                    "status": "partial",
+                    "error": str(language_exc),
+                },
+            }
+            logger.warning(
+                "report status downgraded",
+                extra={
+                    "post_id": post.id,
+                    "from_status": pre_normalization_status or "unknown",
+                    "to_status": str(report_json.get("status") or REPORT_STATUS_LIMITED),
+                    "issues": ["language_normalization_partial"],
+                },
+            )
+        except Exception as language_exc:
+            logger.warning("Post report language normalization failed post_id=%s err=%s", post.id, language_exc)
+            report_json["meta"] = {
+                **dict(report_json.get("meta") or {}),
+                "language_normalization": {
+                    "status": "failed",
+                    "error": f"{type(language_exc).__name__}: {language_exc}",
+                },
+            }
+        contract_result = validate_report_contract(report_json)
+        if contract_result.issues:
+            logger.warning(
+                "report validation issues detected",
+                extra={
+                    "post_id": post.id,
+                    "critical": contract_result.critical,
+                    "issues": contract_result.issues,
+                },
+            )
+            report_json["meta"] = {
+                **dict(report_json.get("meta") or {}),
+                "validation": {
+                    "ok": contract_result.ok,
+                    "critical": contract_result.critical,
+                    "issues": contract_result.issues,
+                },
+            }
+        if contract_result.critical:
+            previous_status = str(report_json.get("status") or "")
+            report_json["status"] = REPORT_STATUS_LIMITED
+            confidence_payload = dict(report_json.get("confidence") or {})
+            confidence_payload["overall"] = "low" if any(item.get("code") in {"C1", "C3", "C5", "C9"} for item in contract_result.issues) else "medium"
+            confidence_payload["reason"] = "contract_validator_downgrade"
+            report_json["confidence"] = confidence_payload
+            logger.warning(
+                "report status downgraded",
+                extra={
+                    "post_id": post.id,
+                    "from_status": previous_status or "unknown",
+                    "to_status": REPORT_STATUS_LIMITED,
+                    "issues": [str(item.get("reason") or item.get("code") or "validation_issue") for item in contract_result.issues],
+                },
+            )
+        report_json = PostReportPayload.model_validate(report_json).model_dump(mode="python")
+        status = report_status_from_payload(report_json, fallback=REPORT_STATUS_READY)
+        if status != str(report_json.get("status") or ""):
+            logger.info(
+                "report final status resolved",
+                extra={
+                    "post_id": post.id,
+                    "payload_status": str(report_json.get("status") or ""),
+                    "resolved_status": status,
+                    "reason": "report_status_from_payload",
+                },
+            )
         if status == REPORT_STATUS_FAILED:
             content = REPORT_GENERATION_FAILED_CONTENT
             technical_error = str((report_json.get("meta") or {}).get("validation_error") or "invalid_model_output")
@@ -1581,7 +1978,7 @@ async def build_process_report_draft(
             "process_title": process.title,
             "events_count": int(readiness.get("total_events") or 0),
             "source_event_reports": [],
-            "summary": "Для процесса пока нет готовых отчетов по событиям или постам.",
+            "summary": "Р”Р»СЏ РїСЂРѕС†РµСЃСЃР° РїРѕРєР° РЅРµС‚ РіРѕС‚РѕРІС‹С… РѕС‚С‡РµС‚РѕРІ РїРѕ СЃРѕР±С‹С‚РёСЏРј РёР»Рё РїРѕСЃС‚Р°Рј.",
             "meta": {"prompt_version": "process_report_v2", "source_type": "event_reports", "readiness": readiness},
         }
         status = REPORT_STATUS_DRAFT
@@ -1618,10 +2015,4 @@ async def build_process_report_draft(
     session.add(report)
     await session.flush()
     return {"status": status, "process_id": process_id, "report_id": report.id}
-
-
-
-
-
-
 

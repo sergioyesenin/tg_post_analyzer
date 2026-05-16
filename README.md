@@ -102,6 +102,17 @@ docs/                   Runbook-ы и сопутствующая инженер�
 - [docs/runtime_runbook.md](/d:/Projects/tg_post_analyzer/docs/runtime_runbook.md)
 - [docs/multi_agent_rollout_checklist.md](/d:/Projects/tg_post_analyzer/docs/multi_agent_rollout_checklist.md)
 
+## Report language normalization
+
+- Генерация отчета может быть мультиязычной из-за поведения модели.
+- Нормализация публичных текстовых полей в русский выполняется post-processing этапом после LLM.
+- JSON-ключи, enum-значения, URL, model/provider/hash-поля не переводятся.
+- Цитаты пользователей не переводятся.
+- После нормализации языка выполняется contract validation.
+- Отчет не сохраняется как `ready` при unresolved critical defects.
+
+Подробности и контекст пайплайна: [docs/pipelines.md](/d:/Projects/tg_post_analyzer/docs/pipelines.md).
+
 ## Доставка фронтенда
 
 Разработка:

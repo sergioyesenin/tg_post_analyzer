@@ -76,6 +76,9 @@ class SearxngRetrievalProvider:
         return {"sources": sources}
 
     def _build_query(self, request: dict[str, Any]) -> str:
+        explicit_query = str(request.get("query") or "").strip()
+        if explicit_query:
+            return explicit_query
         text = " ".join(
             [
                 str(request.get("event_title") or ""),

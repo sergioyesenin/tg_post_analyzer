@@ -4,12 +4,13 @@ server:
   bind_address: "0.0.0.0"
   port: 8080
   secret_key: "change-this-secret-key"
-  limiter: true
+  limiter: false
   image_proxy: false
   public_instance: false
 
 search:
   safe_search: 0
+  pass_errors: true
   autocomplete: ""
   default_lang: "ru"
   formats:

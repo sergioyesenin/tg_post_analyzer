@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -73,6 +73,17 @@ class RetrievalSourceEvidence(BaseModel):
     tier: str
     supports: str = Field(min_length=1)
     relevance: float = Field(ge=0.0, le=1.0)
+
+    # Дополнительные диагностические поля (опциональны)
+    domain: Optional[str] = None
+    published_at: Optional[str] = None
+    query_name: Optional[str] = None
+    semantic_relevance: Optional[float] = Field(None, ge=0.0, le=1.0)
+    source_authority: Optional[float] = Field(None, ge=0.0, le=1.0)
+    freshness: Optional[float] = Field(None, ge=0.0, le=1.0)
+    content_quality: Optional[float] = Field(None, ge=0.0, le=1.0)
+    uniqueness: Optional[float] = Field(None, ge=0.0, le=1.0)
+    score: Optional[float] = Field(None, ge=0.0, le=1.0)
 
 
 class ReviewHistoryEntry(BaseModel):

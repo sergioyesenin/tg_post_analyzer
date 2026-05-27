@@ -1206,33 +1206,88 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
                     job_coro = build_post_report(
                         session,
                         post_id=int(payload.get("post_id")),
-                        report_project=None,
-                        report_config=report_config,
-                        job_timeout_seconds=ai_job_timeout_seconds,
-                        rerun_stage=_extract_post_report_rerun_stage(payload),
+                        job_timeout_seconds=ai_job_timeout_seconds
                     )
                 elif db_job.type == JobType.BUILD_POST_REPORT_BATCH:
+                    # Расширяем batch-джоб в индивидуальные build_post_report джобы
+                    filters = payload.get("filters") or {}
+                    actor_user_id = payload.get("requested_by_user_id")
+                    source = payload.get("source") or "batch"
+
+                    # 1. Находим посты по фильтрам
+                    post_ids = await _find_post_ids_by_filters(session, filters)
+                    if not post_ids:
+                        # Нет постов – завершаем batch как успешный (ничего не делали)
+                        result = {
+                            "status": "done",
+                            "reason": "no_posts_matching_filters",
+                            "filters": filters,
+                            "posts_found": 0,
+                            "jobs_enqueued": 0,
+                        }
+                        set_job_result(db_job, result)
+                        await mark_job_done(session, job=db_job)
+                        await session.commit()
+                        logger.info(
+                            "Batch job %s finished with no posts, filters=%s",
+                            db_job.id, filters
+                        )
+                        continue
+
+                    # 2. Для каждого поста создаём индивидуальный джоб
+                    enqueued = 0
+                    already_active = 0
+                    errors = []
+
+                    for post_id in post_ids:
+                        try:
+                            job = await enqueue_post_report_job(
+                                session,
+                                post_id=post_id,
+                                priority=PRIORITY_BUILD_POST_REPORT,
+                                source=source,
+                                requested_by_user_id=actor_user_id,
+                                # dedupe_key формируется внутри enqueue_post_report_job
+                            )
+                            if job is None:
+                                already_active += 1
+                            else:
+                                enqueued += 1
+                        except Exception as e:
+                            errors.append(f"post_id={post_id}: {type(e).__name__}: {e}")
+                            logger.exception("Failed to enqueue post report for post_id=%s from batch job %s", post_id, db_job.id)
+
+                    # 3. Формируем результат и завершаем batch-джоб
                     result = {
-                        "status": "failed",
-                        "reason": "passive_ai_worker_no_batch_dispatch",
-                        "message": "AI worker passive mode does not expand batch report jobs into build_post_report jobs.",
-                        "filters": dict(payload.get("filters") or {}),
+                        "status": "done" if not errors else "partial",
+                        "filters": filters,
+                        "posts_found": len(post_ids),
+                        "jobs_enqueued": enqueued,
+                        "already_active": already_active,
+                        "errors": errors if errors else None,
                     }
                     set_job_result(db_job, result)
-                    db_job.status = JOB_STATUS_FAILED
-                    db_job.retry_at = None
-                    db_job.locked_by = None
-                    db_job.locked_at = None
-                    db_job.heartbeat_at = None
-                    db_job.last_error = f"{db_job.type}:passive_mode_batch_dispatch_disabled"
-                    await session.commit()
-                    logger.warning(
-                        "AI job type=%s job_id=%s worker_id=%s skipped reason=%s",
-                        job_type,
-                        job_id,
-                        worker_id,
-                        result["reason"],
-                    )
+
+                    if errors:
+                        # Если были ошибки, но часть джобов создана – всё равно помечаем как failed,
+                        # чтобы можно было повторить batch позже (или оставить как есть?)
+                        # Лучше пометить как failed, но с возможностью ретрая, если не все созданы.
+                        # Однако для простоты пометим как failed с детальным сообщением.
+                        db_job.status = JOB_STATUS_FAILED
+                        db_job.last_error = f"batch_partial_failure: {'; '.join(errors[:3])}"
+                        db_job.retry_at = None  # не перезапускаем автоматически
+                        await session.commit()
+                        logger.error(
+                            "Batch job %s partially failed: enqueued=%s, already_active=%s, errors=%s",
+                            db_job.id, enqueued, already_active, errors
+                        )
+                    else:
+                        await mark_job_done(session, job=db_job)
+                        await session.commit()
+                        logger.info(
+                            "Batch job %s expanded into %s new jobs (%s already active)",
+                            db_job.id, enqueued, already_active
+                        )
                     continue
                 elif db_job.type == JobType.BUILD_EVENT_REPORT:
                     job_coro = build_event_report_draft(session, event_id=int(payload.get("event_id")))
@@ -1581,3 +1636,65 @@ async def run_ai_cycle(*, worker_id: str, job_batch_size_arg: int, job_worker_co
         job_worker_concurrency=job_worker_concurrency,
     )
     return queued, executed
+async def _find_post_ids_by_filters(session: AsyncSession, filters: dict) -> list[int]:
+    """
+    Возвращает список post_id, соответствующих переданным фильтрам.
+    Поддерживаемые ключи:
+    - channel_id (int или list[int]) – ограничить по каналу(ам)
+    - min_id / max_id (int) – диапазон по первичному ключу
+    - min_date / max_date (datetime или ISO-строка) – диапазон по дате
+    - min_comments_count (int)
+    - limit (int) – максимальное количество постов
+    - post_ids (list[int]) – явный список (если передан, остальные фильтры игнорируются)
+    """
+    if not filters:
+        return []
+
+    # Если передан явный список post_ids – используем его
+    explicit_ids = filters.get("post_ids")
+    if isinstance(explicit_ids, list) and all(isinstance(x, int) for x in explicit_ids):
+        return explicit_ids[: filters.get("limit", 1000)]
+
+    stmt = select(Post.id)
+
+    # channel_id
+    channel_id = filters.get("channel_id")
+    if channel_id is not None:
+        if isinstance(channel_id, list):
+            stmt = stmt.where(Post.channel_id.in_(channel_id))
+        else:
+            stmt = stmt.where(Post.channel_id == int(channel_id))
+
+    # диапазон id
+    min_id = filters.get("min_id")
+    if min_id is not None:
+        stmt = stmt.where(Post.id >= int(min_id))
+    max_id = filters.get("max_id")
+    if max_id is not None:
+        stmt = stmt.where(Post.id <= int(max_id))
+
+    # дата
+    min_date = filters.get("min_date")
+    if min_date:
+        if isinstance(min_date, str):
+            min_date = datetime.fromisoformat(min_date)
+        stmt = stmt.where(Post.date >= min_date)
+    max_date = filters.get("max_date")
+    if max_date:
+        if isinstance(max_date, str):
+            max_date = datetime.fromisoformat(max_date)
+        stmt = stmt.where(Post.date <= max_date)
+
+    # минимальное количество комментариев
+    min_comments = filters.get("min_comments_count")
+    if min_comments is not None:
+        stmt = stmt.where(Post.comments_count >= int(min_comments))
+
+    # лимит
+    limit = filters.get("limit")
+    if limit is not None:
+        stmt = stmt.limit(int(limit))
+
+    # выполняем запрос
+    result = await session.execute(stmt.order_by(Post.id.asc()))
+    return [int(row) for row in result.scalars().all()]

@@ -1,10 +1,6 @@
-﻿[botdetection.ip_limit]
+[botdetection.ip_limit]
 link_token = false
 filter_link_local = false
 
 [real_ip]
 x_for = 1
-
-[server]
-# keep conservative limits for local deployment
-request_timeout = 10

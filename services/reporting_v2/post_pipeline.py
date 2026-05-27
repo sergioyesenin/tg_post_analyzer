@@ -5,6 +5,10 @@ import json
 import re
 from collections import Counter
 from typing import Any, Literal
+import logging
+import traceback
+
+logger = logging.getLogger(__name__)
 
 from schemas.report import PostReportPayload
 from services.llm.openai_client import OpenAIAdapterConfig, OpenAIChatCompletionTrace, OpenAIClientAdapter
@@ -36,6 +40,9 @@ BLOCKING_REVIEW_DECISIONS = {"rerun_branch", "revise", "insufficient_data"}
 _TOKEN_RE = re.compile(r"[A-Za-zА-Яа-я0-9_]+", flags=re.UNICODE)
 _SENTENCE_RE = re.compile(r"[.!?]+")
 
+def _safe_dict(value: Any) -> dict[str, Any]:
+    """Возвращает value, если это словарь, иначе пустой словарь."""
+    return value if isinstance(value, dict) else {}
 
 def _safe_text(value: str | None, *, max_len: int = 300) -> str:
     return " ".join((value or "").split())[:max_len]
@@ -630,6 +637,25 @@ def _collect_reviewer_defects(
 
     return defects
 
+def _simplify_retrieval_for_expert(retrieval_trace: dict[str, Any]) -> dict[str, Any]:
+    sources = retrieval_trace.get("sources", [])[:3]
+    simplified_sources = []
+    for s in sources:
+        supports = s.get("supports", "")
+        if isinstance(supports, str):
+            supports = supports[:500]  # обрезаем длинные выдержки
+        simplified_sources.append({
+            "title": s.get("title", "")[:100],
+            "source": s.get("source", "").split("//")[-1].split("/")[0][:50],  # домен или короткое имя
+            "supports": supports,
+        })
+    return {
+        "required": retrieval_trace.get("required", False),
+        "used": retrieval_trace.get("used", False),
+        "status": retrieval_trace.get("status", "none"),
+        "sources": simplified_sources,
+    }
+
 def _build_retrieval_decision_inputs(*, post_text: str, comments: list[str]) -> dict[str, bool]:
     normalized_post = _safe_text(post_text, max_len=2000).lower()
     normalized_comments = " ".join(_safe_text(item, max_len=200).lower() for item in comments[:10])
@@ -971,345 +997,45 @@ async def generate_post_report_payload_v2(
     retrieval_provider: Any | None = None,
 ) -> dict[str, Any]:
     del channel, thread_comments, views, job_timeout_seconds
+    payload = None
 
-    loader = prompt_loader or PromptLoader()
-    prompts = loader.load_bundle("post")
+    try:
+        loader = prompt_loader or PromptLoader()
+        prompts = loader.load_bundle("post")
 
-    step_traces: dict[str, dict[str, Any]] = build_step_traces(PIPELINE_STEP_KEYS)
-    article_sufficiency = assess_article_sufficiency(text=post_text)
-    comment_sufficiency = assess_comment_sufficiency(comments=comments)
-    retrieval_inputs = _build_retrieval_decision_inputs(post_text=post_text, comments=comments)
-    force_retrieval_for_all_reports = bool(
-        (effective_features or {}).get("force_retrieval_for_all_reports", True)
-    )
-    retrieval_required = (
-        True
-        if force_retrieval_for_all_reports
-        else decide_retrieval_required(**retrieval_inputs)
-    )
-    retrieval_request = {
-        "kind": "post",
-        "post_id": post_id,
-        "post_text": _safe_text(post_text, max_len=2400),
-        "comments": [_safe_text(item, max_len=300) for item in comments[:30]],
-        "decision_inputs": retrieval_inputs,
-    }
-
-    retrieval_pack = (
-        await run_retrieval_manager(
-            retrieval_provider,
-            {
-                **retrieval_request,
-                "category": str((effective_features or {}).get("retrieval_category") or "news"),
-            },
+        step_traces: dict[str, dict[str, Any]] = build_step_traces(PIPELINE_STEP_KEYS)
+        custom_search_queries = []
+        article_sufficiency = assess_article_sufficiency(text=post_text)
+        comment_sufficiency = assess_comment_sufficiency(comments=comments)
+        retrieval_inputs = _build_retrieval_decision_inputs(post_text=post_text, comments=comments)
+        force_retrieval_for_all_reports = bool(
+            (effective_features or {}).get("force_retrieval_for_all_reports", True)
         )
-        if retrieval_required
-        else {
-            "status": "none",
-            "quality_score": 0.0,
-            "sources": [],
-            "facts": [],
-            "conflicts": [],
-            "gaps": [],
-            "diagnostics": {},
-            "raw_results": [],
+        retrieval_required = (
+            True
+            if force_retrieval_for_all_reports
+            else decide_retrieval_required(**retrieval_inputs)
+        )
+        retrieval_request = {
+            "kind": "post",
+            "post_id": post_id,
+            "post_text": _safe_text(post_text, max_len=2400),
+            "comments": [_safe_text(item, max_len=300) for item in comments[:30]],
+            "decision_inputs": retrieval_inputs,
         }
-    )
-    retrieval_provider_sources = list(retrieval_pack.get("sources") or [])
 
-    provider_enabled = retrieval_provider is not None or bool(
-        (effective_features or {}).get("retrieval_provider_enabled", False)
-    )
+        requested_rerun = (rerun_stage or "").strip() or None
 
-    retrieval_trace = build_retrieval_trace(
-        required=retrieval_required,
-        provider_enabled=provider_enabled,
-        sources=retrieval_provider_sources,
-        decision_inputs=retrieval_inputs,
-        decision_source="retrieval_policy",
-        status_override=str(retrieval_pack.get("status") or "success"),
-        quality_score=float(retrieval_pack.get("quality_score") or 0.0),
-        facts=list(retrieval_pack.get("facts") or []),
-        conflicts=list(retrieval_pack.get("conflicts") or []),
-        gaps=[str(item) for item in list(retrieval_pack.get("gaps") or [])],
-        diagnostics=dict(retrieval_pack.get("diagnostics") or {}),
-        raw_results=list(retrieval_pack.get("raw_results") or []),
-    )
-
-    retrieval_used = bool(retrieval_trace["used"])
-    retrieval_status = str(retrieval_trace["status"])
-    retrieval_sources = list(retrieval_trace["sources"])
-
-    retrieval_sufficiency = assess_retrieval_sufficiency(
-        required=retrieval_required,
-        used=retrieval_used,
-        status=retrieval_status,
-        sources=retrieval_sources,
-    )
-    analytical_sufficiency = assess_analytical_sufficiency(
-        article=article_sufficiency,
-        comment=comment_sufficiency,
-        retrieval=retrieval_sufficiency,
-    )
-    apply_step_trace_envelope(
-        step_traces,
-        step_name="context",
-        mutator=lambda trace: trace.update(
-            {
-                "sufficiency_components": {
-                    "article": article_sufficiency,
-                    "comment": comment_sufficiency,
-                    "retrieval": retrieval_sufficiency,
-                    "analytical": analytical_sufficiency,
-                },
-                "retrieval_hints": retrieval_inputs,
-                "retrieval_required": retrieval_required,
-            }
-        ),
-    )
-    apply_step_trace_envelope(
-        step_traces,
-        step_name="routing",
-        mutator=lambda trace: trace.update(
-            {
-                "retrieval_hints": retrieval_inputs,
-                "reasoning": "deterministic_policy",
-            }
-        ),
-    )
-
-    public_opinion_trace = _build_public_opinion_trace(
-        post_text=post_text,
-        comments=comments,
-        comment_sufficiency=comment_sufficiency,
-        analytical_sufficiency=analytical_sufficiency,
-    )
-    apply_step_trace_envelope(
-        step_traces,
-        step_name="public_opinion",
-        mutator=lambda trace: trace.update(public_opinion_trace),
-    )
-
-    requested_rerun = (rerun_stage or "").strip() or None
-
-    target_status = aggregate_public_status(
-        article=article_sufficiency,
-        comment=comment_sufficiency,
-        retrieval=retrieval_sufficiency,
-        analytical=analytical_sufficiency,
-    )
-
-    synthesis_data = _build_deterministic_synthesis(
-        post_text=post_text,
-        comment_count=len([item for item in comments if _safe_text(item)]),
-        status=target_status,
-        public_opinion=public_opinion_trace,
-        retrieval_required=retrieval_required,
-        retrieval_status=retrieval_status,
-    )
-
-    if llm_adapter is None:
-        cfg = OpenAIAdapterConfig.from_settings()
-        if cfg.api_key:
-            llm_adapter = OpenAIClientAdapter(cfg)
-
-    llm_error: str | None = None
-    llm_output: dict[str, Any] | None = None
-    reviewer_llm_output: dict[str, Any] | None = None
-    if llm_adapter is not None:
-        try:
-            context_output, context_trace = await _try_llm_json_step(
-                adapter=llm_adapter,
-                step_name="context",
-                prompt_text=prompts["context"],
-                request_payload={
-                    "post_text": _safe_text(post_text, max_len=1600),
-                    "comments": [_safe_text(item, max_len=300) for item in comments[:30]],
-                    "status_hint": target_status,
-                },
-            )
-            _apply_step_provider_trace(step_traces=step_traces, step_name="context", trace=context_trace)
-            if isinstance(context_output, dict):
-                apply_step_trace_envelope(
-                    step_traces,
-                    step_name="context",
-                    mutator=lambda trace: trace.update({"llm_context": context_output}),
-                )
-        except Exception as exc:
-            _apply_step_provider_trace(
-                step_traces=step_traces,
-                step_name="context",
-                trace=_provider_error_trace(adapter=llm_adapter, reason=f"context_error:{type(exc).__name__}"),
-            )
-
-        try:
-            routing_output, routing_trace = await _try_llm_json_step(
-                adapter=llm_adapter,
-                step_name="routing",
-                prompt_text=prompts["routing"],
-                request_payload={
-                    "post_text": _safe_text(post_text, max_len=1600),
-                    "status_hint": target_status,
-                    "retrieval_hints": retrieval_inputs,
-                },
-            )
-            _apply_step_provider_trace(step_traces=step_traces, step_name="routing", trace=routing_trace)
-            if isinstance(routing_output, dict):
-                apply_step_trace_envelope(
-                    step_traces,
-                    step_name="routing",
-                    mutator=lambda trace: trace.update({"llm_routing": routing_output}),
-                )
-        except Exception as exc:
-            _apply_step_provider_trace(
-                step_traces=step_traces,
-                step_name="routing",
-                trace=_provider_error_trace(adapter=llm_adapter, reason=f"routing_error:{type(exc).__name__}"),
-            )
-
-        try:
-            expert_output, expert_trace = await _try_llm_json_step(
-                adapter=llm_adapter,
-                step_name="expert",
-                prompt_text=prompts["expert"],
-                request_payload={
-                    "post_text": _safe_text(post_text, max_len=1600),
-                    "comments": [_safe_text(item, max_len=260) for item in comments[:20]],
-                    "status_hint": target_status,
-                    "analytical_sufficiency": analytical_sufficiency,
-                    "retrieval": retrieval_trace,
-                    "retrieval_instruction": "Use retrieval evidence only when retrieval.used is true; otherwise do not add external facts.",
-                },
-            )
-            _apply_step_provider_trace(step_traces=step_traces, step_name="expert", trace=expert_trace)
-            if isinstance(expert_output, dict):
-                normalized_expert = _normalize_expert_output(
-                    candidate=expert_output,
-                    retrieval_success=retrieval_used and retrieval_status == "success",
-                    data_sufficient=analytical_sufficiency == "sufficient",
-                )
-                retrieval_limited = retrieval_status in {"failed", "insufficient"}
-                local_context_available = bool(_safe_text(post_text, max_len=120)) or any(_safe_text(item, max_len=120) for item in comments)
-                should_degrade_to_limited = retrieval_limited and local_context_available and (
-                    bool(normalized_expert.get("malformed_output"))
-                    or bool(normalized_expert.get("contract_invalid"))
-                    or not _expert_has_structured_claims(normalized_expert)
-                )
-                if should_degrade_to_limited:
-                    normalized_expert = _build_limited_expert_fallback(post_text=post_text, comments=comments)
-                elif retrieval_limited:
-                    normalized_expert["confidence"] = min(float(normalized_expert.get("confidence") or 0.0), 0.55)
-
-                expert_completed = (
-                    not bool(normalized_expert.get("malformed_output"))
-                    and not bool(normalized_expert.get("contract_invalid"))
-                    and _expert_has_structured_claims(normalized_expert)
-                    and float(normalized_expert.get("confidence") or 0.0) > 0.0
-                )
-                apply_step_trace_envelope(
-                    step_traces,
-                    step_name="expert",
-                    mutator=lambda trace: trace.update(
-                        {
-                            "llm_expert": expert_output,
-                            **normalized_expert,
-                            "status": "completed" if expert_completed else "failed",
-                        }
-                    ),
-                )
-        except Exception as exc:
-            _apply_step_provider_trace(
-                step_traces=step_traces,
-                step_name="expert",
-                trace=_provider_error_trace(adapter=llm_adapter, reason=f"expert_error:{type(exc).__name__}"),
-            )
-
-        try:
-            public_output, public_trace = await _try_llm_json_step(
-                adapter=llm_adapter,
-                step_name="public_opinion",
-                prompt_text=prompts["public_opinion"],
-                request_payload={
-                    "post_text": _safe_text(post_text, max_len=1400),
-                    "comments": [_safe_text(item, max_len=260) for item in comments[:40]],
-                    "status_hint": target_status,
-                },
-            )
-            _apply_step_provider_trace(step_traces=step_traces, step_name="public_opinion", trace=public_trace)
-            if isinstance(public_output, dict):
-                apply_step_trace_envelope(
-                    step_traces,
-                    step_name="public_opinion",
-                    mutator=lambda trace: trace.update({"llm_public_opinion": public_output}),
-                )
-        except Exception as exc:
-            _apply_step_provider_trace(
-                step_traces=step_traces,
-                step_name="public_opinion",
-                trace=_provider_error_trace(adapter=llm_adapter, reason=f"public_opinion_error:{type(exc).__name__}"),
-            )
-
-        try:
-            llm_output, synthesis_trace = await _try_llm_json_step(
-                adapter=llm_adapter,
-                step_name="synthesis",
-                prompt_text=prompts["synthesis"],
-                request_payload={
-                    "status_hint": target_status,
-                    "post_text": _safe_text(post_text, max_len=1600),
-                    "comments": [_safe_text(item, max_len=300) for item in comments[:30]],
-                    "retrieval": retrieval_trace,
-                },
-            )
-            _apply_step_provider_trace(step_traces=step_traces, step_name="synthesis", trace=synthesis_trace)
-            if isinstance(llm_output, dict):
-                synthesis_data = _normalize_synthesis_output(candidate=llm_output, fallback=synthesis_data)
-        except Exception as exc:
-            llm_error = f"{type(exc).__name__}: {exc}"
-            _apply_step_provider_trace(
-                step_traces=step_traces,
-                step_name="synthesis",
-                trace=_provider_error_trace(adapter=llm_adapter, reason="synthesis_error"),
-            )
-
-        try:
-            reviewer_llm_output, reviewer_trace = await _try_llm_json_step(
-                adapter=llm_adapter,
-                step_name="reviewer",
-                prompt_text=prompts["reviewer"],
-                request_payload={
-                    "status_hint": target_status,
-                    "synthesis": synthesis_data,
-                    "retrieval_required": retrieval_required,
-                    "retrieval_status": retrieval_status,
-                    "retrieval": retrieval_trace,
-                    "expert": step_traces.get("expert", {}),
-                },
-            )
-            _apply_step_provider_trace(step_traces=step_traces, step_name="reviewer", trace=reviewer_trace)
-            if isinstance(reviewer_llm_output, dict):
-                apply_step_trace_envelope(
-                    step_traces,
-                    step_name="reviewer",
-                    mutator=lambda trace: trace.update({"llm_reviewer": reviewer_llm_output}),
-                )
-        except Exception as exc:
-            _apply_step_provider_trace(
-                step_traces=step_traces,
-                step_name="reviewer",
-                trace=_provider_error_trace(adapter=llm_adapter, reason=f"reviewer_error:{type(exc).__name__}"),
-            )
-
-    llm_reviewer = reviewer_llm_output if isinstance(reviewer_llm_output, dict) else None
-    effective_llm_decision = resolve_effective_review_decision("accept", llm_reviewer) if llm_error is None else ""
-    llm_rerun_target = _infer_reviewer_target(llm_reviewer, default_target="synthesis")
-
-    async def _execute_rerun_cycle(branch: str) -> None:
-        nonlocal llm_error, llm_output, reviewer_llm_output, synthesis_data
         if llm_adapter is None:
-            return
-        try:
-            if branch == "context":
+            cfg = OpenAIAdapterConfig.from_settings()
+            if cfg.api_key:
+                llm_adapter = OpenAIClientAdapter(cfg)
+
+        llm_error: str | None = None
+        llm_output: dict[str, Any] | None = None
+        reviewer_llm_output: dict[str, Any] | None = None
+        if llm_adapter is not None:
+            try:
                 context_output, context_trace = await _try_llm_json_step(
                     adapter=llm_adapter,
                     step_name="context",
@@ -1317,41 +1043,175 @@ async def generate_post_report_payload_v2(
                     request_payload={
                         "post_text": _safe_text(post_text, max_len=1600),
                         "comments": [_safe_text(item, max_len=300) for item in comments[:30]],
-                        "status_hint": target_status,
                     },
                 )
+                context_output = _safe_dict(context_output)
                 _apply_step_provider_trace(step_traces=step_traces, step_name="context", trace=context_trace)
                 if isinstance(context_output, dict):
-                    apply_step_trace_envelope(step_traces, step_name="context", mutator=lambda trace: trace.update({"llm_context": context_output}))
-            elif branch == "routing":
+                    apply_step_trace_envelope(
+                        step_traces,
+                        step_name="context",
+                        mutator=lambda trace: trace.update({"llm_context": context_output}),
+                    )
+            except Exception as exc:
+                _apply_step_provider_trace(
+                    step_traces=step_traces,
+                    step_name="context",
+                    trace=_provider_error_trace(adapter=llm_adapter, reason=f"context_error:{type(exc).__name__}"),
+                )
+
+            custom_search_queries = []
+
+            try:
                 routing_output, routing_trace = await _try_llm_json_step(
                     adapter=llm_adapter,
                     step_name="routing",
                     prompt_text=prompts["routing"],
                     request_payload={
                         "post_text": _safe_text(post_text, max_len=1600),
-                        "status_hint": target_status,
                         "retrieval_hints": retrieval_inputs,
                     },
                 )
+                routing_output = _safe_dict(routing_output)
                 _apply_step_provider_trace(step_traces=step_traces, step_name="routing", trace=routing_trace)
+                
                 if isinstance(routing_output, dict):
-                    apply_step_trace_envelope(step_traces, step_name="routing", mutator=lambda trace: trace.update({"llm_routing": routing_output}))
-            elif branch == "expert":
-                expert_output, expert_trace = await _try_llm_json_step(
-                    adapter=llm_adapter,
-                    step_name="expert",
-                    prompt_text=prompts["expert"],
-                    request_payload={
-                        "post_text": _safe_text(post_text, max_len=1600),
-                        "comments": [_safe_text(item, max_len=260) for item in comments[:20]],
-                        "status_hint": target_status,
-                        "analytical_sufficiency": analytical_sufficiency,
-                        "retrieval": retrieval_trace,
-                        "retrieval_instruction": "Use retrieval evidence only when retrieval.used is true; otherwise do not add external facts.",
-                    },
+                    custom_search_queries = routing_output.get("search_queries", [])
+                    apply_step_trace_envelope(
+                        step_traces,
+                        step_name="routing",
+                        mutator=lambda trace: trace.update({
+                    "llm_routing": routing_output,
+                    "search_queries": custom_search_queries,
+                        }),
+                    )
+                    if custom_search_queries:
+                        logger.info(
+                            "Routing generated %d search queries for post_id=%s: %s",
+                            len(custom_search_queries),
+                            post_id,
+                            [q.get("text") for q in custom_search_queries[:5]]
+                        )
+                    else:
+                        logger.debug("No search_queries field in routing output for post_id=%s", post_id)
+                else:
+                    custom_search_queries = []
+            except Exception as exc:
+                _apply_step_provider_trace(
+                    step_traces=step_traces,
+                    step_name="routing",
+                    trace=_provider_error_trace(adapter=llm_adapter, reason=f"routing_error:{type(exc).__name__}"),
                 )
+                logger.warning("Routing failed for post_id=%s, error=%s, falling back to default queries", post_id, exc)
+                custom_search_queries = []
+
+            if retrieval_required:
+                retrieval_params = {
+                    **retrieval_request,
+                    "category": str((effective_features or {}).get("retrieval_category") or "news"),
+                }
+                logger.info(
+                    f"Initiating SearXNG retrieval for post_id={post_id}. "
+                    f"Query hint/text preview: {retrieval_request.get('post_text')[:100]}..."
+                )
+                logger.debug(f"SearXNG retrieval full payload: {json.dumps(retrieval_params, ensure_ascii=False)}")
+                try:
+                    retrieval_pack = await run_retrieval_manager(
+                        retrieval_provider,
+                        retrieval_params,
+                        custom_queries=custom_search_queries if custom_search_queries else None,
+                    )
+                    sources_count = len(retrieval_pack.get("sources") or [])
+                    logger.info(
+                        f"SearXNG retrieval completed for post_id={post_id}. "
+                        f"Status: {retrieval_pack.get('status')}, Found sources: {sources_count}"
+                    )
+                    logger.debug(f"SearXNG raw results sample: {list(retrieval_pack.get('sources') or [])[:3]}")
+                except Exception as e:
+                    logger.error(f"SearXNG retrieval failed for post_id={post_id} due to error: {str(e)}", exc_info=True)
+                    raise e
+            else:
+                logger.info(f"SearXNG retrieval skipped for post_id={post_id} (retrieval_required=False).")
+                retrieval_pack = {
+                    "status": "none",
+                    "quality_score": 0.0,
+                    "sources": [],
+                    "facts": [],
+                    "conflicts": [],
+                    "gaps": [],
+                    "diagnostics": {},
+                    "raw_results": [],
+                }
+
+            retrieval_provider_sources = list(retrieval_pack.get("sources") or [])
+            provider_enabled = retrieval_provider is not None or bool(
+                (effective_features or {}).get("retrieval_provider_enabled", False)
+            )
+            retrieval_trace = build_retrieval_trace(
+                required=retrieval_required,
+                provider_enabled=provider_enabled,
+                sources=retrieval_provider_sources,
+                decision_inputs=retrieval_inputs,
+                decision_source="retrieval_policy",
+                status_override=str(retrieval_pack.get("status") or "success"),
+                quality_score=float(retrieval_pack.get("quality_score") or 0.0),
+                facts=list(retrieval_pack.get("facts") or []),
+                conflicts=list(retrieval_pack.get("conflicts") or []),
+                gaps=[str(item) for item in list(retrieval_pack.get("gaps") or [])],
+                diagnostics=dict(retrieval_pack.get("diagnostics") or {}),
+                raw_results=list(retrieval_pack.get("raw_results") or []),
+            )
+
+            retrieval_used = bool(retrieval_trace["used"])
+            retrieval_status = str(retrieval_trace["status"])
+            retrieval_sources = list(retrieval_trace["sources"])
+
+            retrieval_sufficiency = assess_retrieval_sufficiency(
+                required=retrieval_required,
+                used=retrieval_used,
+                status=retrieval_status,
+                sources=retrieval_sources,
+            )
+            analytical_sufficiency = assess_analytical_sufficiency(
+                article=article_sufficiency,
+                comment=comment_sufficiency,
+                retrieval=retrieval_sufficiency,
+            )
+            target_status = aggregate_public_status(
+                article=article_sufficiency,
+                comment=comment_sufficiency,
+                retrieval=retrieval_sufficiency,
+                analytical=analytical_sufficiency,
+            )
+            public_opinion_trace = _build_public_opinion_trace(
+                post_text=post_text,
+                comments=comments,
+                comment_sufficiency=comment_sufficiency,
+                analytical_sufficiency=analytical_sufficiency,
+            )
+            synthesis_data = _build_deterministic_synthesis(
+                post_text=post_text,
+                comment_count=len(comments),
+                status=target_status,
+                public_opinion=public_opinion_trace,
+                retrieval_required=retrieval_required,
+                retrieval_status=retrieval_status,
+            )
+            try:
+                expert_output, expert_trace = await _try_llm_json_step(adapter=llm_adapter,
+                        step_name="expert",
+                        prompt_text=prompts["expert"],
+                        request_payload={
+                            "post_text": _safe_text(post_text, max_len=1600),
+                            "comments": [_safe_text(item, max_len=260) for item in comments[:20]],
+                            "status_hint": target_status,
+                            "analytical_sufficiency": analytical_sufficiency,
+                            "retrieval": _simplify_retrieval_for_expert(retrieval_trace),
+                            "retrieval_instruction": "Используйте данные для поиска только тогда, когда retrieval.used имеет значение true; в противном случае не добавляйте внешние факты.",
+                        },)
+                expert_output = _safe_dict(expert_output)
                 _apply_step_provider_trace(step_traces=step_traces, step_name="expert", trace=expert_trace)
+                
                 if isinstance(expert_output, dict):
                     normalized_expert = _normalize_expert_output(
                         candidate=expert_output,
@@ -1387,7 +1247,35 @@ async def generate_post_report_payload_v2(
                             }
                         ),
                     )
-            elif branch == "public_opinion":
+                else:
+                    # LLM вернул невалидный JSON или None – используем fallback
+                    normalized_expert = _build_limited_expert_fallback(post_text=post_text, comments=comments)
+                    normalized_expert["malformed_output"] = True
+                    normalized_expert["contract_invalid"] = True
+                    expert_completed = False
+                    apply_step_trace_envelope(
+                        step_traces,
+                        step_name="expert",
+                        mutator=lambda trace: trace.update(
+                            {
+                                "llm_expert": None,
+                                **normalized_expert,
+                                "status": "failed",
+                            }
+                        ),
+                    )
+                    logger.warning(
+                        "Expert step returned invalid JSON for post_id=%s, using fallback. trace=%s",
+                        post_id, expert_trace
+                    )
+            except Exception as exc:
+                _apply_step_provider_trace(
+                    step_traces=step_traces,
+                    step_name="expert",
+                    trace=_provider_error_trace(adapter=llm_adapter, reason=f"expert_error:{type(exc).__name__}"),
+                )
+
+            try:
                 public_output, public_trace = await _try_llm_json_step(
                     adapter=llm_adapter,
                     step_name="public_opinion",
@@ -1398,353 +1286,606 @@ async def generate_post_report_payload_v2(
                         "status_hint": target_status,
                     },
                 )
+                public_output = _safe_dict(public_output)
                 _apply_step_provider_trace(step_traces=step_traces, step_name="public_opinion", trace=public_trace)
                 if isinstance(public_output, dict):
-                    apply_step_trace_envelope(step_traces, step_name="public_opinion", mutator=lambda trace: trace.update({"llm_public_opinion": public_output}))
+                    apply_step_trace_envelope(
+                        step_traces,
+                        step_name="public_opinion",
+                        mutator=lambda trace: trace.update({"llm_public_opinion": public_output}),
+                    )
+            except Exception as exc:
+                _apply_step_provider_trace(
+                    step_traces=step_traces,
+                    step_name="public_opinion",
+                    trace=_provider_error_trace(adapter=llm_adapter, reason=f"public_opinion_error:{type(exc).__name__}"),
+                )
 
-            llm_output, synthesis_trace = await _try_llm_json_step(
-                adapter=llm_adapter,
-                step_name="synthesis",
-                prompt_text=prompts["synthesis"],
-                request_payload={
-                    "status_hint": target_status,
-                    "post_text": _safe_text(post_text, max_len=1600),
-                    "comments": [_safe_text(item, max_len=300) for item in comments[:30]],
-                    "retrieval": retrieval_trace,
-                },
-            )
-            _apply_step_provider_trace(step_traces=step_traces, step_name="synthesis", trace=synthesis_trace)
-            if isinstance(llm_output, dict):
-                synthesis_data = _normalize_synthesis_output(candidate=llm_output, fallback=synthesis_data)
-            llm_error = None
+            try:
+                llm_output, synthesis_trace = await _try_llm_json_step(
+                    adapter=llm_adapter,
+                    step_name="synthesis",
+                    prompt_text=prompts["synthesis"],
+                    request_payload={
+                        "status_hint": target_status,
+                        "post_text": _safe_text(post_text, max_len=1600),
+                        "comments": [_safe_text(item, max_len=300) for item in comments[:30]],
+                        "retrieval": retrieval_trace,
+                    },
+                )
+                llm_output = _safe_dict(llm_output)
+                _apply_step_provider_trace(step_traces=step_traces, step_name="synthesis", trace=synthesis_trace)
+                if isinstance(llm_output, dict):
+                    synthesis_data = _normalize_synthesis_output(candidate=llm_output, fallback=synthesis_data)
+                    logger.info("✅ synthesis_data updated from LLM for post_id=%s, preview=%s",
+                                post_id, synthesis_data.get("report_text", "")[:100])
+                else:
+                    logger.warning("❌ LLM synthesis output invalid for post_id=%s, using fallback", post_id)
+            except Exception as exc:
+                llm_error = f"{type(exc).__name__}: {exc}"
+                _apply_step_provider_trace(
+                    step_traces=step_traces,
+                    step_name="synthesis",
+                    trace=_provider_error_trace(adapter=llm_adapter, reason="synthesis_error"),
+                )
 
-            reviewer_llm_output, reviewer_trace = await _try_llm_json_step(
-                adapter=llm_adapter,
-                step_name="reviewer",
-                prompt_text=prompts["reviewer"],
-                request_payload={
-                    "status_hint": target_status,
-                    "synthesis": synthesis_data,
-                    "retrieval_required": retrieval_required,
-                    "retrieval_status": retrieval_status,
-                    "retrieval": retrieval_trace,
-                    "expert": step_traces.get("expert", {}),
-                },
-            )
-            _apply_step_provider_trace(step_traces=step_traces, step_name="reviewer", trace=reviewer_trace)
-            if isinstance(reviewer_llm_output, dict):
-                apply_step_trace_envelope(step_traces, step_name="reviewer", mutator=lambda trace: trace.update({"llm_reviewer": reviewer_llm_output}))
-        except Exception as exc:
-            llm_error = f"{type(exc).__name__}: {exc}"
+            try:
+                reviewer_llm_output, reviewer_trace = await _try_llm_json_step(
+                    adapter=llm_adapter,
+                    step_name="reviewer",
+                    prompt_text=prompts["reviewer"],
+                    request_payload={
+                        "status_hint": target_status,
+                        "context": step_traces.get("context", {}),   
+                        "routing": step_traces.get("routing", {}),   
+                        "public_opinion": step_traces.get("public_opinion", {}),
+                        "synthesis": synthesis_data,
+                        "retrieval_required": retrieval_required,
+                        "retrieval_status": retrieval_status,
+                        "retrieval": retrieval_trace,
+                        "expert": step_traces.get("expert", {}),
+                    },
+                )
+                reviewer_llm_output = _safe_dict(reviewer_llm_output)
+                _apply_step_provider_trace(step_traces=step_traces, step_name="reviewer", trace=reviewer_trace)
+                if isinstance(reviewer_llm_output, dict):
+                    apply_step_trace_envelope(
+                        step_traces,
+                        step_name="reviewer",
+                        mutator=lambda trace: trace.update({"llm_reviewer": reviewer_llm_output}),
+                    )
+            except Exception as exc:
+                _apply_step_provider_trace(
+                    step_traces=step_traces,
+                    step_name="reviewer",
+                    trace=_provider_error_trace(adapter=llm_adapter, reason=f"reviewer_error:{type(exc).__name__}"),
+                )
 
-    review_history: list[dict[str, Any]] = []
-    review_reruns = 0
-    pending_rerun = requested_rerun if requested_rerun in {"context", "routing", "expert", "public_opinion", "synthesis"} else None
-    pending_reason = "manual_rerun_request" if pending_rerun else ""
-    if pending_rerun is None and llm_error is not None:
-        pending_rerun = "synthesis"
-        pending_reason = "synthesis_error"
-    if pending_rerun is None and effective_llm_decision == "rerun_branch":
-        pending_rerun = llm_rerun_target
-        pending_reason = "llm_reviewer_requested_rerun"
-
-    while pending_rerun is not None and review_reruns < REVIEW_MAX_ITERATIONS:
-        request_step_rerun(step_traces, step_name=pending_rerun)
-        if pending_rerun != "synthesis":
-            request_step_rerun(step_traces, step_name="synthesis")
-        review_reruns += 1
-        review_history.append(
-            {
-                "iteration": len(review_history) + 1,
-                "decision": "rerun_branch",
-                "target": pending_rerun,
-                "reason": pending_reason,
-                "confidence": 1.0,
-            }
-        )
-        await _execute_rerun_cycle(pending_rerun)
         llm_reviewer = reviewer_llm_output if isinstance(reviewer_llm_output, dict) else None
         effective_llm_decision = resolve_effective_review_decision("accept", llm_reviewer) if llm_error is None else ""
-        next_target = _infer_reviewer_target(llm_reviewer, default_target="synthesis")
-        if llm_error is not None and review_reruns < REVIEW_MAX_ITERATIONS:
+        llm_rerun_target = _infer_reviewer_target(llm_reviewer, default_target="synthesis")
+
+        async def _execute_rerun_cycle(branch: str) -> None:
+            nonlocal llm_error, llm_output, reviewer_llm_output, synthesis_data
+            if llm_adapter is None:
+                return
+            try:
+                if branch == "context":
+                    context_output, context_trace = await _try_llm_json_step(
+                        adapter=llm_adapter,
+                        step_name="context",
+                        prompt_text=prompts["context"],
+                        request_payload={
+                            "post_text": _safe_text(post_text, max_len=1600),
+                            "comments": [_safe_text(item, max_len=300) for item in comments[:30]],
+                            "status_hint": target_status,
+                        },
+                    )
+                    context_output = _safe_dict(context_output)
+                    _apply_step_provider_trace(step_traces=step_traces, step_name="context", trace=context_trace)
+                    if isinstance(context_output, dict):
+                        apply_step_trace_envelope(step_traces, step_name="context", mutator=lambda trace: trace.update({"llm_context": context_output}))
+                elif branch == "routing":
+                    routing_output, routing_trace = await _try_llm_json_step(
+                        adapter=llm_adapter,
+                        step_name="routing",
+                        prompt_text=prompts["routing"],
+                        request_payload={
+                            "post_text": _safe_text(post_text, max_len=1600),
+                            "status_hint": target_status,
+                            "retrieval_hints": retrieval_inputs,
+                        },
+                    )
+                    routing_output = _safe_dict(routing_output)
+                    _apply_step_provider_trace(step_traces=step_traces, step_name="routing", trace=routing_trace)
+                    if isinstance(routing_output, dict):
+                        apply_step_trace_envelope(step_traces, step_name="routing", mutator=lambda trace: trace.update({"llm_routing": routing_output}))
+                elif branch == "expert":
+                    expert_output, expert_trace = await _try_llm_json_step(
+                        adapter=llm_adapter,
+                        step_name="expert",
+                        prompt_text=prompts["expert"],
+                        request_payload={
+                            "post_text": _safe_text(post_text, max_len=1600),
+                            "comments": [_safe_text(item, max_len=260) for item in comments[:20]],
+                            "status_hint": target_status,
+                            "analytical_sufficiency": analytical_sufficiency,
+                            "retrieval": _simplify_retrieval_for_expert(retrieval_trace),
+                            "retrieval_instruction": "Используйте данные для поиска только тогда, когда retrieval.used имеет значение true; в противном случае не добавляйте внешние факты..",
+                        },
+                    )
+                    expert_output = _safe_dict(expert_output)
+                    _apply_step_provider_trace(step_traces=step_traces, step_name="expert", trace=expert_trace)
+                    if isinstance(expert_output, dict):
+                        normalized_expert = _normalize_expert_output(
+                            candidate=expert_output,
+                            retrieval_success=retrieval_used and retrieval_status == "success",
+                            data_sufficient=analytical_sufficiency == "sufficient",
+                        )
+                        retrieval_limited = retrieval_status in {"failed", "insufficient"}
+                        local_context_available = bool(_safe_text(post_text, max_len=120)) or any(_safe_text(item, max_len=120) for item in comments)
+                        should_degrade_to_limited = retrieval_limited and local_context_available and (
+                            bool(normalized_expert.get("malformed_output"))
+                            or bool(normalized_expert.get("contract_invalid"))
+                            or not _expert_has_structured_claims(normalized_expert)
+                        )
+                        if should_degrade_to_limited:
+                            normalized_expert = _build_limited_expert_fallback(post_text=post_text, comments=comments)
+                        elif retrieval_limited:
+                            normalized_expert["confidence"] = min(float(normalized_expert.get("confidence") or 0.0), 0.55)
+
+                        expert_completed = (
+                            not bool(normalized_expert.get("malformed_output"))
+                            and not bool(normalized_expert.get("contract_invalid"))
+                            and _expert_has_structured_claims(normalized_expert)
+                            and float(normalized_expert.get("confidence") or 0.0) > 0.0
+                        )
+                        apply_step_trace_envelope(
+                            step_traces,
+                            step_name="expert",
+                            mutator=lambda trace: trace.update(
+                                {
+                                    "llm_expert": expert_output,
+                                    **normalized_expert,
+                                    "status": "completed" if expert_completed else "failed",
+                                }
+                            ),
+                        )
+                elif branch == "public_opinion":
+                    public_output, public_trace = await _try_llm_json_step(
+                        adapter=llm_adapter,
+                        step_name="public_opinion",
+                        prompt_text=prompts["public_opinion"],
+                        request_payload={
+                            "post_text": _safe_text(post_text, max_len=1400),
+                            "comments": [_safe_text(item, max_len=260) for item in comments[:40]],
+                            "status_hint": target_status,
+                        },
+                    )
+                    public_output = _safe_dict(public_output)
+                    _apply_step_provider_trace(step_traces=step_traces, step_name="public_opinion", trace=public_trace)
+                    if isinstance(public_output, dict):
+                        apply_step_trace_envelope(step_traces, step_name="public_opinion", mutator=lambda trace: trace.update({"llm_public_opinion": public_output}))
+
+                llm_output, synthesis_trace = await _try_llm_json_step(
+                    adapter=llm_adapter,
+                    step_name="synthesis",
+                    prompt_text=prompts["synthesis"],
+                    request_payload={
+                        "status_hint": target_status,
+                        "post_text": _safe_text(post_text, max_len=1600),
+                        "comments": [_safe_text(item, max_len=300) for item in comments[:30]],
+                        "retrieval": retrieval_trace,
+                    },
+                )
+                llm_output = _safe_dict(llm_output)
+                _apply_step_provider_trace(step_traces=step_traces, step_name="synthesis", trace=synthesis_trace)
+                if isinstance(llm_output, dict):
+                    synthesis_data = _normalize_synthesis_output(candidate=llm_output, fallback=synthesis_data)
+                    logger.info("✅ synthesis_data updated from LLM for post_id=%s, preview=%s",
+                                post_id, synthesis_data.get("report_text", "")[:100])
+                else:
+                    logger.warning("❌ LLM synthesis output invalid for post_id=%s, using fallback", post_id)
+                llm_error = None
+
+                reviewer_llm_output, reviewer_trace = await _try_llm_json_step(
+                    adapter=llm_adapter,
+                    step_name="reviewer",
+                    prompt_text=prompts["reviewer"],
+                    request_payload={
+                        "status_hint": target_status,
+                        "context": step_traces.get("context", {}), 
+                        "routing": step_traces.get("routing", {}),
+                        "public_opinion": step_traces.get("public_opinion", {}),  
+                        "synthesis": synthesis_data,
+                        "retrieval_required": retrieval_required,
+                        "retrieval_status": retrieval_status,
+                        "retrieval": retrieval_trace,
+                        "expert": step_traces.get("expert", {}),
+                    },
+                )
+                reviewer_llm_output = _safe_dict(reviewer_llm_output)
+                _apply_step_provider_trace(step_traces=step_traces, step_name="reviewer", trace=reviewer_trace)
+                if isinstance(reviewer_llm_output, dict):
+                    apply_step_trace_envelope(step_traces, step_name="reviewer", mutator=lambda trace: trace.update({"llm_reviewer": reviewer_llm_output}))
+            except Exception as exc:
+                llm_error = f"{type(exc).__name__}: {exc}"
+
+        review_history: list[dict[str, Any]] = []
+        review_reruns = 0
+        pending_rerun = requested_rerun if requested_rerun in {"context", "routing", "expert", "public_opinion", "synthesis"} else None
+        pending_reason = "manual_rerun_request" if pending_rerun else ""
+
+        if pending_rerun is None and llm_error is not None:
             pending_rerun = "synthesis"
             pending_reason = "synthesis_error"
-        elif effective_llm_decision == "rerun_branch" and review_reruns < REVIEW_MAX_ITERATIONS:
-            pending_rerun = next_target
-            pending_reason = "llm_reviewer_requested_rerun"
-        else:
-            pending_rerun = None
-            pending_reason = ""
 
-    if pending_rerun is not None:
-        target_status = "limited" if target_status == "ready" else target_status
-        review_history.append(
-            {
-                "iteration": len(review_history) + 1,
-                "decision": "accept_with_limitations",
-                "target": pending_rerun,
-                "reason": "rerun_limit_exhausted",
-                "confidence": 0.4,
-            }
-        )
 
-    llm_reviewer_has_issues = _has_reviewer_issues(llm_reviewer)
+        if pending_rerun is None and effective_llm_decision in ("rerun_branch", "revise"):
+            pending_rerun = llm_rerun_target
+            pending_reason = f"llm_reviewer_requested_{effective_llm_decision}"
 
-    if llm_error is None:
-        if effective_llm_decision == "revise":
+        if pending_rerun is None and effective_llm_decision == "revise":
+            pending_rerun = "synthesis"
+            pending_reason = "revise_without_target"
+
+        while pending_rerun is not None and review_reruns < REVIEW_MAX_ITERATIONS:
+            request_step_rerun(step_traces, step_name=pending_rerun)
+            if pending_rerun != "synthesis":
+                request_step_rerun(step_traces, step_name="synthesis")
+            review_reruns += 1
+            review_history.append(
+                {
+                    "iteration": len(review_history) + 1,
+                    "decision": "rerun_branch",
+                    "target": pending_rerun,
+                    "reason": pending_reason,
+                    "confidence": 1.0,
+                }
+            )
+            await _execute_rerun_cycle(pending_rerun)
+            llm_reviewer = reviewer_llm_output if isinstance(reviewer_llm_output, dict) else None
+            effective_llm_decision = resolve_effective_review_decision("accept", llm_reviewer) if llm_error is None else ""
+            next_target = _infer_reviewer_target(llm_reviewer, default_target="synthesis")
+            if llm_error is not None and review_reruns < REVIEW_MAX_ITERATIONS:
+                pending_rerun = "synthesis"
+                pending_reason = "synthesis_error"
+            elif effective_llm_decision == "rerun_branch" and review_reruns < REVIEW_MAX_ITERATIONS:
+                pending_rerun = next_target
+                pending_reason = "llm_reviewer_requested_rerun"
+            else:
+                pending_rerun = None
+                pending_reason = ""
+
+        if pending_rerun is not None:
             target_status = "limited" if target_status == "ready" else target_status
             review_history.append(
                 {
                     "iteration": len(review_history) + 1,
-                    "decision": "revise",
-                    "target": _infer_reviewer_target(llm_reviewer, default_target="synthesis"),
-                    "reason": "llm_reviewer_issues",
-                    "confidence": 0.45,
-                }
-            )
-        elif effective_llm_decision == "insufficient_data":
-            target_status = "insufficient_data"
-            review_history.append(
-                {
-                    "iteration": len(review_history) + 1,
-                    "decision": "insufficient_data",
-                    "target": _infer_reviewer_target(llm_reviewer, default_target="synthesis"),
-                    "reason": "llm_reviewer_issues",
-                    "confidence": 0.0,
+                    "decision": "accept_with_limitations",
+                    "target": pending_rerun,
+                    "reason": "rerun_limit_exhausted",
+                    "confidence": 0.4,
                 }
             )
 
-        reviewer_defects = _collect_reviewer_defects(
-            status=target_status,
-            synthesis=synthesis_data,
-            public_opinion=public_opinion_trace,
-            expert=step_traces.get("expert", {}),
-            retrieval_required=retrieval_required,
-            retrieval_status=retrieval_status,
-            retrieval_used=retrieval_used,
-            retrieval_sources=retrieval_sources,
-        )
+        llm_reviewer_has_issues = _has_reviewer_issues(llm_reviewer)
 
-        if reviewer_defects:
-            primary = reviewer_defects[0]
-            code = str(primary.get("code") or "")
-            target = str(primary.get("target") or "")
-            if code == "D1":
-                if target_status == "ready":
-                    target_status = "limited"
-                review_history.append(
-                    {
-                        "iteration": len(review_history) + 1,
-                        "decision": "rerun_branch",
-                        "target": target or "synthesis",
-                        "reason": f"{code}:{primary.get('reason')}",
-                        "confidence": 0.4,
-                    }
-                )
-                review_reruns += 1
-            elif code == "D2":
-                if target_status == "ready":
-                    target_status = "limited"
+        if llm_error is None:
+            if effective_llm_decision == "revise":
+                target_status = "limited" if target_status == "ready" else target_status
                 review_history.append(
                     {
                         "iteration": len(review_history) + 1,
                         "decision": "revise",
-                        "target": target or "synthesis",
-                        "reason": f"{code}:{primary.get('reason')}",
+                        "target": _infer_reviewer_target(llm_reviewer, default_target="synthesis"),
+                        "reason": "llm_reviewer_issues",
                         "confidence": 0.45,
                     }
                 )
-            elif code in {"D3", "D4"}:
+            elif effective_llm_decision == "insufficient_data":
                 target_status = "insufficient_data"
                 review_history.append(
                     {
                         "iteration": len(review_history) + 1,
                         "decision": "insufficient_data",
-                        "target": target or None,
-                        "reason": f"{code}:{primary.get('reason')}",
+                        "target": _infer_reviewer_target(llm_reviewer, default_target="synthesis"),
+                        "reason": "llm_reviewer_issues",
                         "confidence": 0.0,
                     }
                 )
-            else:
-                target_status = "limited" if target_status == "ready" else target_status
+
+            reviewer_defects = _collect_reviewer_defects(
+                status=target_status,
+                synthesis=synthesis_data,
+                public_opinion=public_opinion_trace,
+                expert=step_traces.get("expert", {}),
+                retrieval_required=retrieval_required,
+                retrieval_status=retrieval_status,
+                retrieval_used=retrieval_used,
+                retrieval_sources=retrieval_sources,
+            )
+
+            if reviewer_defects:
+                primary = reviewer_defects[0]
+                code = str(primary.get("code") or "")
+                target = str(primary.get("target") or "")
+                if code == "D1":
+                    if target_status == "ready":
+                        target_status = "limited"
+                    review_history.append(
+                        {
+                            "iteration": len(review_history) + 1,
+                            "decision": "rerun_branch",
+                            "target": target or "synthesis",
+                            "reason": f"{code}:{primary.get('reason')}",
+                            "confidence": 0.4,
+                        }
+                    )
+                    review_reruns += 1
+                elif code == "D2":
+                    if target_status == "ready":
+                        target_status = "limited"
+                    review_history.append(
+                        {
+                            "iteration": len(review_history) + 1,
+                            "decision": "revise",
+                            "target": target or "synthesis",
+                            "reason": f"{code}:{primary.get('reason')}",
+                            "confidence": 0.45,
+                        }
+                    )
+                elif code in {"D3", "D4"}:
+                    target_status = "insufficient_data"
+                    review_history.append(
+                        {
+                            "iteration": len(review_history) + 1,
+                            "decision": "insufficient_data",
+                            "target": target or None,
+                            "reason": f"{code}:{primary.get('reason')}",
+                            "confidence": 0.0,
+                        }
+                    )
+                else:
+                    target_status = "limited" if target_status == "ready" else target_status
+                    review_history.append(
+                        {
+                            "iteration": len(review_history) + 1,
+                            "decision": "accept_with_limitations",
+                            "target": target or None,
+                            "reason": f"{code}:{primary.get('reason')}",
+                            "confidence": 0.5,
+                        }
+                    )
+
+            if reviewer_defects and target_status == "ready":
+                target_status = "limited"
                 review_history.append(
                     {
                         "iteration": len(review_history) + 1,
                         "decision": "accept_with_limitations",
-                        "target": target or None,
-                        "reason": f"{code}:{primary.get('reason')}",
-                        "confidence": 0.5,
+                        "target": None,
+                        "reason": "blocking_defects_present",
+                        "confidence": 0.4,
                     }
                 )
 
-        if reviewer_defects and target_status == "ready":
-            target_status = "limited"
+            if retrieval_required and retrieval_status in {"failed", "insufficient", "none"}:
+                target_status = "limited" if target_status == "ready" else target_status
+
+            if target_status == "ready" and not is_canonical_openrouter_ready_path(step_traces):
+                target_status = "limited"
+                review_history.append(
+                    {
+                        "iteration": len(review_history) + 1,
+                        "decision": "accept_with_limitations",
+                        "target": None,
+                        "reason": "non_canonical_execution_path",
+                        "confidence": 0.4,
+                    }
+                )
+
+        if llm_error is not None:
+            final_status = "insufficient_data"
             review_history.append(
                 {
                     "iteration": len(review_history) + 1,
-                    "decision": "accept_with_limitations",
-                    "target": None,
-                    "reason": "blocking_defects_present",
-                    "confidence": 0.4,
+                    "decision": "insufficient_data",
+                    "target": "synthesis",
+                    "reason": "synthesis_error",
+                    "confidence": 0.0,
                 }
             )
-
-        if retrieval_required and retrieval_status in {"failed", "insufficient", "none"}:
-            target_status = "limited" if target_status == "ready" else target_status
-
-        if target_status == "ready" and not is_canonical_openrouter_ready_path(step_traces):
-            target_status = "limited"
-            review_history.append(
-                {
-                    "iteration": len(review_history) + 1,
-                    "decision": "accept_with_limitations",
-                    "target": None,
-                    "reason": "non_canonical_execution_path",
-                    "confidence": 0.4,
-                }
+            payload = _build_base_payload(
+                post_id=post_id,
+                published_at_iso=published_at_iso,
+                post_text=post_text,
+                comments=comments,
+                status="insufficient_data",
+                summary="Synthesis failed after reviewer loop; returning insufficient_data.",
+                confidence_reason="model_output_invalid",
             )
+            payload["anomalies"] = ["model_output_invalid"]
+            payload["meta"] = {"validation_error": llm_error}
+        else:
+            had_blocking_review_signal = any(
+                str(item.get("decision") or "") in BLOCKING_REVIEW_DECISIONS for item in review_history
+            )
+            had_any_issues = llm_reviewer_has_issues or bool(reviewer_defects)
+            if had_blocking_review_signal and target_status == "ready":
+                target_status = "limited"
 
-    if llm_error is not None:
-        final_status = "insufficient_data"
-        review_history.append(
+            if had_any_issues:
+                if target_status == "ready":
+                    target_status = "limited"
+                if had_blocking_review_signal:
+                    review_decision = "accept_with_limitations" if target_status == "limited" else "insufficient_data"
+                    review_reason = "issues_present"
+                else:
+                    review_decision = "accept_with_limitations" if target_status == "limited" else "insufficient_data"
+                    review_reason = "issues_present"
+            else:
+                if target_status == "ready":
+                    review_decision = "accept"
+                elif target_status == "limited":
+                    review_decision = "accept_with_limitations"
+                else:
+                    review_decision = "insufficient_data"
+                review_reason = analytical_sufficiency
+            if review_decision:
+                review_history.append(
+                    {
+                        "iteration": len(review_history) + 1,
+                        "decision": review_decision,
+                        "target": None,
+                        "reason": review_reason,
+                        "confidence": 0.8 if target_status == "ready" else 0.6,
+                    }
+                )
+            aggregated_status = aggregate_sufficiency_status(step_traces)
+            if aggregated_status == "insufficient_data":
+                target_status = "insufficient_data"
+            elif aggregated_status == "limited" and target_status == "ready":
+                target_status = "limited"
+
+            final_status = target_status
+            if had_any_issues:
+                synthesis_data["quality"] = "needs_revision"
+            if final_status == "limited":
+                synthesis_data["report_text"] = _ensure_limited_summary_markers(str(synthesis_data.get("report_text") or ""))
+
+            confidence_reason = str(synthesis_data.get("confidence_reason") or "deterministic_spec_synthesis")
+            if final_status == "limited" and retrieval_required and retrieval_status in {"failed", "insufficient", "none"}:
+                confidence_reason = "required_retrieval_unavailable"
+            payload = _build_base_payload(
+                post_id=post_id,
+                published_at_iso=published_at_iso,
+                post_text=post_text,
+                comments=comments,
+                status=target_status,
+                summary=str(synthesis_data["report_text"]),
+                confidence_reason=confidence_reason,
+            )
+            if isinstance(llm_output, dict) and isinstance(llm_output.get("topics"), list):
+                payload["topics"] = llm_output.get("topics")
+            elif public_opinion_trace.get("main_topics"):
+                payload["topics"] = [{"name": topic} for topic in list(public_opinion_trace.get("main_topics") or [])]
+
+        last_decision = review_history[-1]["decision"] if review_history else "insufficient_data"
+
+        step_traces["reviewer"].update(
             {
-                "iteration": len(review_history) + 1,
-                "decision": "insufficient_data",
-                "target": "synthesis",
-                "reason": "synthesis_error",
-                "confidence": 0.0,
+                "decision": last_decision,
+                "iterations": len(review_history),
+                "rerun_iterations": len([item for item in review_history if str(item.get("decision")) == "rerun_branch"]),
+                "history": review_history,
             }
         )
-        payload = _build_base_payload(
-            post_id=post_id,
-            published_at_iso=published_at_iso,
-            post_text=post_text,
-            comments=comments,
-            status="insufficient_data",
-            summary="Synthesis failed after reviewer loop; returning insufficient_data.",
-            confidence_reason="model_output_invalid",
-        )
-        payload["anomalies"] = ["model_output_invalid"]
-        payload["meta"] = {"validation_error": llm_error}
-    else:
-        had_blocking_review_signal = any(
-            str(item.get("decision") or "") in BLOCKING_REVIEW_DECISIONS for item in review_history
-        )
-        had_any_issues = llm_reviewer_has_issues or bool(reviewer_defects)
-        if had_blocking_review_signal and target_status == "ready":
-            target_status = "limited"
 
-        if had_any_issues:
-            if target_status == "ready":
-                target_status = "limited"
-            if had_blocking_review_signal:
-                review_decision = "accept_with_limitations" if target_status == "limited" else "insufficient_data"
-                review_reason = "issues_present"
-            else:
-                review_decision = "accept_with_limitations" if target_status == "limited" else "insufficient_data"
-                review_reason = "issues_present"
-        else:
-            if target_status == "ready":
-                review_decision = "accept"
-            elif target_status == "limited":
-                review_decision = "accept_with_limitations"
-            else:
-                review_decision = "insufficient_data"
-            review_reason = analytical_sufficiency
-        if review_decision:
-            review_history.append(
-                {
-                    "iteration": len(review_history) + 1,
-                    "decision": review_decision,
-                    "target": None,
-                    "reason": review_reason,
-                    "confidence": 0.8 if target_status == "ready" else 0.6,
-                }
+        step_traces["synthesis"].update(
+            {
+                "report_text": str(synthesis_data.get("report_text") or ""),
+                "components": dict(synthesis_data.get("components") or {}),
+                "sentence_count": int(synthesis_data.get("sentence_count") or 0),
+                "quality": str(synthesis_data.get("quality") or "needs_revision"),
+                "confidence_reason": str(synthesis_data.get("confidence_reason") or ""),
+            }
+        )
+        sync_step_provenance(step_traces)
+
+        try:
+            multi_agent = {
+                "version": "v1",
+                "status": final_status,
+                "epistemic_claims": _build_epistemic_claims(
+                    post_text=post_text,
+                    comments=comments,
+                    status=final_status,
+                    analytical_sufficiency=analytical_sufficiency,
+                    retrieval_used=retrieval_used,
+                    retrieval_status=retrieval_status,
+                ),
+                "steps": step_traces,
+                "retrieval": {
+                    "required": bool(retrieval_trace["required"]),
+                    "used": retrieval_used,
+                    "status": retrieval_status,
+                    "decision_inputs": dict(retrieval_trace.get("decision_inputs") or retrieval_inputs),
+                    "decision_source": str(retrieval_trace.get("decision_source") or "policy"),
+                    "sources": retrieval_sources,
+                },
+                "review": {
+                    "iterations": len(review_history),
+                    "history": review_history,
+                },
+            }
+            validated_meta = validate_multi_agent_meta(multi_agent)
+            payload["meta"] = {
+                **dict(payload.get("meta") or {}),
+                "prompt_version": "post_report_v2",
+                "pipeline": "reporting_v2",
+                "multi_agent": validated_meta.model_dump(mode="python"),
+            }
+
+            validated_payload = PostReportPayload.model_validate(payload)
+            return validated_payload.model_dump(mode="python")
+
+        except Exception as final_err:
+            logger.exception(
+                "Fatal error in final stage of generate_post_report_payload_v2 for post_id=%s",
+                post_id,
+                exc_info=True
             )
-        aggregated_status = aggregate_sufficiency_status(step_traces)
-        if aggregated_status == "insufficient_data":
-            target_status = "insufficient_data"
-        elif aggregated_status == "limited" and target_status == "ready":
-            target_status = "limited"
+            # Формируем fallback-ответ, чтобы джоб не упал
+            fallback_payload = {
+                "type": "post_report_v2",
+                "status": "failed",
+                "post_id": post_id,
+                "published_at": published_at_iso,
+                "title": f"Post {post_id} discussion snapshot",
+                "summary": f"Report generation failed in final stage: {type(final_err).__name__}: {final_err}",
+                "comment_count": len(comments),
+                "confidence": {"overall": "low", "reason": "internal_error"},
+                "meta": {
+                    "error": str(final_err),
+                    "traceback": traceback.format_exc(),
+                    "original_payload_preview": str(payload)[:500] if 'payload' in locals() else None
+                },
+            }
 
-        final_status = target_status
-        if had_any_issues:
-            synthesis_data["quality"] = "needs_revision"
-        if final_status == "limited":
-            synthesis_data["report_text"] = _ensure_limited_summary_markers(str(synthesis_data.get("report_text") or ""))
-
-        confidence_reason = str(synthesis_data.get("confidence_reason") or "deterministic_spec_synthesis")
-        if final_status == "limited" and retrieval_required and retrieval_status in {"failed", "insufficient", "none"}:
-            confidence_reason = "required_retrieval_unavailable"
-        payload = _build_base_payload(
-            post_id=post_id,
-            published_at_iso=published_at_iso,
-            post_text=post_text,
-            comments=comments,
-            status=target_status,
-            summary=str(synthesis_data["report_text"]),
-            confidence_reason=confidence_reason,
+            return fallback_payload
+    except Exception as e:
+        logger.exception(
+            "FATAL: generate_post_report_payload_v2 crashed for post_id=%s",
+            post_id,
+            exc_info=True
         )
-        if isinstance(llm_output, dict) and isinstance(llm_output.get("topics"), list):
-            payload["topics"] = llm_output.get("topics")
-        elif public_opinion_trace.get("main_topics"):
-            payload["topics"] = [{"name": topic} for topic in list(public_opinion_trace.get("main_topics") or [])]
-
-    step_traces["reviewer"].update(
-        {
-            "decision": review_history[-1]["decision"] if review_history else "insufficient_data",
-            "iterations": len(review_history),
-            "rerun_iterations": len([item for item in review_history if str(item.get("decision")) == "rerun_branch"]),
-            "history": review_history,
+        # Формируем fallback-ответ, чтобы джоб не упал
+        if payload is None:
+            payload = {
+                "type": "post_report_v2",
+                "post_id": post_id,
+                "published_at": published_at_iso,
+                "title": f"Post {post_id} discussion snapshot",
+                "comment_count": len(comments),
+            }
+        payload["status"] = "failed"
+        payload["summary"] = f"Report generation crashed: {type(e).__name__}: {e}"
+        payload["confidence"] = {"overall": "low", "reason": "internal_error"}
+        payload["meta"] = {
+            **payload.get("meta", {}),
+            "error": str(e),
+            "traceback": traceback.format_exc(),
         }
-    )
-
-    step_traces["synthesis"].update(
-        {
-            "report_text": str(synthesis_data.get("report_text") or ""),
-            "components": dict(synthesis_data.get("components") or {}),
-            "sentence_count": int(synthesis_data.get("sentence_count") or 0),
-            "quality": str(synthesis_data.get("quality") or "needs_revision"),
-            "confidence_reason": str(synthesis_data.get("confidence_reason") or ""),
-        }
-    )
-    sync_step_provenance(step_traces)
-
-    multi_agent = {
-        "version": "v1",
-        "status": final_status,
-        "epistemic_claims": _build_epistemic_claims(
-            post_text=post_text,
-            comments=comments,
-            status=final_status,
-            analytical_sufficiency=analytical_sufficiency,
-            retrieval_used=retrieval_used,
-            retrieval_status=retrieval_status,
-        ),
-        "steps": step_traces,
-        "retrieval": {
-            "required": bool(retrieval_trace["required"]),
-            "used": retrieval_used,
-            "status": retrieval_status,
-            "decision_inputs": dict(retrieval_trace.get("decision_inputs") or retrieval_inputs),
-            "decision_source": str(retrieval_trace.get("decision_source") or "policy"),
-            "sources": retrieval_sources,
-        },
-        "review": {
-            "iterations": len(review_history),
-            "history": review_history,
-        },
-    }
-    validated_meta = validate_multi_agent_meta(multi_agent)
-    payload["meta"] = {
-        **dict(payload.get("meta") or {}),
-        "prompt_version": "post_report_v2",
-        "pipeline": "reporting_v2",
-        "multi_agent": validated_meta.model_dump(mode="python"),
-    }
-
-    validated_payload = PostReportPayload.model_validate(payload)
-    return validated_payload.model_dump(mode="python")
+        # Добавляем недостающие поля, чтобы payload был валидным для возврата
+        payload.setdefault("topics", [])
+        payload.setdefault("clusters", [])
+        payload.setdefault("time_trends", [])
+        payload.setdefault("risks", [])
+        payload.setdefault("anomalies", [])
+        payload.setdefault("representative_quotes", [])
+        return payload
+    
 
 
 class MockRetrievalProvider:

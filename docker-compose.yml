@@ -27,6 +27,7 @@ services:
       start_period: 10s
 
   migrate:
+    <<: *app-image
     build:
       context: .
       dockerfile: Dockerfile
@@ -48,6 +49,7 @@ services:
       - heads
 
   api:
+    <<: *app-image
     build:
       context: .
       dockerfile: Dockerfile
@@ -74,6 +76,7 @@ services:
       - "8044"
 
   scheduler:
+    <<: *app-image
     build:
       context: .
       dockerfile: Dockerfile
@@ -94,6 +97,7 @@ services:
       - scripts/run_scheduler.py
 
   telegram_pipeline:
+    <<: *app-image
     build:
       context: .
       dockerfile: Dockerfile
@@ -118,6 +122,7 @@ services:
       - --daemon
 
   ai_pipeline:
+    <<: *app-image
     build:
       context: .
       dockerfile: Dockerfile
@@ -138,6 +143,7 @@ services:
       - scripts/run_ai_pipeline.py
       - --daemon
       - --skip-db-migrations
+      
   searxng:
     image: searxng/searxng:latest
     container_name: searxng

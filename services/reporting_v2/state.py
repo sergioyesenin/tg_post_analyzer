@@ -29,6 +29,7 @@ class RoutingOutput(BaseModel):
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
     reasoning: str = ""
     retrieval_hints: dict[str, Any] = Field(default_factory=dict)
+    search_queries: list[dict[str, str]] = Field(default_factory=list)
 
 
 class RetrievalDecisionOutput(BaseModel):

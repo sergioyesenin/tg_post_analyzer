@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from config import settings
 
@@ -12,7 +12,16 @@ try:
 except Exception:  # pragma: no cover
     AsyncOpenAI = None  # type: ignore[assignment]
 
-logger = logging.getLogger(__name__)
+try:
+    import httpx
+except ImportError:
+    httpx = None
+
+if TYPE_CHECKING:
+    from httpx import Response as HttpxResponse
+
+logger = logging.getLogger('services.llm.openai_client')
+logger.setLevel(logging.DEBUG)
 
 
 @dataclass(frozen=True)
@@ -97,14 +106,43 @@ class OpenAIClientAdapter:
             )
 
     @staticmethod
+    @staticmethod
     def _build_client(*, api_key: str | None, base_url: str | None, timeout: float, max_retries: int) -> Any:
         if AsyncOpenAI is None:
             raise RuntimeError("openai package is required for OpenAIClientAdapter")
+
+        http_client = None
+        if httpx is not None:
+            from httpx import Response as HttpxResponse
+
+            async def log_response(response: HttpxResponse) -> None:
+                if logger.isEnabledFor(logging.DEBUG):
+                    # Читаем тело ответа, чтобы сделать его доступным для response.text
+                    await response.aread()
+                    body = response.text
+                    max_body_len = 2000
+                    if len(body) > max_body_len:
+                        body = body[:max_body_len] + "... [truncated]"
+                    logger.debug(
+                        "LLM HTTP response: status=%s, headers=%s, body=%s",
+                        response.status_code,
+                        dict(response.headers),
+                        body,
+                    )
+
+            http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(timeout),
+                event_hooks={"response": [log_response]},
+            )
+        else:
+            logger.warning("httpx is not installed, full HTTP response logging is disabled")
+
         return AsyncOpenAI(
             api_key=api_key,
             base_url=base_url,
             timeout=timeout,
             max_retries=max_retries,
+            http_client=http_client,
         )
 
     def _build_primary_models(self, requested_model: str | None) -> list[str]:

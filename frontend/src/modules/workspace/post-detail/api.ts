@@ -5,6 +5,7 @@ import type {
   PostDetailMutationResponse,
   PostLinksDto,
   ReportDto,
+  ReportTraceOut,
 } from '@modules/workspace/post-detail/contracts';
 
 export function getPostDetail(postId: number) {
@@ -37,4 +38,8 @@ export function refreshPostComments(postId: number) {
 
 export function updatePostReport(postId: number) {
   return apiClient.post<PostDetailMutationResponse>(`/api/reports/post/${postId}/update`);
+}
+
+export function getPostReportTrace(postId: number) {
+  return apiClient.get<ReportTraceOut>(`/api/reports/post/${postId}/trace`);
 }

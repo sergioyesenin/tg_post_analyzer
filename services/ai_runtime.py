@@ -8,13 +8,12 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agents.reporter import get_report_project
 from db.models import Job
 from db.session import AsyncSessionLocal
 from services.jobs import (
     JOB_STATUS_FAILED,
+    JOB_STATUS_PENDING,
     JobType,
-    defer_locked_job,
     fetch_and_lock_jobs,
     mark_job_done,
     mark_job_failed,
@@ -215,7 +214,6 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
     async with AsyncSessionLocal() as session:
         effective_settings = await get_all_settings(session)
 
-    report_project = get_report_project()
     report_config = report_config_from_settings(effective_settings)
     jobs_settings = effective_settings.get("jobs", {})
     ai_job_timeout_seconds = max(
@@ -262,7 +260,6 @@ async def run_ai_jobs(*, job_batch_size: int, worker_id: str, job_worker_concurr
                     job_coro = build_post_report(
                         session,
                         post_id=int(payload.get("post_id")),
-                        report_project=report_project,
                         report_config=report_config,
                         job_timeout_seconds=ai_job_timeout_seconds,
                         rerun_stage=_extract_post_report_rerun_stage(payload),
@@ -409,13 +406,13 @@ async def run_ai_cycle(*, worker_id: str, job_batch_size_arg: int, job_worker_co
         effective_settings = await get_all_settings(session)
 
     jobs_settings = effective_settings.get("jobs", {})
-    job_batch_size = int(_resolve_setting_value(
+    job_batch_size = int(resolve_setting_value(
         settings_value=jobs_settings.get("job_batch_size"),
         cli_value=job_batch_size_arg,
         fallback=get_default_setting("jobs", "job_batch_size"),
     ))
     job_worker_concurrency = clamp_positive_int(
-        _resolve_setting_value(
+        resolve_setting_value(
             settings_value=jobs_settings.get("job_worker_concurrency"),
             cli_value=job_worker_concurrency_arg,
             fallback=get_default_setting("jobs", "job_worker_concurrency"),

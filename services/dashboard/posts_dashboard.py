@@ -3,6 +3,9 @@ from __future__ import annotations
 from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
 from db.models import Channel, Post
 from schemas.dashboard import (
     DashboardMeta,
@@ -38,6 +41,12 @@ async def build_posts_dashboard(
     sort_order: str,
     comments_refresh_available: bool,
 ) -> PostsDashboardResponse:
+    
+    if date_from is None:
+        date_from = datetime.now(timezone.utc) - timedelta(days=7)
+    if date_to is None:
+        date_to = datetime.now(timezone.utc)
+        
     partial = False
     warnings: list[DashboardWarning] = []
     sort_column = SUPPORTED_POST_SORTS[sort_by]

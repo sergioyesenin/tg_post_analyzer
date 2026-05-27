@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, WebSocket
 from starlette.websockets import WebSocketDisconnect, WebSocketState
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 from uvicorn.protocols.utils import ClientDisconnected
 
 from db.models import Job, User
@@ -43,6 +44,7 @@ async def _resolve_current_user(session: AsyncSession, *, access_token: str | No
 
 
 def _extract_entity(job: Job) -> tuple[str | None, int | None]:
+    # Этот вызов безопасен, так как атрибуты подгружены через selectinload.
     entity_type = REPORT_JOB_TYPES.get(str(job.type))
     payload = dict(job.payload_json or {})
     if entity_type == "post":
@@ -78,19 +80,35 @@ async def _resolve_report_job(
     expected_entity_id: int | None,
     current_user_id: int,
 ) -> Job | None:
+    # Явно подгружаем ленивые атрибуты (type, payload_json, result)
     if request_id is not None:
-        return await session.get(Job, request_id, populate_existing=True)
+        stmt = (
+            select(Job)
+            .where(Job.id == request_id)
+            .options(
+                selectinload(Job.type),
+                selectinload(Job.payload_json),
+            )
+        )
+        return (await session.execute(stmt)).scalar_one_or_none()
 
     if expected_entity_type is None or expected_entity_id is None:
         return None
 
-    report_job_type = next((job_type for job_type, entity in REPORT_JOB_TYPES.items() if entity == expected_entity_type), None)
+    report_job_type = next(
+        (job_type for job_type, entity in REPORT_JOB_TYPES.items() if entity == expected_entity_type), None
+    )
     if report_job_type is None:
         return None
 
     stmt = (
         select(Job)
         .where(Job.type == report_job_type)
+        .options(
+            selectinload(Job.type),
+            selectinload(Job.payload_json),
+            selectinload(Job.result),
+        )
         .order_by(Job.created_at.desc(), Job.id.desc())
         .limit(100)
     )
@@ -123,6 +141,7 @@ def _job_timestamp(job: Job) -> str:
 
 
 def _build_progress_event(job: Job) -> dict | None:
+    # Атрибуты type и payload_json уже загружены через selectinload
     entity_type, entity_id = _extract_entity(job)
     if entity_type is None or entity_id is None:
         return None
@@ -207,14 +226,6 @@ def _event_fingerprint(event: dict) -> tuple[object, ...]:
     )
 
 
-async def _release_session(session: AsyncSession) -> None:
-    try:
-        await session.rollback()
-    except Exception:
-        # Session may already be closed/invalid; best effort to release resources.
-        return
-
-
 async def _safe_close_websocket(websocket: WebSocket, *, code: int = 1000, reason: str = "") -> None:
     if websocket.application_state is not WebSocketState.CONNECTED:
         return
@@ -271,18 +282,22 @@ async def report_progress_websocket(
         await websocket.close(code=4404, reason="Entity id mismatch")
         return
 
-    # Release DB connection before entering long-lived websocket loop.
-    await _release_session(session)
     await websocket.accept()
     last_fingerprint: tuple[object, ...] | None = None
 
     try:
         while True:
-            try:
-                job = await session.get(Job, request_id, populate_existing=True)
-            finally:
-                # Do not keep transaction open between websocket polls.
-                await _release_session(session)
+            # Всегда подгружаем ленивые атрибуты при каждом опросе
+            stmt = (
+                select(Job)
+                .where(Job.id == request_id)
+                .options(
+                    selectinload(Job.type),
+                    selectinload(Job.payload_json),
+                    selectinload(Job.result),
+                )
+            )
+            job = (await session.execute(stmt)).scalar_one_or_none()
             if job is None:
                 await _safe_close_websocket(websocket, code=4404, reason="Report request not found")
                 return

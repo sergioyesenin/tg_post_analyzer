@@ -45,6 +45,22 @@ export function AppShell() {
   return (
     <div className={`app-shell ${isAnalyticsRoute ? 'app-shell--analytics' : ''}`.trim()}>
       <aside className="app-sidebar">
+        <div
+          className={`app-session-chip ${isAnalyticsRoute ? 'app-session-chip--compact' : ''}`.trim()}
+        >
+          <div className="app-session-chip__row app-session-chip__row--primary">
+            <LanguageSwitcher />
+            <strong className="app-session-chip__role">{primaryRole ?? t('app.guest')}</strong>
+          </div>
+
+          <div className="app-session-chip__row app-session-chip__row--secondary">
+            <span className="app-session-chip__meta">{roles.join(' / ') || t('app.noAccess')}</span>
+            <button className="app-session-chip__action" onClick={() => void logout()} type="button">
+              {t('actions.logout')}
+            </button>
+          </div>
+        </div>
+
         <div className="app-brand">
           <span className="app-brand__eyebrow">{t('app.brandEyebrow')}</span>
           <strong>{t('app.name')}</strong>
@@ -61,13 +77,7 @@ export function AppShell() {
       </aside>
 
       <div className={`app-main ${isAnalyticsRoute ? 'app-main--analytics' : ''}`.trim()}>
-        <header className={`app-header ${isAnalyticsRoute ? 'app-header--analytics' : ''}`.trim()}>
-          {!isAnalyticsRoute ? (
-            <div className="app-header__intro">
-              <span className="app-header__label">{t('app.shellLabel')}</span>
-              <strong>{t('app.shellDescription')}</strong>
-            </div>
-          ) : null}
+        
 
           {isDashboardRoute ? (
             <div className="app-header__intro app-header__intro--analytics-dashboard">
@@ -82,26 +92,13 @@ export function AppShell() {
           ) : null}
 
           {isDashboardRoute ? (
-            <div className="app-header__mode-switch" aria-label={t('navigation.dashboardModeSwitcher')}>
+            <div
+              className="app-header__mode-switch"
+              aria-label={t('navigation.dashboardModeSwitcher')}
+            >
               <DashboardModeSwitcher currentMode={currentMode} roles={roles} />
             </div>
           ) : null}
-
-          <div className={`app-session-chip ${isAnalyticsRoute ? 'app-session-chip--compact' : ''}`.trim()}>
-            <div className="app-session-chip__row app-session-chip__row--primary">
-              <LanguageSwitcher />
-              <strong className="app-session-chip__role">{primaryRole ?? t('app.guest')}</strong>
-            </div>
-
-            <div className="app-session-chip__row app-session-chip__row--secondary">
-              <span className="app-session-chip__meta">{roles.join(' / ') || t('app.noAccess')}</span>
-              <button className="app-session-chip__action" onClick={() => void logout()} type="button">
-                {t('actions.logout')}
-              </button>
-            </div>
-          </div>
-        </header>
-
         <main className="app-content">
           <Outlet />
         </main>

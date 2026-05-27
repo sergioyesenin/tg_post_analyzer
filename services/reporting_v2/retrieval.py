@@ -1,9 +1,11 @@
 ﻿from __future__ import annotations
-
+import asyncio
+import random
 import hashlib
 import inspect
 import logging
 import re
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 from urllib.parse import urlparse
@@ -11,7 +13,8 @@ from urllib.parse import urlparse
 _TOKEN_RE = re.compile(r"[A-Za-zА-Яа-яЁё0-9_]+", flags=re.UNICODE)
 _NUMBER_RE = re.compile(r"\b\d+[\d.,]*\b")
 
-_CACHE: dict[str, tuple[datetime, dict[str, Any]]] = {}
+_MAX_CACHE_SIZE = 1024
+_CACHE: OrderedDict[str, tuple[datetime, dict[str, Any]]] = OrderedDict()
 logger = logging.getLogger(__name__)
 
 _TIER1_DOMAINS = {
@@ -45,7 +48,33 @@ _SOCIAL_DOMAINS = {
     "instagram.com",
 }
 
-
+async def _retry_call(
+    func,
+    *args,
+    max_attempts: int = 3,
+    base_delay: float = 0.5,
+    max_delay: float = 5.0,
+    **kwargs,
+) -> Any:
+    """
+    Асинхронно вызывает func(*args, **kwargs) с повторными попытками при исключениях.
+    Использует экспоненциальную задержку с random jitter.
+    """
+    last_exception = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            result = func(*args, **kwargs)
+            if inspect.isawaitable(result):
+                result = await result
+            return result
+        except Exception as exc:
+            last_exception = exc
+            if attempt == max_attempts:
+                break
+            delay = min(max_delay, base_delay * (2 ** (attempt - 1)))
+            jitter = random.uniform(0, delay * 0.2)
+            await asyncio.sleep(delay + jitter)
+    raise last_exception
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -57,6 +86,12 @@ def _normalize_text(value: str) -> str:
 def _domain(url: str) -> str:
     return urlparse(str(url or "")).netloc.lower().replace("www.", "")
 
+def _cache_put(key: str, value: tuple[datetime, dict[str, Any]]) -> None:
+    if key in _CACHE:
+        _CACHE.move_to_end(key)
+    _CACHE[key] = value
+    if len(_CACHE) > _MAX_CACHE_SIZE:
+        _CACHE.popitem(last=False)
 
 def _tier_for_domain(domain: str) -> str:
     if any(domain == d or domain.endswith(f".{d}") for d in _TIER1_DOMAINS) or ".gov" in domain:
@@ -259,17 +294,20 @@ def normalize_retrieval_sources(raw_sources: Any, *, limit: int = 8) -> list[dic
             raw_sources = []
 
     if not isinstance(raw_sources, list):
+        logger.warning(f"normalize_retrieval_sources: expected list, got {type(raw_sources)}")
         return []
 
     normalized: list[dict[str, Any]] = []
-    for item in raw_sources[:limit]:
+    for idx, item in enumerate(raw_sources[:limit]):
         if not isinstance(item, Mapping):
+            logger.warning(f"Skipping retrieval item {idx}: not a dict, type={type(item)}")
             continue
 
         title = str(item.get("title") or item.get("name") or "").strip()
         source = str(item.get("source") or item.get("url") or item.get("provider") or "").strip()
         supports = str(item.get("supports") or item.get("snippet") or item.get("summary") or "").strip()
         if not title or not source or not supports or len(supports) < 30:
+            logger.debug(f"Skipping retrieval item {idx}: insufficient data (title={bool(title)}, source={bool(source)}, supports_len={len(supports)})")
             continue
 
         domain = _domain(source)
@@ -293,15 +331,32 @@ def normalize_retrieval_sources(raw_sources: Any, *, limit: int = 8) -> list[dic
     return normalized
 
 
-async def run_retrieval_manager(provider: Any, request: Mapping[str, Any]) -> dict[str, Any]:
+async def run_retrieval_manager(provider: Any, request: Mapping[str, Any], *, custom_queries: list[dict[str, str]] | None = None,) -> dict[str, Any]:
     category = str(request.get("category") or ("news" if str(request.get("kind") or "") in {"post", "event"} else "reference")).lower()
-    queries = _build_queries(request)
+
+    if custom_queries:
+        queries = {}
+        for q in custom_queries:
+            q_type = q.get("type", "custom")
+            q_text = q.get("text", "").strip()
+            if q_text:
+                # Если тип уже существует, добавим суффикс
+                base_type = q_type
+                idx = 1
+                while base_type in queries:
+                    base_type = f"{q_type}_{idx}"
+                    idx += 1
+                queries[base_type] = q_text
+    else:
+        queries = _build_queries(request)
+
     key = _cache_key(request, queries)
     ttl = timedelta(hours=_cache_ttl_hours(category))
     cached = _CACHE.get(key)
     if cached and (_now() - cached[0]) <= ttl:
         payload = dict(cached[1])
         payload.setdefault("diagnostics", {})["cache"] = "hit"
+        _CACHE.move_to_end(key)
         return payload
 
     diagnostics: dict[str, Any] = {"errors": [], "queries": queries, "cache": "miss"}
@@ -318,30 +373,36 @@ async def run_retrieval_manager(provider: Any, request: Mapping[str, Any]) -> di
             "diagnostics": diagnostics,
             "raw_results": [],
         }
-        _CACHE[key] = (_now(), result)
+        _cache_put(key, (_now(), result))
         return result
 
     for query_name, query in queries.items():
         q_request = dict(request)
         q_request["query"] = query
         q_request["query_name"] = query_name
+
+        # Определяем, как вызывать провайдера
+        if hasattr(provider, "retrieve"):
+            def call_provider():
+                return provider.retrieve(q_request)
+        elif callable(provider):
+            def call_provider():
+                return provider(q_request)
+        else:
+            # Провайдер не поддерживает вызовы – пропускаем
+            diagnostics["errors"].append(f"{query_name}:invalid_provider")
+            continue
+
         try:
-            if hasattr(provider, "retrieve"):
-                out = provider.retrieve(q_request)
-            elif callable(provider):
-                out = provider(q_request)
-            else:
-                out = {"sources": []}
-            if inspect.isawaitable(out):
-                out = await out
+            # Вызываем с ретраями
+            out = await _retry_call(call_provider, max_attempts=3, base_delay=0.5, max_delay=5.0)
             normalized = normalize_retrieval_sources(out, limit=20)
             for src in normalized:
                 src["query_name"] = query_name
             raw_results.extend(normalized)
         except Exception as exc:
             diagnostics["errors"].append(f"{query_name}:{type(exc).__name__}:{exc}")
-
-    # Dedup by normalized title + core claim
+        # Dedup by normalized title + core claim
     grouped: dict[str, dict[str, Any]] = {}
     for src in raw_results:
         key_group = f"{_normalize_text(str(src.get('title') or ''))}::{_core_claim_text(str(src.get('supports') or ''))}"
@@ -442,7 +503,7 @@ async def run_retrieval_manager(provider: Any, request: Mapping[str, Any]) -> di
         "raw_results": raw_results,
     }
 
-    _CACHE[key] = (_now(), result)
+    _cache_put(key, (_now(), result))
     return result
 
 

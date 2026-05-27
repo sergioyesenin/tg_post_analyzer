@@ -10,7 +10,6 @@ from typing import Any
 from sqlalchemy import String, and_, desc, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agents.reporter import ReportConfig, TgReportProject
 from db.models import Channel, Post, PostLink
 from schemas.keyword_graph import (
     GraphBuildRequest,
@@ -696,62 +695,3 @@ def _build_graph_report_prompt(title: str, nodes: list[GraphNodeOut], edges: lis
     return "\n".join(lines)
 
 
-async def generate_graph_report(
-    session: AsyncSession,
-    payload: GraphReportRequest,
-    report_project: TgReportProject,
-) -> GraphReportResponse:
-    graph = await build_posts_graph(
-        session,
-        GraphBuildRequest(
-            post_ids=payload.post_ids,
-            exclude_post_ids=payload.exclude_post_ids,
-            graph_mode=payload.graph_mode,
-            include_neighbors=payload.include_neighbors,
-            neighbor_depth=payload.neighbor_depth,
-            neighbor_limit=payload.neighbor_limit,
-            allowed_link_types=payload.allowed_link_types,
-            min_shared_lemmas=payload.min_shared_lemmas,
-            max_time_distance_hours=payload.max_time_distance_hours,
-            min_text_similarity=payload.min_text_similarity,
-            transient_max_nodes=payload.transient_max_nodes,
-            transient_max_edges=payload.transient_max_edges,
-            transient_max_candidates_per_node=payload.transient_max_candidates_per_node,
-            transient_timeout_ms=payload.transient_timeout_ms,
-        ),
-    )
-    if not graph.nodes:
-        return GraphReportResponse(
-            status="not_found",
-            title=payload.title or "Graph Report",
-            post_ids=payload.post_ids,
-            excluded_post_ids=payload.exclude_post_ids,
-            content="No posts found for graph report.",
-        )
-
-    title = payload.title or "Graph Report"
-    synthetic_post_text = _build_graph_report_prompt(title, graph.nodes, graph.edges)
-    comments = [node.text_preview for node in graph.nodes if node.text_preview]
-    try:
-        content = await report_project.generate_report(
-            channel="graph",
-            post_id=min(payload.post_ids),
-            published_at_iso=graph.nodes[0].date.isoformat(),
-            post_text=synthetic_post_text,
-            comments=comments,
-            thread_comments=[],
-            views=sum(int(node.views or 0) for node in graph.nodes),
-            config=ReportConfig(min_comments=0, report_word_target=500, report_word_min=250, report_word_max=900),
-        )
-        status = "ready"
-    except Exception as exc:
-        status = "failed"
-        content = f"STATUS: FAILED\nREASON: {exc!r}"
-
-    return GraphReportResponse(
-        status=status,
-        title=title,
-        post_ids=payload.post_ids,
-        excluded_post_ids=payload.exclude_post_ids,
-        content=content,
-    )

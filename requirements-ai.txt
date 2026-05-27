@@ -27,7 +27,6 @@ jsonref==1.1.0
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 kubernetes==35.0.0
-litellm<1.81
 markdown-it-py==4.0.0
 mdurl==0.1.2
 mmh3==5.2.0

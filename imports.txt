@@ -1,0 +1,1485 @@
+config.py:1:from __future__ import annotations
+config.py:3:import os
+config.py:4:import string
+config.py:5:from urllib.parse import urlsplit
+config.py:6:import warnings
+config.py:7:from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+config.py:9:from dotenv import load_dotenv
+deps.py:1:from collections.abc import AsyncGenerator
+deps.py:2:from fastapi import Depends, HTTPException, status
+deps.py:3:from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+deps.py:4:from sqlalchemy.ext.asyncio import AsyncSession
+deps.py:6:from db.models import User
+deps.py:7:from db.session import AsyncSessionLocal
+deps.py:8:from services.auth import AuthUser, decode_access_token, get_user_roles
+main.py:1:from __future__ import annotations
+main.py:3:import warnings
+main.py:5:from scripts.run_telegram_pipeline import _build_parser, main as _canonical_main, main_async as _canonical_main_async
+man.py:6:from api.main import app
+parse_today.py:1:from __future__ import annotations
+parse_today.py:3:import asyncio
+parse_today.py:4:import warnings
+parse_today.py:6:from main import run_today_ingestion
+alembic\env.py:1:from __future__ import annotations
+alembic\env.py:3:import asyncio
+alembic\env.py:4:from logging.config import fileConfig
+alembic\env.py:6:from sqlalchemy import pool
+alembic\env.py:7:from sqlalchemy.ext.asyncio import async_engine_from_config
+alembic\env.py:9:from alembic import context
+alembic\env.py:11:from config import settings
+alembic\env.py:12:from db.models import Base
+alembic\versions\025822026b81_add_involvement_to_posts.py:8:from typing import Sequence, Union
+alembic\versions\025822026b81_add_involvement_to_posts.py:10:from alembic import op
+alembic\versions\025822026b81_add_involvement_to_posts.py:11:import sqlalchemy as sa
+alembic\versions\41fa52103b88_init_tables.py:8:from typing import Sequence, Union
+alembic\versions\41fa52103b88_init_tables.py:10:from alembic import op
+alembic\versions\41fa52103b88_init_tables.py:11:import sqlalchemy as sa
+alembic\versions\6d3b7f1e9c2a_add_comment_thread_fields.py:8:from typing import Sequence, Union
+alembic\versions\6d3b7f1e9c2a_add_comment_thread_fields.py:10:from alembic import op
+alembic\versions\6d3b7f1e9c2a_add_comment_thread_fields.py:11:import sqlalchemy as sa
+alembic\versions\9f3c1a7be2d4_add_linking_graph_tables.py:8:from typing import Sequence, Union
+alembic\versions\9f3c1a7be2d4_add_linking_graph_tables.py:10:from alembic import op
+alembic\versions\9f3c1a7be2d4_add_linking_graph_tables.py:11:import sqlalchemy as sa
+alembic\versions\a1b2c3d4e5f6_drop_redundant_process_event_unique.py:8:from typing import Sequence, Union
+alembic\versions\a1b2c3d4e5f6_drop_redundant_process_event_unique.py:10:from alembic import op
+alembic\versions\a4b5c6d7e8f9_merge_post_features_into_posts.py:8:from typing import Sequence, Union
+alembic\versions\a4b5c6d7e8f9_merge_post_features_into_posts.py:10:from alembic import op
+alembic\versions\a4b5c6d7e8f9_merge_post_features_into_posts.py:11:import sqlalchemy as sa
+alembic\versions\a4b5c6d7e8f9_merge_post_features_into_posts.py:12:from sqlalchemy.dialects import postgresql
+alembic\versions\a4b5c6d7e8f9_merge_post_features_into_posts.py:43:        FROM post_features pf
+alembic\versions\a4b5c6d7e8f9_merge_post_features_into_posts.py:73:        FROM posts
+alembic\versions\a9b8c7d6e5f4_add_comment_peer_identity.py:8:from typing import Sequence, Union
+alembic\versions\a9b8c7d6e5f4_add_comment_peer_identity.py:10:from alembic import op
+alembic\versions\a9b8c7d6e5f4_add_comment_peer_identity.py:11:import sqlalchemy as sa
+alembic\versions\a9b8c7d6e5f4_add_comment_peer_identity.py:42:                FROM comments
+alembic\versions\aa12bb34cc56_add_job_dead_letters.py:8:from typing import Sequence, Union
+alembic\versions\aa12bb34cc56_add_job_dead_letters.py:10:from alembic import op
+alembic\versions\aa12bb34cc56_add_job_dead_letters.py:11:import sqlalchemy as sa
+alembic\versions\aa12bb34cc56_add_job_dead_letters.py:12:from sqlalchemy.dialects import postgresql
+alembic\versions\b1c2d3e4f5a6_add_archive_and_process_reports.py:8:from typing import Sequence, Union
+alembic\versions\b1c2d3e4f5a6_add_archive_and_process_reports.py:10:from alembic import op
+alembic\versions\b1c2d3e4f5a6_add_archive_and_process_reports.py:11:import sqlalchemy as sa
+alembic\versions\b1c2d3e4f5a6_add_archive_and_process_reports.py:12:from sqlalchemy.dialects import postgresql
+alembic\versions\b2c3d4e5f6a7_add_auth_rate_limit_buckets.py:8:from typing import Sequence, Union
+alembic\versions\b2c3d4e5f6a7_add_auth_rate_limit_buckets.py:10:from alembic import op
+alembic\versions\b2c3d4e5f6a7_add_auth_rate_limit_buckets.py:11:import sqlalchemy as sa
+alembic\versions\b7e2f1d4c9aa_evidence_first_linking_v2.py:8:from typing import Sequence, Union
+alembic\versions\b7e2f1d4c9aa_evidence_first_linking_v2.py:10:from alembic import op
+alembic\versions\b7e2f1d4c9aa_evidence_first_linking_v2.py:11:import sqlalchemy as sa
+alembic\versions\b7e2f1d4c9aa_evidence_first_linking_v2.py:12:from sqlalchemy.dialects import postgresql
+alembic\versions\bb22cc33dd44_add_refresh_tokens_and_viewer_role.py:8:from typing import Sequence, Union
+alembic\versions\bb22cc33dd44_add_refresh_tokens_and_viewer_role.py:10:from alembic import op
+alembic\versions\bb22cc33dd44_add_refresh_tokens_and_viewer_role.py:11:import sqlalchemy as sa
+alembic\versions\c1d2e3f4a5b6_scope_jobs_dedupe_to_active_statuses.py:8:from typing import Sequence, Union
+alembic\versions\c1d2e3f4a5b6_scope_jobs_dedupe_to_active_statuses.py:10:from alembic import op
+alembic\versions\c1d2e3f4a5b6_scope_jobs_dedupe_to_active_statuses.py:11:import sqlalchemy as sa
+alembic\versions\c3a91e4d2f7b_add_post_parent_fields.py:8:from typing import Sequence, Union
+alembic\versions\c3a91e4d2f7b_add_post_parent_fields.py:10:from alembic import op
+alembic\versions\c3a91e4d2f7b_add_post_parent_fields.py:11:import sqlalchemy as sa
+alembic\versions\c4d5e6f7a8b9_add_reactions_json_to_posts_and_comments.py:8:from typing import Sequence, Union
+alembic\versions\c4d5e6f7a8b9_add_reactions_json_to_posts_and_comments.py:10:from alembic import op
+alembic\versions\c4d5e6f7a8b9_add_reactions_json_to_posts_and_comments.py:11:import sqlalchemy as sa
+alembic\versions\c4d5e6f7a8b9_add_reactions_json_to_posts_and_comments.py:12:from sqlalchemy.dialects import postgresql
+alembic\versions\c7d8e9f0a1b2_add_app_settings.py:8:from typing import Sequence, Union
+alembic\versions\c7d8e9f0a1b2_add_app_settings.py:10:from alembic import op
+alembic\versions\c7d8e9f0a1b2_add_app_settings.py:11:import sqlalchemy as sa
+alembic\versions\c7d8e9f0a1b2_add_app_settings.py:12:from sqlalchemy.dialects import postgresql
+alembic\versions\cc33dd44ee55_add_archive_watermark_and_checksums.py:8:from typing import Sequence, Union
+alembic\versions\cc33dd44ee55_add_archive_watermark_and_checksums.py:10:from alembic import op
+alembic\versions\cc33dd44ee55_add_archive_watermark_and_checksums.py:11:import sqlalchemy as sa
+alembic\versions\d4f6a9b2c1de_merge_heads_post_parent_and_linking_v2.py:8:from typing import Sequence, Union
+alembic\versions\d5e6f7a8b9c0_merge_jobs_and_report_heads.py:8:from typing import Sequence, Union
+alembic\versions\d9e8f7a6b5c4_set_conservative_ingest_jobs_defaults.py:8:from typing import Sequence, Union
+alembic\versions\d9e8f7a6b5c4_set_conservative_ingest_jobs_defaults.py:10:from alembic import op
+alembic\versions\e2a1c4d8f9b0_add_jobs_table.py:8:from typing import Sequence, Union
+alembic\versions\e2a1c4d8f9b0_add_jobs_table.py:10:from alembic import op
+alembic\versions\e2a1c4d8f9b0_add_jobs_table.py:11:import sqlalchemy as sa
+alembic\versions\e2a1c4d8f9b0_add_jobs_table.py:12:from sqlalchemy.dialects import postgresql
+alembic\versions\e3f4a5b6c7d8_add_post_report_json.py:8:from typing import Sequence, Union
+alembic\versions\e3f4a5b6c7d8_add_post_report_json.py:10:from alembic import op
+alembic\versions\e3f4a5b6c7d8_add_post_report_json.py:11:import sqlalchemy as sa
+alembic\versions\e3f4a5b6c7d8_add_post_report_json.py:12:from sqlalchemy.dialects import postgresql
+alembic\versions\e6b4d1a9c2f0_set_comment_interval_default_to_2h.py:8:from typing import Sequence, Union
+alembic\versions\e6b4d1a9c2f0_set_comment_interval_default_to_2h.py:10:from alembic import op
+alembic\versions\e7f8a9b0c1d2_add_commenters_and_long_comments_to_posts.py:8:from typing import Sequence, Union
+alembic\versions\e7f8a9b0c1d2_add_commenters_and_long_comments_to_posts.py:10:from alembic import op
+alembic\versions\e7f8a9b0c1d2_add_commenters_and_long_comments_to_posts.py:11:import sqlalchemy as sa
+alembic\versions\f1a2b3c4d5e6_add_auth_rbac_tables.py:8:from typing import Sequence, Union
+alembic\versions\f1a2b3c4d5e6_add_auth_rbac_tables.py:10:from alembic import op
+alembic\versions\f1a2b3c4d5e6_add_auth_rbac_tables.py:11:import sqlalchemy as sa
+alembic\versions\f1a2b3c4d5e6_add_auth_rbac_tables.py:12:from sqlalchemy.dialects import postgresql
+alembic\versions\f6e7d8c9b0a1_add_keyword_search_indexes.py:8:from typing import Sequence, Union
+alembic\versions\f6e7d8c9b0a1_add_keyword_search_indexes.py:10:from alembic import op
+api\main.py:1:from pathlib import Path
+api\main.py:3:from fastapi import FastAPI
+api\main.py:4:from fastapi import HTTPException
+api\main.py:5:from fastapi.middleware.cors import CORSMiddleware
+api\main.py:6:from fastapi.responses import FileResponse
+api\main.py:8:from api.routers import auth, channels, dashboard, jobs, keyword_graph, linking, links, monitor, posts, report_progress, reports, settings
+api\main.py:9:from config import settings as app_settings
+api\public_report_boundary.py:1:from __future__ import annotations
+api\public_report_boundary.py:3:from copy import deepcopy
+api\public_report_boundary.py:5:from schemas.linking import LinkedReportOut
+api\public_report_boundary.py:6:from schemas.report import ReportOut
+api\routers\auth.py:1:import hashlib
+api\routers\auth.py:3:from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+api\routers\auth.py:4:from sqlalchemy import select
+api\routers\auth.py:5:from sqlalchemy.exc import IntegrityError
+api\routers\auth.py:6:from sqlalchemy.ext.asyncio import AsyncSession
+api\routers\auth.py:8:from config import settings
+api\routers\auth.py:9:from db.models import Role, User, UserRole
+api\routers\auth.py:10:from deps import get_current_user, get_session, require_roles
+api\routers\auth.py:11:from schemas.auth import LoginIn, TokenOut, UserCreateIn, UserOut, UserRolesIn
+api\routers\auth.py:12:from services.auth import (
+api\routers\auth.py:25:from services.auth_rate_limit import auth_rate_limiter
+api\routers\channels.py:1:from fastapi import APIRouter, Depends, HTTPException, status
+api\routers\channels.py:2:from sqlalchemy import select
+api\routers\channels.py:3:from sqlalchemy.ext.asyncio import AsyncSession
+api\routers\channels.py:5:from db.models import Channel, Job
+api\routers\channels.py:6:from deps import get_session, require_roles
+api\routers\channels.py:7:from schemas.channel import ChannelIn, ChannelOut, ChannelUpdate
+api\routers\channels.py:8:from services.auth import AuthUser, write_audit_log
+api\routers\channels.py:9:from services.channel_management import normalize_channel_identifier
+api\routers\channels.py:10:from services.jobs import JOB_STATUS_PENDING, JOB_STATUS_RUNNING, JobType, enqueue_job
+api\routers\dashboard.py:1:from __future__ import annotations
+api\routers\dashboard.py:3:from datetime import datetime
+api\routers\dashboard.py:4:from typing import Annotated
+api\routers\dashboard.py:6:from fastapi import APIRouter, Depends, HTTPException, Query
+api\routers\dashboard.py:7:from sqlalchemy.ext.asyncio import AsyncSession
+api\routers\dashboard.py:9:from deps import get_session, require_roles
+api\routers\dashboard.py:10:from schemas.query_params import CsvIntList, CsvStrList
+api\routers\dashboard.py:11:from schemas.dashboard import (
+api\routers\dashboard.py:18:from services.auth import AuthUser
+api\routers\dashboard.py:19:from services.dashboard import (
+api\routers\dashboard.py:26:from services.settings_store import get_setting
+api\routers\jobs.py:1:from fastapi import APIRouter, Depends, HTTPException
+api\routers\jobs.py:2:from fastapi.encoders import jsonable_encoder
+api\routers\jobs.py:3:from sqlalchemy import delete, func, select
+api\routers\jobs.py:4:from sqlalchemy.ext.asyncio import AsyncSession
+api\routers\jobs.py:6:from db.models import Job, JobDeadLetter
+api\routers\jobs.py:7:from deps import get_session, require_roles
+api\routers\jobs.py:8:from services.auth import AuthUser, write_audit_log
+api\routers\jobs.py:9:from services.jobs import JobType, enqueue_job, get_job_result
+api\routers\keyword_graph.py:1:from __future__ import annotations
+api\routers\keyword_graph.py:3:from fastapi import APIRouter, Depends, HTTPException
+api\routers\keyword_graph.py:4:from sqlalchemy.ext.asyncio import AsyncSession
+api\routers\keyword_graph.py:6:from deps import get_session, require_roles
+api\routers\keyword_graph.py:7:from schemas.keyword_graph import (
+api\routers\keyword_graph.py:15:from services.auth import AuthUser, write_audit_log
+api\routers\keyword_graph.py:16:from services.keyword_graph import build_posts_graph, search_posts_by_keywords
+api\routers\keyword_graph.py:17:from services.settings_store import get_setting
+api\routers\linking.py:1:from __future__ import annotations
+api\routers\linking.py:3:from datetime import datetime
+api\routers\linking.py:5:from fastapi import APIRouter, Depends, HTTPException, Query, status
+api\routers\linking.py:6:from collections import defaultdict
+api\routers\linking.py:8:from sqlalchemy import and_, or_, select
+api\routers\linking.py:9:from sqlalchemy.ext.asyncio import AsyncSession
+api\routers\linking.py:10:from fastapi.encoders import jsonable_encoder
+api\routers\linking.py:11:from fastapi.responses import JSONResponse
+api\routers\linking.py:13:from api.public_report_boundary import to_public_linked_report_out
+api\routers\linking.py:14:from db.models import Channel, Event, EventPost, EventReport, Job, Post, PostLink, Process, ProcessEvent, ProcessReport
+api\routers\linking.py:15:from deps import get_session, require_roles
+api\routers\linking.py:16:from schemas.linking import (
+api\routers\linking.py:26:from services.auth import AuthUser, write_audit_log
+api\routers\linking.py:27:from services.linking_metrics import load_event_metrics, load_process_metrics
+api\routers\linking.py:28:from services.jobs import JOB_STATUS_PENDING, JOB_STATUS_RUNNING, JobType
+api\routers\linking.py:29:from services.orchestration import (
+api\routers\links.py:1:from __future__ import annotations
+api\routers\links.py:3:from fastapi import APIRouter, Depends, Response
+api\routers\links.py:4:from sqlalchemy.ext.asyncio import AsyncSession
+api\routers\links.py:6:from deps import get_session, require_roles
+api\routers\links.py:7:from schemas.linking import EventDetailOut, EventSummaryOut, JobAcceptedResponse, PostLinksResponse
+api\routers\links.py:8:from services.auth import AuthUser
+api\routers\links.py:9:from api.routers import linking
+api\routers\monitor.py:1:from fastapi import APIRouter, Depends
+api\routers\monitor.py:2:from sqlalchemy import select, func, text
+api\routers\monitor.py:3:from sqlalchemy.ext.asyncio import AsyncSession
+api\routers\monitor.py:4:from datetime import datetime, timedelta, timezone
+api\routers\monitor.py:6:from deps import get_session, require_roles
+api\routers\monitor.py:7:from services.settings_store import get_all_settings
+api\routers\monitor.py:8:from db.models import Post, Comment
+api\routers\monitor.py:9:from services.auth import AuthUser
+api\routers\monitor.py:10:from services.monitoring import (
+api\routers\posts.py:1:from fastapi import APIRouter, Depends, HTTPException, status
+api\routers\posts.py:2:from fastapi.encoders import jsonable_encoder
+api\routers\posts.py:3:from fastapi.responses import JSONResponse
+api\routers\posts.py:4:from sqlalchemy import select, desc
+api\routers\posts.py:5:from sqlalchemy.ext.asyncio import AsyncSession
+api\routers\posts.py:6:from sqlalchemy.orm import selectinload
+api\routers\posts.py:7:from datetime import datetime
+api\routers\posts.py:9:from deps import get_session, require_roles
+api\routers\posts.py:10:from db.models import Post, Channel, Comment
+api\routers\posts.py:11:from schemas.post import PostCardOut, PostDetailOut
+api\routers\posts.py:12:from schemas.comment import CommentOut
+api\routers\posts.py:13:from services.auth import AuthUser
+api\routers\posts.py:14:from services.orchestration import enqueue_comment_refresh_job
+api\routers\posts.py:15:from services.settings_store import get_setting
+api\routers\reports.py:1:from __future__ import annotations
+api\routers\reports.py:3:import csv
+api\routers\reports.py:4:import io
+api\routers\reports.py:5:from datetime import datetime
+api\routers\reports.py:6:from typing import Annotated
+api\routers\reports.py:8:from fastapi import APIRouter, Depends, HTTPException, Query, status
+api\routers\reports.py:9:from fastapi.encoders import jsonable_encoder
+api\routers\reports.py:10:from fastapi.responses import JSONResponse, StreamingResponse
+api\routers\reports.py:11:from sqlalchemy import Select, and_, select
+api\routers\reports.py:12:from sqlalchemy.ext.asyncio import AsyncSession
+api\routers\reports.py:14:from deps import get_session, require_roles
+api\routers\reports.py:15:from db.models import (
+api\routers\reports.py:24:from api.public_report_boundary import to_public_report_out
+api\routers\reports.py:25:from schemas.query_params import CsvIntList, CsvStrList
+api\routers\reports.py:26:from schemas.report import ReportOut, ReportTraceOut
+api\routers\reports.py:27:from services.auth import AuthUser
+api\routers\reports.py:28:from services.jobs import build_report_request_dedupe_key, find_blocking_report_duplicate
+api\routers\reports.py:29:from services.orchestration import (
+api\routers\reports.py:35:from services.reporting import canonicalize_multi_agent_trace, report_status_from_payload
+api\routers\report_progress.py:1:from __future__ import annotations
+api\routers\report_progress.py:3:import asyncio
+api\routers\report_progress.py:4:from datetime import datetime, timezone
+api\routers\report_progress.py:6:from fastapi import APIRouter, Depends, WebSocket
+api\routers\report_progress.py:7:from starlette.websockets import WebSocketDisconnect, WebSocketState
+api\routers\report_progress.py:8:from sqlalchemy import select
+api\routers\report_progress.py:9:from sqlalchemy.ext.asyncio import AsyncSession
+api\routers\report_progress.py:10:from sqlalchemy.orm import selectinload
+api\routers\report_progress.py:11:from uvicorn.protocols.utils import ClientDisconnected
+api\routers\report_progress.py:13:from db.models import Job, User
+api\routers\report_progress.py:14:from deps import get_session
+api\routers\report_progress.py:15:from services.auth import decode_access_token
+api\routers\report_progress.py:16:from services.jobs import JOB_STATUS_DONE, JOB_STATUS_FAILED, JOB_STATUS_PENDING, JOB_STATUS_RUNNING, get_job_result
+api\routers\settings.py:1:from fastapi import APIRouter, Depends, HTTPException
+api\routers\settings.py:2:from pydantic import ValidationError
+api\routers\settings.py:3:from sqlalchemy import select
+api\routers\settings.py:4:from sqlalchemy.ext.asyncio import AsyncSession
+api\routers\settings.py:6:from db.models import AppSetting
+api\routers\settings.py:7:from deps import get_session, require_roles
+api\routers\settings.py:8:from schemas.settings import AppSettingOut, AppSettingUpdateIn
+api\routers\settings.py:9:from services.auth import AuthUser, write_audit_log
+api\routers\settings.py:10:from services.settings_store import DEFAULT_SETTINGS, get_all_settings, is_internal_setting_key, upsert_setting
+api\routers\settings.py:11:from services.settings_validation import validate_setting_payload
+client\config.py:1:from dataclasses import dataclass
+client\config.py:3:from config import settings
+client\telegram.py:1:from __future__ import annotations
+client\telegram.py:3:import asyncio
+client\telegram.py:4:import logging
+client\telegram.py:5:import os
+client\telegram.py:6:import sqlite3
+client\telegram.py:7:from dataclasses import dataclass, field
+client\telegram.py:8:from typing import Any
+client\telegram.py:10:from telethon import TelegramClient
+client\telegram.py:12:from client.config import load_client_settings, resolve_session_name
+client\__init__.py:1:from client.telegram import client, ensure_telegram_client_started
+db\models.py:1:from __future__ import annotations
+db\models.py:3:from datetime import datetime, timezone
+db\models.py:4:from enum import Enum as PyEnum
+db\models.py:5:from sqlalchemy import (
+db\models.py:18:from sqlalchemy.dialects.postgresql import JSONB
+db\models.py:19:from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+db\session.py:1:from typing import AsyncGenerator
+db\session.py:2:from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+db\session.py:3:from sqlalchemy.orm import sessionmaker
+db\session.py:4:from config import settings
+schemas\auth.py:1:from datetime import datetime
+schemas\auth.py:3:from pydantic import BaseModel, Field
+schemas\channel.py:1:from pydantic import BaseModel, ConfigDict
+schemas\comment.py:1:from datetime import datetime
+schemas\comment.py:2:from pydantic import BaseModel, ConfigDict, Field
+schemas\dashboard.py:1:from __future__ import annotations
+schemas\dashboard.py:3:from datetime import datetime
+schemas\dashboard.py:5:from pydantic import BaseModel, ConfigDict, Field
+schemas\keyword_graph.py:1:from __future__ import annotations
+schemas\keyword_graph.py:3:from datetime import datetime
+schemas\keyword_graph.py:4:from typing import Literal
+schemas\keyword_graph.py:6:from pydantic import BaseModel, Field
+schemas\linking.py:1:from datetime import datetime
+schemas\linking.py:3:from pydantic import BaseModel, ConfigDict, Field, model_validator
+schemas\linking.py:4:from typing import Literal
+schemas\post.py:1:from datetime import datetime
+schemas\post.py:2:from pydantic import BaseModel, ConfigDict, Field, computed_field
+schemas\post.py:3:from services.dashboard.common import text_preview
+schemas\query_params.py:1:from __future__ import annotations
+schemas\query_params.py:3:from typing import Annotated, Any
+schemas\query_params.py:5:from pydantic import BeforeValidator
+schemas\report.py:1:from __future__ import annotations
+schemas\report.py:3:from datetime import datetime
+schemas\report.py:4:from typing import Literal
+schemas\report.py:6:from pydantic import BaseModel, ConfigDict, Field
+schemas\settings.py:1:from datetime import datetime
+schemas\settings.py:3:from pydantic import BaseModel, Field
+scripts\add_channel.py:1:from __future__ import annotations
+scripts\add_channel.py:3:import asyncio
+scripts\add_channel.py:4:import sys
+scripts\add_channel.py:6:from client import client, ensure_telegram_client_started
+scripts\add_channel.py:7:from db.session import AsyncSessionLocal
+scripts\add_channel.py:8:from services.channel_management import normalize_channel_identifier, resolve_and_upsert_channel
+scripts\backfill_embeddings.py:1:from __future__ import annotations
+scripts\backfill_embeddings.py:3:import argparse
+scripts\backfill_embeddings.py:4:import asyncio
+scripts\backfill_embeddings.py:5:import logging
+scripts\backfill_embeddings.py:6:import sys
+scripts\backfill_embeddings.py:7:from datetime import datetime, timedelta, timezone
+scripts\backfill_embeddings.py:8:from pathlib import Path
+scripts\backfill_embeddings.py:10:from sqlalchemy import and_, cast, func, or_, select
+scripts\backfill_embeddings.py:11:from sqlalchemy.dialects.postgresql import JSONB
+scripts\backfill_embeddings.py:17:from config import settings
+scripts\backfill_embeddings.py:18:from db.models import Post
+scripts\backfill_embeddings.py:19:from db.session import AsyncSessionLocal
+scripts\backfill_embeddings.py:20:from services.linking.embeddings import EmbeddingProvider
+scripts\backfill_events_processes.py:8:import argparse
+scripts\backfill_events_processes.py:9:import asyncio
+scripts\backfill_events_processes.py:10:import logging
+scripts\backfill_events_processes.py:11:import sys
+scripts\backfill_events_processes.py:12:from datetime import datetime, timezone
+scripts\backfill_events_processes.py:13:from pathlib import Path
+scripts\backfill_events_processes.py:20:from db.session import AsyncSessionLocal
+scripts\backfill_events_processes.py:21:from services.events.build_events import rebuild_events
+scripts\backfill_events_processes.py:22:from services.processes.build_processes import rebuild_processes
+scripts\backfill_events_processes.py:23:from services.pipeline_runtime_common import configure_logging
+scripts\backfill_events_processes.py:24:from sqlalchemy import select, func
+scripts\backfill_events_processes.py:25:from db.models import Post
+scripts\backfill_involvement_metrics.py:1:from __future__ import annotations
+scripts\backfill_involvement_metrics.py:3:import argparse
+scripts\backfill_involvement_metrics.py:4:import asyncio
+scripts\backfill_involvement_metrics.py:5:import logging
+scripts\backfill_involvement_metrics.py:6:import sys
+scripts\backfill_involvement_metrics.py:7:from collections.abc import Callable
+scripts\backfill_involvement_metrics.py:8:from pathlib import Path
+scripts\backfill_involvement_metrics.py:10:from sqlalchemy import Select, select, update
+scripts\backfill_involvement_metrics.py:11:from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+scripts\backfill_involvement_metrics.py:17:from db.models import Comment, Post
+scripts\backfill_involvement_metrics.py:18:from db.session import AsyncSessionLocal
+scripts\backfill_involvement_metrics.py:19:from services.involvement import compute_comment_metrics_by_post_id, compute_involvement
+scripts\backfill_links.py:1:from __future__ import annotations
+scripts\backfill_links.py:2:import sys
+scripts\backfill_links.py:3:from pathlib import Path
+scripts\backfill_links.py:5:from config import settings
+scripts\backfill_links.py:6:import argparse
+scripts\backfill_links.py:7:import asyncio
+scripts\backfill_links.py:8:from dataclasses import dataclass
+scripts\backfill_links.py:10:from sqlalchemy import select
+scripts\backfill_links.py:12:from db.models import Post
+scripts\backfill_links.py:13:from db.session import AsyncSessionLocal
+scripts\backfill_links.py:14:from services.linker import link_post_to_graph
+scripts\backfill_reply_links.py:1:from __future__ import annotations
+scripts\backfill_reply_links.py:3:import argparse
+scripts\backfill_reply_links.py:4:import asyncio
+scripts\backfill_reply_links.py:5:import sys
+scripts\backfill_reply_links.py:6:from datetime import datetime, timezone
+scripts\backfill_reply_links.py:7:from pathlib import Path
+scripts\backfill_reply_links.py:9:from sqlalchemy import and_, select
+scripts\backfill_reply_links.py:10:from sqlalchemy.dialects.postgresql import insert
+scripts\backfill_reply_links.py:16:from db.models import PostLink, PostLinkType, VerificationStatus
+scripts\backfill_reply_links.py:17:from db.session import AsyncSessionLocal
+scripts\backfill_search_lemmas.py:1:from __future__ import annotations
+scripts\backfill_search_lemmas.py:3:import argparse
+scripts\backfill_search_lemmas.py:4:import asyncio
+scripts\backfill_search_lemmas.py:6:from sqlalchemy import select
+scripts\backfill_search_lemmas.py:8:from db.models import Post
+scripts\backfill_search_lemmas.py:9:from db.session import AsyncSessionLocal
+scripts\backfill_search_lemmas.py:10:from services.keyword_graph import build_search_lemmas
+scripts\check_ai_pipeline_status.py:1:from __future__ import annotations
+scripts\check_ai_pipeline_status.py:3:from dotenv import load_dotenv
+scripts\check_ai_pipeline_status.py:7:import os
+scripts\check_ai_pipeline_status.py:8:from datetime import datetime, timezone
+scripts\check_ai_pipeline_status.py:10:from sqlalchemy import create_engine, text
+scripts\check_ready_jobs.py:1:from dotenv import load_dotenv
+scripts\check_ready_jobs.py:5:import os
+scripts\check_ready_jobs.py:6:from datetime import datetime, timezone
+scripts\check_ready_jobs.py:8:from sqlalchemy import create_engine, text
+scripts\create_admin.py:1:from __future__ import annotations
+scripts\create_admin.py:3:import argparse
+scripts\create_admin.py:4:import asyncio
+scripts\create_admin.py:5:import random
+scripts\create_admin.py:6:import secrets
+scripts\create_admin.py:7:import string
+scripts\create_admin.py:8:import sys
+scripts\create_admin.py:9:from pathlib import Path
+scripts\create_admin.py:11:from sqlalchemy import select
+scripts\create_admin.py:17:from db.models import Role, User, UserRole
+scripts\create_admin.py:18:from db.session import AsyncSessionLocal
+scripts\create_admin.py:19:from services.auth import hash_password
+scripts\entity_audit_last30.py:1:from __future__ import annotations
+scripts\entity_audit_last30.py:3:import asyncio
+scripts\entity_audit_last30.py:4:import inspect
+scripts\entity_audit_last30.py:5:import json
+scripts\entity_audit_last30.py:6:import re
+scripts\entity_audit_last30.py:7:from dataclasses import dataclass
+scripts\entity_audit_last30.py:8:from typing import Any
+scripts\entity_audit_last30.py:10:from sqlalchemy import desc, select
+scripts\entity_audit_last30.py:12:from db.models import Post
+scripts\entity_audit_last30.py:13:from db.session import AsyncSessionLocal
+scripts\entity_audit_last30.py:17:    from collections import namedtuple
+scripts\entity_audit_last30.py:27:import pymorphy2
+scripts\parse_yesterday_with_links.py:1:from __future__ import annotations
+scripts\parse_yesterday_with_links.py:3:import asyncio
+scripts\parse_yesterday_with_links.py:4:import random
+scripts\parse_yesterday_with_links.py:5:from datetime import datetime, timedelta, timezone
+scripts\parse_yesterday_with_links.py:6:from zoneinfo import ZoneInfo
+scripts\parse_yesterday_with_links.py:8:from sqlalchemy import select
+scripts\parse_yesterday_with_links.py:9:from telethon.errors import FloodWaitError, RPCError
+scripts\parse_yesterday_with_links.py:10:from telethon.errors.rpcerrorlist import MsgIdInvalidError
+scripts\parse_yesterday_with_links.py:11:from telethon.tl.functions.messages import GetDiscussionMessageRequest
+scripts\parse_yesterday_with_links.py:12:from telethon.tl.types import PeerChannel, PeerUser, User
+scripts\parse_yesterday_with_links.py:14:from client import client, ensure_telegram_client_started
+scripts\parse_yesterday_with_links.py:15:from config import settings
+scripts\parse_yesterday_with_links.py:16:from db.models import Channel, Post
+scripts\parse_yesterday_with_links.py:17:from db.session import AsyncSessionLocal
+scripts\parse_yesterday_with_links.py:18:from services.ingest import (
+scripts\parse_yesterday_with_links.py:24:from services.linker import upsert_post_link
+scripts\reset_ai_jobs.py:1:from __future__ import annotations
+scripts\reset_ai_jobs.py:3:from dotenv import load_dotenv
+scripts\reset_ai_jobs.py:7:import os
+scripts\reset_ai_jobs.py:8:from datetime import datetime, timezone
+scripts\reset_ai_jobs.py:10:from sqlalchemy import create_engine, text
+scripts\run_ai_pipeline.py:1:from __future__ import annotations
+scripts\run_ai_pipeline.py:3:import argparse
+scripts\run_ai_pipeline.py:4:import asyncio
+scripts\run_ai_pipeline.py:5:import logging
+scripts\run_ai_pipeline.py:6:import sys
+scripts\run_ai_pipeline.py:7:import os
+scripts\run_ai_pipeline.py:8:from datetime import datetime, timezone
+scripts\run_ai_pipeline.py:9:from pathlib import Path
+scripts\run_ai_pipeline.py:11:from alembic import command
+scripts\run_ai_pipeline.py:12:from alembic.config import Config
+scripts\run_ai_pipeline.py:22:from services.orchestration import (
+scripts\run_ai_pipeline.py:26:from services.orchestration import (
+scripts\run_ai_pipeline.py:32:from services.runtime_heartbeat import HEARTBEAT_INTERVAL_SECONDS, persist_runtime_heartbeat
+scripts\run_ai_pipeline.py:33:from services.runtime_topology import AI_PIPELINE_RUNTIME
+scripts\run_api.py:1:from __future__ import annotations
+scripts\run_api.py:3:import argparse
+scripts\run_api.py:4:import sys
+scripts\run_api.py:5:from pathlib import Path
+scripts\run_api.py:7:import uvicorn
+scripts\run_keyword_graph_build_tests.py:1:from __future__ import annotations
+scripts\run_keyword_graph_build_tests.py:3:import argparse
+scripts\run_keyword_graph_build_tests.py:4:import json
+scripts\run_keyword_graph_build_tests.py:5:from dataclasses import dataclass
+scripts\run_keyword_graph_build_tests.py:6:from datetime import datetime, timezone
+scripts\run_keyword_graph_build_tests.py:7:from pathlib import Path
+scripts\run_keyword_graph_build_tests.py:8:from statistics import mean
+scripts\run_keyword_graph_build_tests.py:9:from typing import Any
+scripts\run_keyword_graph_build_tests.py:11:import httpx
+scripts\run_keyword_search_tests.py:1:from __future__ import annotations
+scripts\run_keyword_search_tests.py:3:import argparse
+scripts\run_keyword_search_tests.py:4:import json
+scripts\run_keyword_search_tests.py:5:from dataclasses import dataclass
+scripts\run_keyword_search_tests.py:6:from datetime import datetime, timezone
+scripts\run_keyword_search_tests.py:7:from pathlib import Path
+scripts\run_keyword_search_tests.py:8:from statistics import mean
+scripts\run_keyword_search_tests.py:9:from typing import Any
+scripts\run_keyword_search_tests.py:11:import httpx
+scripts\run_scheduler.py:1:from __future__ import annotations
+scripts\run_scheduler.py:3:import argparse
+scripts\run_scheduler.py:4:import asyncio
+scripts\run_scheduler.py:5:import logging
+scripts\run_scheduler.py:6:import os
+scripts\run_scheduler.py:7:import sys
+scripts\run_scheduler.py:8:from pathlib import Path
+scripts\run_scheduler.py:14:from db.session import AsyncSessionLocal
+scripts\run_scheduler.py:15:from services.pipeline_runtime_common import configure_logging
+scripts\run_scheduler.py:16:from services.runtime_heartbeat import HEARTBEAT_INTERVAL_SECONDS, persist_runtime_heartbeat
+scripts\run_scheduler.py:17:from services.scheduler_dispatch import retention_scheduler_enabled
+scripts\run_scheduler.py:18:from services.scheduler_runtime import build_scheduler, register_periodic_jobs
+scripts\run_scheduler.py:19:from services.settings_store import get_all_settings
+scripts\run_scheduler.py:20:from services.runtime_topology import SCHEDULER_RUNTIME
+scripts\run_telegram_pipeline.py:1:from __future__ import annotations
+scripts\run_telegram_pipeline.py:3:import argparse
+scripts\run_telegram_pipeline.py:4:import asyncio
+scripts\run_telegram_pipeline.py:5:import logging
+scripts\run_telegram_pipeline.py:6:import sqlite3
+scripts\run_telegram_pipeline.py:7:import sys
+scripts\run_telegram_pipeline.py:8:import os
+scripts\run_telegram_pipeline.py:9:from datetime import datetime, timezone
+scripts\run_telegram_pipeline.py:10:from pathlib import Path
+scripts\run_telegram_pipeline.py:16:from services.orchestration import (
+scripts\run_telegram_pipeline.py:20:from services.orchestration import (
+scripts\run_telegram_pipeline.py:30:from services.runtime_heartbeat import HEARTBEAT_INTERVAL_SECONDS, persist_runtime_heartbeat
+scripts\run_telegram_pipeline.py:31:from services.runtime_topology import TELEGRAM_PIPELINE_RUNTIME
+scripts\run_telegram_pipeline_inline_comments.py:1:from __future__ import annotations
+scripts\run_telegram_pipeline_inline_comments.py:3:import argparse
+scripts\run_telegram_pipeline_inline_comments.py:4:import asyncio
+scripts\run_telegram_pipeline_inline_comments.py:5:import logging
+scripts\run_telegram_pipeline_inline_comments.py:6:import os
+scripts\run_telegram_pipeline_inline_comments.py:7:import sqlite3
+scripts\run_telegram_pipeline_inline_comments.py:8:import sys
+scripts\run_telegram_pipeline_inline_comments.py:9:from datetime import datetime, timezone
+scripts\run_telegram_pipeline_inline_comments.py:10:from pathlib import Path
+scripts\run_telegram_pipeline_inline_comments.py:16:from services.orchestration import (
+scripts\run_telegram_pipeline_inline_comments.py:28:from services.runtime_heartbeat import HEARTBEAT_INTERVAL_SECONDS, persist_runtime_heartbeat
+scripts\run_telegram_pipeline_inline_comments.py:29:from services.runtime_topology import TELEGRAM_PIPELINE_RUNTIME
+scripts\spike_comment_reactions.py:1:from __future__ import annotations
+scripts\spike_comment_reactions.py:3:import argparse
+scripts\spike_comment_reactions.py:4:import asyncio
+scripts\spike_comment_reactions.py:5:import json
+scripts\spike_comment_reactions.py:6:import sys
+scripts\spike_comment_reactions.py:7:from dataclasses import asdict, dataclass
+scripts\spike_comment_reactions.py:8:from pathlib import Path
+scripts\spike_comment_reactions.py:14:from sqlalchemy import select
+scripts\spike_comment_reactions.py:15:from telethon.tl.functions.messages import GetDiscussionMessageRequest
+scripts\spike_comment_reactions.py:16:from telethon.tl.types import PeerChannel
+scripts\spike_comment_reactions.py:18:from client.telegram import build_telegram_client, ensure_telegram_client_started
+scripts\spike_comment_reactions.py:19:from db.models import Channel, Post
+scripts\spike_comment_reactions.py:20:from db.session import AsyncSessionLocal
+scripts\spike_post_reactions.py:1:from __future__ import annotations
+scripts\spike_post_reactions.py:3:import argparse
+scripts\spike_post_reactions.py:4:import asyncio
+scripts\spike_post_reactions.py:5:import json
+scripts\spike_post_reactions.py:6:import sys
+scripts\spike_post_reactions.py:7:from dataclasses import asdict, dataclass
+scripts\spike_post_reactions.py:8:from pathlib import Path
+scripts\spike_post_reactions.py:14:from sqlalchemy import select
+scripts\spike_post_reactions.py:16:from client.telegram import build_telegram_client, ensure_telegram_client_started
+scripts\spike_post_reactions.py:17:from db.models import Channel, Post
+scripts\spike_post_reactions.py:18:from db.session import AsyncSessionLocal
+scripts\test_bootstrap_backend.py:1:from __future__ import annotations
+scripts\test_bootstrap_backend.py:3:import os
+scripts\test_bootstrap_backend.py:4:from pathlib import Path
+scripts\test_bootstrap_backend.py:5:import subprocess
+scripts\test_bootstrap_backend.py:6:import sys
+scripts\test_bootstrap_backend.py:8:from sqlalchemy import create_engine, text
+scripts\test_bootstrap_backend.py:9:from sqlalchemy.engine import URL, make_url
+scripts\test_db.py:1:import asyncio
+scripts\test_db.py:2:from sqlalchemy import select
+scripts\test_db.py:4:from db.session import AsyncSessionLocal
+scripts\test_db.py:5:from db.models import Channel
+scripts\test_parse_last_post_per_channel.py:1:from __future__ import annotations
+scripts\test_parse_last_post_per_channel.py:3:import argparse
+scripts\test_parse_last_post_per_channel.py:4:import asyncio
+scripts\test_parse_last_post_per_channel.py:5:import logging
+scripts\test_parse_last_post_per_channel.py:6:import os
+scripts\test_parse_last_post_per_channel.py:7:import sqlite3
+scripts\test_parse_last_post_per_channel.py:8:import sys
+scripts\test_parse_last_post_per_channel.py:9:from datetime import datetime, timezone
+scripts\test_parse_last_post_per_channel.py:10:from pathlib import Path
+scripts\test_parse_last_post_per_channel.py:12:from sqlalchemy import select
+scripts\test_parse_last_post_per_channel.py:13:from telethon import TelegramClient
+scripts\test_parse_last_post_per_channel.py:14:from telethon.tl.types import PeerChannel
+scripts\test_parse_last_post_per_channel.py:20:from client.config import load_client_settings
+scripts\test_parse_last_post_per_channel.py:21:from db.models import Channel
+scripts\test_parse_last_post_per_channel.py:22:from db.session import AsyncSessionLocal
+scripts\test_parse_last_post_per_channel.py:23:from services.ingest import upsert_post
+scripts\test_pipeline_run.py:1:from __future__ import annotations
+scripts\test_pipeline_run.py:3:import argparse
+scripts\test_pipeline_run.py:4:import asyncio
+scripts\test_pipeline_run.py:5:import logging
+scripts\test_pipeline_run.py:6:import os
+scripts\test_pipeline_run.py:7:import sys
+scripts\test_pipeline_run.py:8:import time
+scripts\test_pipeline_run.py:9:from collections import Counter
+scripts\test_pipeline_run.py:10:from datetime import datetime, timedelta, timezone
+scripts\test_pipeline_run.py:11:from pathlib import Path
+scripts\test_pipeline_run.py:13:from sqlalchemy import String, and_, cast, desc, func, select
+scripts\test_pipeline_run.py:25:from config import settings
+scripts\test_pipeline_run.py:26:from db.models import (
+scripts\test_pipeline_run.py:37:from db.session import AsyncSessionLocal
+scripts\test_pipeline_run.py:38:from services.events.build_events import rebuild_events
+scripts\test_pipeline_run.py:39:from services.linking.candidates import upsert_post_facts
+scripts\test_pipeline_run.py:40:from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
+scripts\test_pipeline_run.py:41:from services.processes.build_processes import rebuild_processes
+scripts\test_retrieval_provider.py:1:import sys
+scripts\test_retrieval_provider.py:2:from pathlib import Path
+scripts\test_retrieval_provider.py:6:import asyncio
+scripts\test_retrieval_provider.py:8:from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\ai_runtime.py:1:from __future__ import annotations
+services\ai_runtime.py:3:import asyncio
+services\ai_runtime.py:4:import logging
+services\ai_runtime.py:5:import time
+services\ai_runtime.py:6:from datetime import datetime, timedelta, timezone
+services\ai_runtime.py:8:from sqlalchemy import text, update
+services\ai_runtime.py:9:from sqlalchemy.ext.asyncio import AsyncSession
+services\ai_runtime.py:11:from db.models import Job
+services\ai_runtime.py:12:from db.session import AsyncSessionLocal
+services\ai_runtime.py:13:from services.jobs import (
+services\ai_runtime.py:23:from services.pipeline_runtime_common import (
+services\ai_runtime.py:28:from services.pipeline_runtime_support import (
+services\ai_runtime.py:34:from services.reporting import (
+services\ai_runtime.py:44:from services.settings_store import get_all_settings, report_config_from_settings
+services\archive.py:1:from __future__ import annotations
+services\archive.py:3:import hashlib
+services\archive.py:4:import json
+services\archive.py:5:from datetime import datetime, timedelta, timezone
+services\archive.py:7:from sqlalchemy import delete, func, or_, select
+services\archive.py:8:from sqlalchemy.dialects.postgresql import insert
+services\archive.py:9:from sqlalchemy.ext.asyncio import AsyncSession
+services\archive.py:11:from db.models import (
+services\auth.py:1:from __future__ import annotations
+services\auth.py:3:from dataclasses import dataclass
+services\auth.py:4:from datetime import datetime, timedelta, timezone
+services\auth.py:5:import hashlib
+services\auth.py:6:import secrets
+services\auth.py:8:import bcrypt
+services\auth.py:9:import jwt
+services\auth.py:10:from argon2 import PasswordHasher
+services\auth.py:11:from argon2.exceptions import VerifyMismatchError
+services\auth.py:12:from fastapi import HTTPException, status
+services\auth.py:13:from sqlalchemy import select
+services\auth.py:14:from sqlalchemy.ext.asyncio import AsyncSession
+services\auth.py:16:from config import settings
+services\auth.py:17:from db.models import AuditLog, AuthRefreshToken, Role, User, UserRole
+services\auth_rate_limit.py:1:from __future__ import annotations
+services\auth_rate_limit.py:3:import logging
+services\auth_rate_limit.py:4:from datetime import datetime, timedelta, timezone
+services\auth_rate_limit.py:6:from fastapi import HTTPException, status
+services\auth_rate_limit.py:7:from sqlalchemy import delete, insert, select, update
+services\auth_rate_limit.py:8:from sqlalchemy.exc import IntegrityError
+services\auth_rate_limit.py:10:from db.models import AuthRateLimitBucket
+services\auth_rate_limit.py:11:from db.session import engine
+services\channel_management.py:1:from __future__ import annotations
+services\channel_management.py:3:import re
+services\channel_management.py:4:from typing import Optional
+services\channel_management.py:6:from sqlalchemy import select
+services\channel_management.py:7:from telethon.errors import RPCError
+services\channel_management.py:8:from telethon.tl.functions.channels import JoinChannelRequest
+services\channel_management.py:9:from telethon.tl.types import Channel as TgChannel
+services\channel_management.py:11:from client.telegram import TelegramClientHandle, ensure_telegram_client_started
+services\channel_management.py:12:from db.models import Channel
+services\channel_management.py:13:from services.ingest import upsert_channel
+services\ingest.py:1:from __future__ import annotations
+services\ingest.py:3:from datetime import datetime, timezone
+services\ingest.py:4:from typing import Optional
+services\ingest.py:6:from sqlalchemy import select
+services\ingest.py:7:from sqlalchemy.dialects.postgresql import insert
+services\ingest.py:8:from sqlalchemy.ext.asyncio import AsyncSession
+services\ingest.py:10:from db.models import Channel, Post, Comment, Report  
+services\ingestion_core.py:1:from __future__ import annotations
+services\ingestion_core.py:3:import asyncio
+services\ingestion_core.py:4:import logging
+services\ingestion_core.py:5:import random
+services\ingestion_core.py:6:from dataclasses import dataclass
+services\ingestion_core.py:7:from datetime import datetime, timedelta, timezone
+services\ingestion_core.py:8:from typing import Any, Awaitable, Callable
+services\ingestion_core.py:9:from zoneinfo import ZoneInfo
+services\ingestion_core.py:11:from sqlalchemy import select
+services\ingestion_core.py:12:from telethon.errors import FloodWaitError
+services\ingestion_core.py:13:from telethon.tl.types import PeerChannel
+services\ingestion_core.py:15:from db.models import Channel, Post
+services\ingestion_core.py:16:from services.ingest import upsert_post
+services\ingestion_core.py:202:            from services.reporting import sync_post_report_staleness
+services\ingestion_core.py:457:                        from services.reporting import sync_post_report_staleness
+services\involvement.py:1:from __future__ import annotations
+services\involvement.py:3:import math
+services\involvement.py:4:from collections import defaultdict
+services\involvement.py:5:from typing import Any, Iterable, Mapping
+services\jobs.py:1:from __future__ import annotations
+services\jobs.py:3:import os
+services\jobs.py:4:from dataclasses import dataclass
+services\jobs.py:5:from datetime import datetime, timedelta, timezone
+services\jobs.py:7:from sqlalchemy import Select, func, select, text
+services\jobs.py:8:from sqlalchemy.dialects.postgresql import insert
+services\jobs.py:9:from sqlalchemy.ext.asyncio import AsyncSession
+services\jobs.py:11:from db.models import Job, JobDeadLetter
+services\jobs_retention.py:1:from __future__ import annotations
+services\jobs_retention.py:3:from datetime import timedelta
+services\jobs_retention.py:5:from sqlalchemy import delete, select
+services\jobs_retention.py:6:from sqlalchemy.ext.asyncio import AsyncSession
+services\jobs_retention.py:8:from db.models import Job, JobDeadLetter
+services\jobs_retention.py:9:from services.jobs import JOB_STATUS_DONE, utcnow
+services\keyword_graph.py:1:from __future__ import annotations
+services\keyword_graph.py:3:import re
+services\keyword_graph.py:4:import time
+services\keyword_graph.py:5:from collections import deque
+services\keyword_graph.py:6:from datetime import timedelta
+services\keyword_graph.py:7:from difflib import SequenceMatcher
+services\keyword_graph.py:8:from typing import Any
+services\keyword_graph.py:10:from sqlalchemy import String, and_, desc, func, or_, select
+services\keyword_graph.py:11:from sqlalchemy.ext.asyncio import AsyncSession
+services\keyword_graph.py:13:from db.models import Channel, Post, PostLink
+services\keyword_graph.py:14:from schemas.keyword_graph import (
+services\keyword_graph.py:27:    from natasha import Doc, MorphVocab, NewsEmbedding, NewsMorphTagger, Segmenter
+services\linker.py:1:from __future__ import annotations
+services\linker.py:3:from datetime import datetime
+services\linker.py:5:from sqlalchemy.dialects.postgresql import insert
+services\linker.py:6:from sqlalchemy.ext.asyncio import AsyncSession
+services\linker.py:8:from config import settings
+services\linker.py:9:from db.models import LinkDirection, Post, PostLink, PostLinkType, VerificationStatus
+services\linker.py:10:from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
+services\linking_metrics.py:1:from __future__ import annotations
+services\linking_metrics.py:3:from sqlalchemy import func, select
+services\linking_metrics.py:4:from sqlalchemy.ext.asyncio import AsyncSession
+services\linking_metrics.py:6:from db.models import EventPost, Post, ProcessEvent
+services\monitoring.py:1:from __future__ import annotations
+services\monitoring.py:3:import os
+services\monitoring.py:4:import shutil
+services\monitoring.py:5:import time
+services\monitoring.py:6:from datetime import datetime, timedelta, timezone
+services\monitoring.py:7:from zoneinfo import ZoneInfo
+services\monitoring.py:9:from sqlalchemy import Float, cast, func, select, text
+services\monitoring.py:10:from sqlalchemy.ext.asyncio import AsyncSession
+services\monitoring.py:12:from config import settings
+services\monitoring.py:13:from db.models import Comment, EventReport, Job, JobDeadLetter, Post, ProcessReport, Report
+services\monitoring.py:14:from services.jobs import JobType
+services\monitoring.py:15:from services.runtime_heartbeat import HEARTBEAT_TIMEOUT_SECONDS, get_runtime_heartbeat
+services\monitoring.py:16:from services.runtime_topology import (
+services\monitoring.py:23:from services.scheduler_dispatch import retention_scheduler_enabled
+services\monitoring.py:26:    import psutil  # type: ignore
+services\orchestration.py:1:from __future__ import annotations
+services\orchestration.py:3:import logging
+services\orchestration.py:4:from dataclasses import dataclass
+services\orchestration.py:5:from datetime import datetime, timedelta, timezone
+services\orchestration.py:7:from client.telegram import is_session_locked_error, with_session_lock_retry
+services\orchestration.py:8:from db.models import Channel, Post
+services\orchestration.py:9:from db.session import AsyncSessionLocal
+services\orchestration.py:10:from services.TGqueries import update_post_comments
+services\orchestration.py:11:from services.ingestion_core import IngestionContext, IngestionCore, IngestionOptions
+services\orchestration.py:12:from services.pipeline_runtime import (
+services\orchestration.py:30:from services.pipeline_runtime_common import (
+services\orchestration.py:41:from services.pipeline_runtime_support import (
+services\orchestration.py:48:from services.scheduler_dispatch import enqueue_daily_retention_jobs, retention_scheduler_enabled
+services\orchestration.py:49:from services.settings_defaults import get_default_setting
+services\orchestration.py:50:from services.settings_store import get_all_settings
+services\pipeline_runtime.py:1:from __future__ import annotations
+services\pipeline_runtime.py:3:import asyncio
+services\pipeline_runtime.py:4:import logging
+services\pipeline_runtime.py:5:import random
+services\pipeline_runtime.py:6:import sys
+services\pipeline_runtime.py:7:import time
+services\pipeline_runtime.py:8:from datetime import datetime, timedelta, timezone
+services\pipeline_runtime.py:9:from pathlib import Path
+services\pipeline_runtime.py:11:from sqlalchemy import and_, func, select, text
+services\pipeline_runtime.py:12:from sqlalchemy.ext.asyncio import AsyncSession
+services\pipeline_runtime.py:13:from sqlalchemy import update
+services\pipeline_runtime.py:19:from client.telegram import TelegramClientHandle
+services\pipeline_runtime.py:20:from db.models import Channel, EventPost, EventReport, Job, JobDeadLetter, Post, ProcessEvent, ProcessReport, Report
+services\pipeline_runtime.py:21:from db.session import AsyncSessionLocal
+services\pipeline_runtime.py:22:from services.archive import run_archive_retention
+services\pipeline_runtime.py:23:from services.auth import write_audit_log
+services\pipeline_runtime.py:24:from services.channel_management import resolve_and_upsert_channel
+services\pipeline_runtime.py:25:from services.events.build_events import rebuild_events
+services\pipeline_runtime.py:26:from services.ingestion_core import IngestionCore, IngestionContext, IngestionOptions
+services\pipeline_runtime.py:27:from services.jobs import (
+services\pipeline_runtime.py:40:from services.jobs_retention import run_jobs_retention
+services\pipeline_runtime.py:41:from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
+services\pipeline_runtime.py:42:from services.processes.build_processes import rebuild_processes
+services\pipeline_runtime.py:43:from services.pipeline_runtime_common import (
+services\pipeline_runtime.py:56:from services.pipeline_runtime_support import (
+services\pipeline_runtime.py:76:from services import reporting as reporting_module
+services\pipeline_runtime.py:77:from services.reporting import (
+services\pipeline_runtime.py:83:from services.scheduler_dispatch import enqueue_daily_retention_jobs, retention_scheduler_enabled
+services\pipeline_runtime.py:84:from services.settings_defaults import get_default_setting
+services\pipeline_runtime.py:85:from services.settings_store import get_all_settings, report_config_from_settings
+services\pipeline_runtime.py:86:from services.TGqueries import update_post_comments
+services\pipeline_runtime.py:87:from scripts.backfill_events_processes import backfill_events_processes
+services\pipeline_runtime_common.py:1:from __future__ import annotations
+services\pipeline_runtime_common.py:3:import asyncio
+services\pipeline_runtime_common.py:4:import logging
+services\pipeline_runtime_common.py:5:import os
+services\pipeline_runtime_common.py:6:import uuid
+services\pipeline_runtime_common.py:7:from dataclasses import dataclass
+services\pipeline_runtime_common.py:8:from datetime import datetime, timezone
+services\pipeline_runtime_common.py:10:from sqlalchemy import func, select
+services\pipeline_runtime_common.py:11:from sqlalchemy.ext.asyncio import AsyncSession
+services\pipeline_runtime_common.py:13:from client.telegram import TelegramClientHandle, build_telegram_client
+services\pipeline_runtime_common.py:14:from db.models import Job, JobDeadLetter
+services\pipeline_runtime_common.py:15:from db.session import AsyncSessionLocal
+services\pipeline_runtime_common.py:16:from services.jobs import JobType
+services\pipeline_runtime_common.py:17:from services.settings_defaults import get_default_setting
+services\pipeline_runtime_common.py:18:from services.settings_store import get_all_settings
+services\pipeline_runtime_support.py:1:from __future__ import annotations
+services\pipeline_runtime_support.py:3:import logging
+services\pipeline_runtime_support.py:4:import random
+services\pipeline_runtime_support.py:5:from datetime import datetime, timedelta, timezone
+services\pipeline_runtime_support.py:7:from sqlalchemy import and_, func, select
+services\pipeline_runtime_support.py:8:from sqlalchemy.ext.asyncio import AsyncSession
+services\pipeline_runtime_support.py:10:from db.models import Channel, EventPost, EventReport, Post, ProcessEvent, ProcessReport, Report
+services\pipeline_runtime_support.py:11:from db.session import AsyncSessionLocal
+services\pipeline_runtime_support.py:12:from services.events.build_events import rebuild_events
+services\pipeline_runtime_support.py:13:from services.ingestion_core import IngestionCore, IngestionContext, IngestionOptions
+services\pipeline_runtime_support.py:14:from services.jobs import JobType, enqueue_job
+services\pipeline_runtime_support.py:15:from services.processes.build_processes import rebuild_processes
+services\pipeline_runtime_support.py:16:from services.reporting import (
+services\queries.py:1:from __future__ import annotations
+services\queries.py:3:from datetime import datetime, timezone
+services\queries.py:4:from typing import Optional
+services\queries.py:6:from sqlalchemy import and_, delete, func, select
+services\queries.py:7:from sqlalchemy.dialects.postgresql import insert
+services\queries.py:8:from sqlalchemy.ext.asyncio import AsyncSession
+services\queries.py:9:from sqlalchemy.orm import aliased
+services\queries.py:11:from db.models import Channel, Post, Comment, Report  
+services\reporting.py:1:from __future__ import annotations
+services\reporting.py:3:import hashlib
+services\reporting.py:4:import json
+services\reporting.py:5:import logging
+services\reporting.py:6:import math
+services\reporting.py:7:import re
+services\reporting.py:8:from dataclasses import dataclass
+services\reporting.py:9:from datetime import datetime, timezone
+services\reporting.py:10:from typing import Any
+services\reporting.py:12:from sqlalchemy import select
+services\reporting.py:13:from sqlalchemy.ext.asyncio import AsyncSession
+services\reporting.py:15:from db.models import Channel, Comment, Event, EventPost, EventReport, Job, Post, Process, ProcessEvent, ProcessReport, Report
+services\reporting.py:16:from schemas.report import PostReportPayload
+services\reporting.py:17:from services.jobs import JOB_STATUS_DONE, JobType
+services\reporting.py:18:from services.ingest import upsert_report
+services\reporting.py:19:from services.report_aggregation import build_process_report_payload
+services\reporting.py:20:from services.settings_store import get_all_settings
+services\reporting.py:21:from services.reporting_v2 import (
+services\reporting.py:27:from services.reporting_v2.steps import is_canonical_openrouter_ready_path
+services\reporting.py:28:from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting.py:29:from services.report_language import (
+services\report_aggregation.py:1:from __future__ import annotations
+services\report_aggregation.py:3:from collections import Counter
+services\report_aggregation.py:4:from datetime import datetime, timezone
+services\report_aggregation.py:5:from typing import Any
+services\report_aggregation.py:7:from schemas.report import EventReportPayload, ProcessReportPayload
+services\report_language.py:1:from __future__ import annotations
+services\report_language.py:3:import copy
+services\report_language.py:4:import json
+services\report_language.py:5:import logging
+services\report_language.py:6:import re
+services\report_language.py:7:from collections.abc import Iterable
+services\report_language.py:8:from typing import Any
+services\report_language.py:10:from services.llm.openai_client import OpenAIAdapterConfig, OpenAIClientAdapter
+services\report_language.py:224:        import os
+services\report_language.py:225:        from pathlib import Path
+services\report_language.py:226:        from services.llm.model_router import ModelEntry, ModelRouter
+services\runtime_heartbeat.py:1:from __future__ import annotations
+services\runtime_heartbeat.py:3:from copy import deepcopy
+services\runtime_heartbeat.py:4:from datetime import datetime, timezone
+services\runtime_heartbeat.py:6:from sqlalchemy import select
+services\runtime_heartbeat.py:7:from sqlalchemy.ext.asyncio import AsyncSession
+services\runtime_heartbeat.py:9:from db.models import AppSetting
+services\runtime_heartbeat.py:10:from db.session import AsyncSessionLocal
+services\runtime_heartbeat.py:11:from services.settings_store import upsert_setting
+services\runtime_topology.py:1:from __future__ import annotations
+services\runtime_topology.py:3:from dataclasses import asdict, dataclass
+services\scheduler_dispatch.py:1:from __future__ import annotations
+services\scheduler_dispatch.py:3:from datetime import datetime, timezone
+services\scheduler_dispatch.py:5:from sqlalchemy.ext.asyncio import AsyncSession
+services\scheduler_dispatch.py:7:from db.session import AsyncSessionLocal
+services\scheduler_dispatch.py:8:from services.jobs import JobType, enqueue_job
+services\scheduler_dispatch.py:9:from services.settings_store import get_all_settings
+services\scheduler_runtime.py:1:from __future__ import annotations
+services\scheduler_runtime.py:3:from zoneinfo import ZoneInfo
+services\scheduler_runtime.py:5:from apscheduler.executors.asyncio import AsyncIOExecutor
+services\scheduler_runtime.py:6:from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+services\scheduler_runtime.py:7:from apscheduler.schedulers.asyncio import AsyncIOScheduler
+services\scheduler_runtime.py:8:from apscheduler.triggers.cron import CronTrigger
+services\scheduler_runtime.py:9:from sqlalchemy.engine import make_url
+services\scheduler_runtime.py:11:from config import settings
+services\scheduler_runtime.py:12:from services.scheduler_dispatch import dispatch_daily_retention
+services\settings_defaults.py:1:from __future__ import annotations
+services\settings_defaults.py:3:from copy import deepcopy
+services\settings_store.py:1:from __future__ import annotations
+services\settings_store.py:3:from copy import deepcopy
+services\settings_store.py:5:from sqlalchemy import select
+services\settings_store.py:6:from sqlalchemy.dialects.postgresql import insert
+services\settings_store.py:7:from sqlalchemy.ext.asyncio import AsyncSession
+services\settings_store.py:8:from dataclasses import dataclass
+services\settings_store.py:9:from db.models import AppSetting
+services\settings_store.py:10:from services.settings_defaults import get_canonical_defaults
+services\settings_store.py:11:from services.settings_validation import validate_setting_payload
+services\settings_validation.py:1:from __future__ import annotations
+services\settings_validation.py:3:from pydantic import BaseModel, ConfigDict, Field, ValidationError
+services\settings_validation.py:4:from services.settings_defaults import CANONICAL_SETTINGS_DEFAULTS
+services\TGqueries.py:1:from __future__ import annotations
+services\TGqueries.py:3:import asyncio
+services\TGqueries.py:4:import logging
+services\TGqueries.py:5:import random
+services\TGqueries.py:6:from collections import deque
+services\TGqueries.py:7:from datetime import datetime, timedelta, timezone
+services\TGqueries.py:9:from telethon.errors import FloodWaitError, RPCError
+services\TGqueries.py:10:from telethon.errors.rpcerrorlist import MsgIdInvalidError
+services\TGqueries.py:11:from telethon.tl.functions.messages import GetDiscussionMessageRequest
+services\TGqueries.py:12:from telethon.tl.types import PeerChannel, PeerUser, User
+services\TGqueries.py:13:from sqlalchemy import delete, func, select
+services\TGqueries.py:14:from sqlalchemy.ext.asyncio import AsyncSession
+services\TGqueries.py:16:from client import client as default_client
+services\TGqueries.py:17:from client.telegram import ensure_telegram_client_started, with_session_lock_retry
+services\TGqueries.py:18:from config import settings
+services\TGqueries.py:19:from db.models import Comment
+services\TGqueries.py:20:from services.ingest import (
+services\TGqueries.py:30:from services.involvement import compute_involvement, count_long_comments
+services\TGqueries.py:31:from services.queries import get_post_with_channel_by_post_id
+services\TGqueries.py:32:from services.settings_defaults import get_default_setting
+services\TGqueries.py:33:from services.settings_store import get_all_settings
+services\TGqueries.py:34:from utils.serialization import to_jsonable
+services\dashboard\common.py:1:from __future__ import annotations
+services\dashboard\common.py:3:from collections import defaultdict
+services\dashboard\common.py:4:from datetime import datetime, timezone
+services\dashboard\common.py:5:from typing import Any
+services\dashboard\common.py:7:from sqlalchemy import Integer, cast, func, select
+services\dashboard\common.py:8:from sqlalchemy.ext.asyncio import AsyncSession
+services\dashboard\common.py:10:from db.models import EventPost, EventReport, Job, Post, PostLink, ProcessEvent, ProcessReport, Report
+services\dashboard\common.py:11:from services.reporting import (
+services\dashboard\events_dashboard.py:1:from __future__ import annotations
+services\dashboard\events_dashboard.py:3:from collections import defaultdict
+services\dashboard\events_dashboard.py:5:from sqlalchemy import and_, select
+services\dashboard\events_dashboard.py:6:from sqlalchemy.ext.asyncio import AsyncSession
+services\dashboard\events_dashboard.py:8:from db.models import Channel, Event, EventPost, Post, PostLink
+services\dashboard\events_dashboard.py:9:from schemas.dashboard import (
+services\dashboard\events_dashboard.py:23:from services.dashboard.common import (
+services\dashboard\posts_dashboard.py:1:from __future__ import annotations
+services\dashboard\posts_dashboard.py:3:from sqlalchemy import and_, desc, select
+services\dashboard\posts_dashboard.py:4:from sqlalchemy.ext.asyncio import AsyncSession
+services\dashboard\posts_dashboard.py:6:from datetime import datetime, timedelta, timezone
+services\dashboard\posts_dashboard.py:7:from typing import Optional
+services\dashboard\posts_dashboard.py:9:from db.models import Channel, Post
+services\dashboard\posts_dashboard.py:10:from schemas.dashboard import (
+services\dashboard\posts_dashboard.py:19:from services.dashboard.common import average_or_none, load_post_link_counts, load_post_report_statuses, text_preview, utcnow
+services\dashboard\processes_dashboard.py:1:from __future__ import annotations
+services\dashboard\processes_dashboard.py:3:from collections import defaultdict
+services\dashboard\processes_dashboard.py:5:from sqlalchemy import and_, select
+services\dashboard\processes_dashboard.py:6:from sqlalchemy.ext.asyncio import AsyncSession
+services\dashboard\processes_dashboard.py:8:from db.models import Channel, Event, EventPost, Post, PostLink, Process, ProcessEvent
+services\dashboard\processes_dashboard.py:9:from schemas.dashboard import (
+services\dashboard\processes_dashboard.py:24:from services.dashboard.common import (
+services\dashboard\__init__.py:1:from services.dashboard.events_dashboard import build_event_graph, build_events_dashboard
+services\dashboard\__init__.py:2:from services.dashboard.posts_dashboard import build_posts_dashboard
+services\dashboard\__init__.py:3:from services.dashboard.processes_dashboard import build_process_graph, build_processes_dashboard
+services\events\build_events.py:1:from __future__ import annotations
+services\events\build_events.py:3:from collections import Counter
+services\events\build_events.py:4:from datetime import datetime
+services\events\build_events.py:5:from unicodedata import normalize
+services\events\build_events.py:7:from sqlalchemy import and_, delete, or_, select
+services\events\build_events.py:8:from sqlalchemy.dialects.postgresql import insert
+services\events\build_events.py:9:from sqlalchemy.ext.asyncio import AsyncSession
+services\events\build_events.py:11:from db.models import Event, EventPost, Post, PostFact, PostLink, PostLinkType, VerificationStatus
+services\events\__init__.py:1:from services.events.build_events import rebuild_events
+services\linking\candidates.py:1:from __future__ import annotations
+services\linking\candidates.py:3:import re
+services\linking\candidates.py:4:from dataclasses import dataclass
+services\linking\candidates.py:5:from datetime import timedelta
+services\linking\candidates.py:6:from math import sqrt
+services\linking\candidates.py:8:from sqlalchemy import and_, func, select
+services\linking\candidates.py:9:from sqlalchemy.dialects.postgresql import insert
+services\linking\candidates.py:10:from sqlalchemy.ext.asyncio import AsyncSession
+services\linking\candidates.py:12:from config import settings
+services\linking\candidates.py:13:from db.models import Post, PostFact
+services\linking\candidates.py:14:from services.linking.entity_dictionaries import ENTITY_NOISE_WORDS, ORG_HINTS, PLACE_HINTS
+services\linking\candidates.py:15:from services.linking.embeddings import EmbeddingProvider
+services\linking\candidates.py:18:    from natasha import Doc, MorphVocab, NewsEmbedding, NewsMorphTagger, NewsNERTagger, Segmenter
+services\linking\embeddings.py:1:from __future__ import annotations
+services\linking\embeddings.py:3:import logging
+services\linking\embeddings.py:4:from typing import Any
+services\linking\embeddings.py:6:import httpx
+services\linking\embeddings.py:8:from config import settings
+services\linking\entity_dictionaries.py:1:from __future__ import annotations
+services\linking\no_llm_pipeline.py:1:from __future__ import annotations
+services\linking\no_llm_pipeline.py:3:from dataclasses import dataclass
+services\linking\no_llm_pipeline.py:4:from datetime import datetime
+services\linking\no_llm_pipeline.py:6:from sqlalchemy.dialects.postgresql import insert
+services\linking\no_llm_pipeline.py:7:from sqlalchemy.ext.asyncio import AsyncSession
+services\linking\no_llm_pipeline.py:9:from config import settings
+services\linking\no_llm_pipeline.py:10:from db.models import LinkDirection, Post, PostLink, PostLinkType, VerificationStatus
+services\linking\no_llm_pipeline.py:11:from schemas.linking import LinkRunResponse
+services\linking\no_llm_pipeline.py:12:from services.linking.candidates import (
+services\linking\no_llm_pipeline.py:17:from services.linking.embeddings import EmbeddingProvider
+services\linking\__init__.py:1:from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
+services\llm\model_router.py:1:from __future__ import annotations
+services\llm\model_router.py:3:import asyncio
+services\llm\model_router.py:4:import logging
+services\llm\model_router.py:5:import time
+services\llm\model_router.py:6:from collections import defaultdict, deque
+services\llm\model_router.py:7:from dataclasses import dataclass, field
+services\llm\model_router.py:8:from typing import Any, Dict, List, Optional, Tuple
+services\llm\openai_client.py:1:from __future__ import annotations
+services\llm\openai_client.py:3:import asyncio
+services\llm\openai_client.py:4:import json
+services\llm\openai_client.py:5:import logging
+services\llm\openai_client.py:6:import time
+services\llm\openai_client.py:7:from collections import deque
+services\llm\openai_client.py:8:from dataclasses import dataclass, field
+services\llm\openai_client.py:9:from typing import Any, TYPE_CHECKING, Optional
+services\llm\openai_client.py:11:from config import settings
+services\llm\openai_client.py:12:from services.llm.model_router import ModelEntry, ModelRouter
+services\llm\openai_client.py:15:    from openai import AsyncOpenAI
+services\llm\openai_client.py:20:    import httpx
+services\llm\openai_client.py:25:    from httpx import Response as HttpxResponse
+services\llm\openai_client.py:122:            from httpx import Response as HttpxResponse
+services\processes\build_processes.py:1:from __future__ import annotations
+services\processes\build_processes.py:3:from collections import defaultdict
+services\processes\build_processes.py:4:from datetime import datetime
+services\processes\build_processes.py:6:from sqlalchemy import and_, delete, or_, select
+services\processes\build_processes.py:7:from sqlalchemy.dialects.postgresql import insert
+services\processes\build_processes.py:8:from sqlalchemy.ext.asyncio import AsyncSession
+services\processes\build_processes.py:10:from db.models import (
+services\processes\__init__.py:1:from services.processes.build_processes import rebuild_processes
+services\prompts\loader.py:1:from __future__ import annotations
+services\prompts\loader.py:3:from pathlib import Path
+services\prompts\loader.py:5:from config import settings
+services\reporting_v2\contracts_internal.py:1:from __future__ import annotations
+services\reporting_v2\contracts_internal.py:3:from typing import Any, Mapping, Optional
+services\reporting_v2\contracts_internal.py:5:from pydantic import BaseModel, ConfigDict, Field
+services\reporting_v2\event_pipeline.py:1:from __future__ import annotations
+services\reporting_v2\event_pipeline.py:3:import hashlib
+services\reporting_v2\event_pipeline.py:4:import json
+services\reporting_v2\event_pipeline.py:5:import re
+services\reporting_v2\event_pipeline.py:6:from typing import Any
+services\reporting_v2\event_pipeline.py:8:from sqlalchemy import select
+services\reporting_v2\event_pipeline.py:9:from sqlalchemy.ext.asyncio import AsyncSession
+services\reporting_v2\event_pipeline.py:11:from db.models import Comment, Event, EventPost, Post
+services\reporting_v2\event_pipeline.py:12:from schemas.report import EventReportPayload
+services\reporting_v2\event_pipeline.py:13:from services.llm.openai_client import OpenAIAdapterConfig, OpenAIChatCompletionTrace, OpenAIClientAdapter
+services\reporting_v2\event_pipeline.py:14:from services.prompts.loader import PromptLoader
+services\reporting_v2\event_pipeline.py:15:from services.reporting_v2.contracts_internal import (
+services\reporting_v2\event_pipeline.py:25:from services.reporting_v2.retrieval import run_retrieval_manager, run_retrieval_provider
+services\reporting_v2\event_pipeline.py:26:from services.reporting_v2.steps import (
+services\reporting_v2\mapper.py:1:from __future__ import annotations
+services\reporting_v2\mapper.py:3:from typing import Any
+services\reporting_v2\mapper.py:5:from services.reporting_v2.contracts_internal import validate_multi_agent_meta
+services\reporting_v2\mapper.py:6:from services.reporting_v2.state import PipelineState
+services\reporting_v2\orchestrator.py:1:from __future__ import annotations
+services\reporting_v2\orchestrator.py:3:import re
+services\reporting_v2\orchestrator.py:4:from collections import Counter
+services\reporting_v2\orchestrator.py:5:from typing import Any
+services\reporting_v2\orchestrator.py:7:from services.reporting_v2.state import (
+services\reporting_v2\orchestrator.py:18:from services.reporting_v2.steps import execute_state_step
+services\reporting_v2\post_pipeline.py:1:from __future__ import annotations
+services\reporting_v2\post_pipeline.py:3:import hashlib
+services\reporting_v2\post_pipeline.py:4:import json
+services\reporting_v2\post_pipeline.py:5:import re
+services\reporting_v2\post_pipeline.py:6:from collections import Counter
+services\reporting_v2\post_pipeline.py:7:from typing import Any, Literal
+services\reporting_v2\post_pipeline.py:8:import logging
+services\reporting_v2\post_pipeline.py:9:import traceback
+services\reporting_v2\post_pipeline.py:10:import os
+services\reporting_v2\post_pipeline.py:11:from pathlib import Path
+services\reporting_v2\post_pipeline.py:15:from services.llm.model_router import ModelRouter, ModelEntry
+services\reporting_v2\post_pipeline.py:16:from schemas.report import PostReportPayload
+services\reporting_v2\post_pipeline.py:17:from services.llm.openai_client import OpenAIAdapterConfig, OpenAIChatCompletionTrace, OpenAIClientAdapter
+services\reporting_v2\post_pipeline.py:18:from services.prompts.loader import PromptLoader
+services\reporting_v2\post_pipeline.py:19:from services.reporting_v2.contracts_internal import (
+services\reporting_v2\post_pipeline.py:29:from services.reporting_v2.retrieval import run_retrieval_manager
+services\reporting_v2\post_pipeline.py:30:from services.reporting_v2.steps import (
+services\reporting_v2\retrieval.py:1:from __future__ import annotations
+services\reporting_v2\retrieval.py:2:import asyncio
+services\reporting_v2\retrieval.py:3:import random
+services\reporting_v2\retrieval.py:4:import hashlib
+services\reporting_v2\retrieval.py:5:import inspect
+services\reporting_v2\retrieval.py:6:import logging
+services\reporting_v2\retrieval.py:7:import re
+services\reporting_v2\retrieval.py:8:from collections import OrderedDict
+services\reporting_v2\retrieval.py:9:from datetime import datetime, timedelta, timezone
+services\reporting_v2\retrieval.py:10:from typing import Any, Mapping
+services\reporting_v2\retrieval.py:11:from urllib.parse import urlparse
+services\reporting_v2\searxng_provider.py:1:from __future__ import annotations
+services\reporting_v2\searxng_provider.py:3:import asyncio
+services\reporting_v2\searxng_provider.py:4:import re
+services\reporting_v2\searxng_provider.py:5:from typing import Any
+services\reporting_v2\searxng_provider.py:6:from urllib.parse import urlparse
+services\reporting_v2\searxng_provider.py:8:import httpx
+services\reporting_v2\searxng_provider.py:9:import trafilatura
+services\reporting_v2\state.py:1:from __future__ import annotations
+services\reporting_v2\state.py:3:from typing import Any
+services\reporting_v2\state.py:5:from pydantic import BaseModel, ConfigDict, Field
+services\reporting_v2\steps\execution.py:1:from __future__ import annotations
+services\reporting_v2\steps\execution.py:3:import inspect
+services\reporting_v2\steps\execution.py:4:from typing import Any, Awaitable, Callable, TypeVar
+tests\test_ai_runtime_mode.py:1:from __future__ import annotations
+tests\test_ai_runtime_mode.py:3:from datetime import datetime, timezone
+tests\test_ai_runtime_mode.py:4:from types import SimpleNamespace
+tests\test_ai_runtime_mode.py:6:import pytest
+tests\test_ai_runtime_mode.py:8:from services import pipeline_runtime
+tests\test_api_entrypoint.py:1:import importlib
+tests\test_api_entrypoint.py:2:import sys
+tests\test_api_entrypoint.py:4:import pytest
+tests\test_api_entrypoint.py:5:from fastapi.testclient import TestClient
+tests\test_auth_api_integration.py:1:from __future__ import annotations
+tests\test_auth_api_integration.py:3:import asyncio
+tests\test_auth_api_integration.py:4:from collections import deque
+tests\test_auth_api_integration.py:5:from datetime import datetime, timedelta, timezone
+tests\test_auth_api_integration.py:7:from fastapi import FastAPI
+tests\test_auth_api_integration.py:8:from fastapi.testclient import TestClient
+tests\test_auth_api_integration.py:9:import pytest
+tests\test_auth_api_integration.py:11:from api.routers import auth as auth_router
+tests\test_auth_api_integration.py:12:from db.models import AuthRefreshToken, Role, User, UserRole
+tests\test_auth_api_integration.py:13:from deps import get_current_user
+tests\test_auth_api_integration.py:14:from services import auth as auth_service
+tests\test_auth_api_integration.py:15:from services import auth_rate_limit as auth_rate_limit_service
+tests\test_auth_api_integration.py:16:from services.auth import AuthUser
+tests\test_auth_api_integration.py:17:from services.auth_rate_limit import reset_auth_rate_limits
+tests\test_auth_api_integration.py:195:    import asyncio
+tests\test_auth_api_smoke.py:1:from __future__ import annotations
+tests\test_auth_api_smoke.py:3:import asyncio
+tests\test_auth_api_smoke.py:4:from collections import deque
+tests\test_auth_api_smoke.py:5:from datetime import timedelta
+tests\test_auth_api_smoke.py:7:import pytest
+tests\test_auth_api_smoke.py:8:from fastapi import FastAPI
+tests\test_auth_api_smoke.py:9:from fastapi.testclient import TestClient
+tests\test_auth_api_smoke.py:10:from sqlalchemy.exc import IntegrityError
+tests\test_auth_api_smoke.py:11:from sqlalchemy.exc import SQLAlchemyError
+tests\test_auth_api_smoke.py:13:from api.routers import auth as auth_router
+tests\test_auth_api_smoke.py:14:from deps import get_current_user
+tests\test_auth_api_smoke.py:15:from services.auth import AuthUser
+tests\test_auth_api_smoke.py:16:from services import auth_rate_limit as auth_rate_limit_service
+tests\test_auth_api_smoke.py:17:from services.auth_rate_limit import reset_auth_rate_limits
+tests\test_auth_api_smoke.py:96:    import asyncio
+tests\test_auth_config_security.py:1:from __future__ import annotations
+tests\test_auth_config_security.py:3:import pytest
+tests\test_auth_config_security.py:5:from config import Settings
+tests\test_auth_refresh_rotation.py:1:from __future__ import annotations
+tests\test_auth_refresh_rotation.py:3:import asyncio
+tests\test_auth_refresh_rotation.py:4:from datetime import datetime, timedelta, timezone
+tests\test_auth_refresh_rotation.py:5:from types import SimpleNamespace
+tests\test_auth_refresh_rotation.py:7:import pytest
+tests\test_auth_refresh_rotation.py:8:from fastapi import HTTPException
+tests\test_auth_refresh_rotation.py:10:from db.models import AuthRefreshToken, User
+tests\test_auth_refresh_rotation.py:11:from services import auth
+tests\test_channels_async_api.py:1:from types import SimpleNamespace
+tests\test_channels_async_api.py:3:from fastapi import FastAPI
+tests\test_channels_async_api.py:4:from fastapi.testclient import TestClient
+tests\test_channels_async_api.py:6:from api.routers import channels
+tests\test_channels_async_api.py:7:from db.models import Job
+tests\test_channels_async_api.py:8:from deps import get_current_user
+tests\test_channels_async_api.py:9:from services.auth import AuthUser
+tests\test_comment_identity_schema.py:1:from __future__ import annotations
+tests\test_comment_identity_schema.py:3:import asyncio
+tests\test_comment_identity_schema.py:4:from datetime import datetime, timezone
+tests\test_comment_identity_schema.py:5:from types import SimpleNamespace
+tests\test_comment_identity_schema.py:7:from sqlalchemy.dialects import postgresql
+tests\test_comment_identity_schema.py:9:from schemas.comment import CommentOut
+tests\test_comment_identity_schema.py:10:from services.ingest import upsert_comment
+tests\test_comment_job_semantics.py:1:from __future__ import annotations
+tests\test_comment_job_semantics.py:3:import asyncio
+tests\test_comment_job_semantics.py:4:from datetime import datetime, timezone
+tests\test_comment_job_semantics.py:5:from types import SimpleNamespace
+tests\test_comment_job_semantics.py:7:import pytest
+tests\test_comment_job_semantics.py:9:from services import pipeline_runtime
+tests\test_comment_reconciliation.py:1:from __future__ import annotations
+tests\test_comment_reconciliation.py:3:from datetime import datetime, timezone
+tests\test_comment_reconciliation.py:4:from types import SimpleNamespace
+tests\test_comment_reconciliation.py:6:import pytest
+tests\test_comment_reconciliation.py:8:from services import TGqueries as tgqueries
+tests\test_comment_reconciliation.py:9:from services.involvement import compute_involvement
+tests\test_config_startup.py:1:import importlib
+tests\test_config_startup.py:2:import sys
+tests\test_config_startup.py:4:import pytest
+tests\test_dashboard_api.py:1:from __future__ import annotations
+tests\test_dashboard_api.py:3:from datetime import datetime, timezone
+tests\test_dashboard_api.py:5:from fastapi import FastAPI
+tests\test_dashboard_api.py:6:from fastapi.testclient import TestClient
+tests\test_dashboard_api.py:8:from api.routers import dashboard
+tests\test_dashboard_api.py:9:from deps import get_current_user
+tests\test_dashboard_api.py:10:from services.auth import AuthUser
+tests\test_dashboard_services.py:1:from __future__ import annotations
+tests\test_dashboard_services.py:3:import asyncio
+tests\test_dashboard_services.py:4:from datetime import datetime, timezone
+tests\test_dashboard_services.py:5:from types import SimpleNamespace
+tests\test_dashboard_services.py:7:from services.dashboard import events_dashboard, posts_dashboard, processes_dashboard
+tests\test_dependency_orchestration_runtime.py:1:from __future__ import annotations
+tests\test_dependency_orchestration_runtime.py:3:from datetime import datetime, timezone
+tests\test_dependency_orchestration_runtime.py:4:from types import SimpleNamespace
+tests\test_dependency_orchestration_runtime.py:6:import pytest
+tests\test_dependency_orchestration_runtime.py:8:from services import pipeline_runtime
+tests\test_dependency_orchestration_runtime.py:9:from services.jobs import JobType
+tests\test_event_building.py:1:import asyncio
+tests\test_event_building.py:2:from datetime import datetime
+tests\test_event_building.py:3:from pathlib import Path
+tests\test_event_building.py:4:import sys
+tests\test_event_building.py:5:from types import SimpleNamespace
+tests\test_event_building.py:7:from sqlalchemy.sql.dml import Delete
+tests\test_event_building.py:13:from db.models import VerificationStatus
+tests\test_event_building.py:14:from services.events.build_events import rebuild_events
+tests\test_ingestion_core.py:1:from __future__ import annotations
+tests\test_ingestion_core.py:3:import asyncio
+tests\test_ingestion_core.py:4:import logging
+tests\test_ingestion_core.py:5:from datetime import datetime, timedelta, timezone
+tests\test_ingestion_core.py:6:from types import SimpleNamespace
+tests\test_ingestion_core.py:7:from unittest.mock import AsyncMock
+tests\test_ingestion_core.py:9:from services.ingestion_core import IngestionCore, IngestionOptions
+tests\test_internal_meta_schema.py:3:from __future__ import annotations
+tests\test_internal_meta_schema.py:5:import pytest
+tests\test_internal_meta_schema.py:7:from services.reporting_v2.contracts_internal import (
+tests\test_involvement_formula.py:1:from __future__ import annotations
+tests\test_involvement_formula.py:3:import math
+tests\test_involvement_formula.py:5:from services.involvement import (
+tests\test_jobs_api.py:1:from __future__ import annotations
+tests\test_jobs_api.py:3:from datetime import datetime, timezone
+tests\test_jobs_api.py:4:from types import SimpleNamespace
+tests\test_jobs_api.py:6:from fastapi import FastAPI
+tests\test_jobs_api.py:7:from fastapi.testclient import TestClient
+tests\test_jobs_api.py:9:from api.routers import jobs as jobs_router
+tests\test_jobs_api.py:10:from deps import get_current_user
+tests\test_jobs_api.py:11:from services.auth import AuthUser
+tests\test_keyword_graph.py:1:import os
+tests\test_keyword_graph.py:2:from datetime import datetime, timedelta, timezone
+tests\test_keyword_graph.py:3:from types import SimpleNamespace
+tests\test_keyword_graph.py:12:from services.keyword_graph import (
+tests\test_keyword_graph.py:17:from schemas.keyword_graph import GraphBuildRequest
+tests\test_linking_api.py:1:from __future__ import annotations
+tests\test_linking_api.py:3:from datetime import datetime, timezone
+tests\test_linking_api.py:4:from types import SimpleNamespace
+tests\test_linking_api.py:6:from fastapi import FastAPI
+tests\test_linking_api.py:7:from fastapi.testclient import TestClient
+tests\test_linking_api.py:9:from api.routers import linking, links
+tests\test_linking_api.py:10:from deps import get_current_user
+tests\test_linking_api.py:11:from services.auth import AuthUser
+tests\test_linking_async_api.py:1:from __future__ import annotations
+tests\test_linking_async_api.py:3:from datetime import datetime, timezone
+tests\test_linking_async_api.py:4:from types import SimpleNamespace
+tests\test_linking_async_api.py:6:from fastapi import FastAPI
+tests\test_linking_async_api.py:7:from fastapi.testclient import TestClient
+tests\test_linking_async_api.py:9:from api.routers import linking
+tests\test_linking_async_api.py:10:from deps import get_current_user
+tests\test_linking_async_api.py:11:from services.auth import AuthUser
+tests\test_linking_embeddings.py:1:from __future__ import annotations
+tests\test_linking_embeddings.py:3:from services.linking.embeddings import EmbeddingProvider
+tests\test_linking_jobs_runtime.py:1:from __future__ import annotations
+tests\test_linking_jobs_runtime.py:3:from datetime import datetime, timezone
+tests\test_linking_jobs_runtime.py:4:from types import SimpleNamespace
+tests\test_linking_jobs_runtime.py:6:import pytest
+tests\test_linking_jobs_runtime.py:8:from schemas.linking import LinkRunResponse
+tests\test_linking_jobs_runtime.py:9:from services import pipeline_runtime
+tests\test_linking_jobs_runtime.py:10:from services.jobs import JOB_RESULT_KEY, JobType
+tests\test_monitoring_scheduler.py:1:from __future__ import annotations
+tests\test_monitoring_scheduler.py:3:import asyncio
+tests\test_monitoring_scheduler.py:4:from datetime import datetime, timezone
+tests\test_monitoring_scheduler.py:6:from services import monitoring
+tests\test_monitor_api.py:1:from __future__ import annotations
+tests\test_monitor_api.py:3:from types import SimpleNamespace
+tests\test_monitor_api.py:5:from fastapi import FastAPI
+tests\test_monitor_api.py:6:from fastapi.testclient import TestClient
+tests\test_monitor_api.py:8:from api.routers import monitor
+tests\test_monitor_api.py:9:from deps import get_current_user
+tests\test_monitor_api.py:10:from services.auth import AuthUser
+tests\test_openai_adapter.py:1:from __future__ import annotations
+tests\test_openai_adapter.py:3:import asyncio
+tests\test_openai_adapter.py:5:from services.llm import openai_client
+tests\test_openai_adapter.py:6:from services.llm.openai_client import OpenAIAdapterConfig, OpenAIClientAdapter
+tests\test_pipeline_add_channel_job.py:1:import asyncio
+tests\test_pipeline_add_channel_job.py:2:from types import SimpleNamespace
+tests\test_pipeline_add_channel_job.py:4:import pytest
+tests\test_pipeline_add_channel_job.py:6:from services import pipeline_runtime
+tests\test_pipeline_error_paths.py:1:from __future__ import annotations
+tests\test_pipeline_error_paths.py:3:import asyncio
+tests\test_pipeline_error_paths.py:4:import logging
+tests\test_pipeline_error_paths.py:5:import sqlite3
+tests\test_pipeline_error_paths.py:6:from types import SimpleNamespace
+tests\test_pipeline_error_paths.py:8:import pytest
+tests\test_pipeline_error_paths.py:10:from services import pipeline_runtime
+tests\test_pipeline_error_paths.py:11:from services import pipeline_runtime_common
+tests\test_pipeline_error_paths.py:12:from services import TGqueries as tgqueries
+tests\test_pipeline_error_paths.py:13:from services.jobs import JobType
+tests\test_pipeline_job_failure_recovery.py:1:from __future__ import annotations
+tests\test_pipeline_job_failure_recovery.py:3:import asyncio
+tests\test_pipeline_job_failure_recovery.py:4:from types import SimpleNamespace
+tests\test_pipeline_job_failure_recovery.py:6:from services import pipeline_runtime
+tests\test_posts_comments_api.py:1:from datetime import datetime, timezone
+tests\test_posts_comments_api.py:2:from types import SimpleNamespace
+tests\test_posts_comments_api.py:4:from fastapi import FastAPI
+tests\test_posts_comments_api.py:5:from fastapi.testclient import TestClient
+tests\test_posts_comments_api.py:7:from api.routers import posts
+tests\test_posts_comments_api.py:8:from db.models import Comment, Post
+tests\test_posts_comments_api.py:9:from deps import get_current_user
+tests\test_posts_comments_api.py:10:from services.auth import AuthUser
+tests\test_process_building.py:1:import asyncio
+tests\test_process_building.py:2:from datetime import datetime
+tests\test_process_building.py:3:from pathlib import Path
+tests\test_process_building.py:4:import sys
+tests\test_process_building.py:5:from types import SimpleNamespace
+tests\test_process_building.py:7:from sqlalchemy.sql.dml import Delete
+tests\test_process_building.py:13:from db.models import Event, LinkDirection, ProcessEvent, ProcessRelationType, VerificationStatus
+tests\test_process_building.py:14:from services.processes.build_processes import _build_update_components, rebuild_processes
+tests\test_prompt_loader.py:1:from __future__ import annotations
+tests\test_prompt_loader.py:3:import pytest
+tests\test_prompt_loader.py:5:from services.prompts.loader import PROMPT_STEPS, PromptLoader, PromptNotFoundError
+tests\test_public_report_boundary.py:1:from __future__ import annotations
+tests\test_public_report_boundary.py:3:from datetime import datetime, timezone
+tests\test_public_report_boundary.py:4:from types import SimpleNamespace
+tests\test_public_report_boundary.py:6:from fastapi import FastAPI
+tests\test_public_report_boundary.py:7:from fastapi.testclient import TestClient
+tests\test_public_report_boundary.py:9:from api.public_report_boundary import sanitize_public_report_json
+tests\test_public_report_boundary.py:10:from api.routers import linking, reports
+tests\test_public_report_boundary.py:11:from deps import get_current_user
+tests\test_public_report_boundary.py:12:from services.auth import AuthUser
+tests\test_reply_link_semantics.py:1:from __future__ import annotations
+tests\test_reply_link_semantics.py:3:import asyncio
+tests\test_reply_link_semantics.py:4:from types import SimpleNamespace
+tests\test_reply_link_semantics.py:6:from sqlalchemy.dialects import postgresql
+tests\test_reply_link_semantics.py:8:from db.models import PostLinkType
+tests\test_reply_link_semantics.py:9:from services.linker import _normalize_link_type, upsert_post_link
+tests\test_reply_link_semantics.py:10:from services.linking.no_llm_pipeline import NoLlmLinkingPipeline
+tests\test_reporter_orchestration.py:1:from __future__ import annotations
+tests\test_reporter_orchestration.py:3:import asyncio
+tests\test_reporter_orchestration.py:5:from agents import reporter
+tests\test_reporter_preprocessing.py:1:from __future__ import annotations
+tests\test_reporter_preprocessing.py:3:import asyncio
+tests\test_reporter_preprocessing.py:5:from agents import reporter
+tests\test_reporting_semantics.py:1:from __future__ import annotations
+tests\test_reporting_semantics.py:3:import asyncio
+tests\test_reporting_semantics.py:4:from types import SimpleNamespace
+tests\test_reporting_semantics.py:6:import pytest
+tests\test_reporting_semantics.py:7:from pydantic import ValidationError
+tests\test_reporting_semantics.py:9:from schemas.report import EventReportPayload, PostReportPayload, ProcessReportPayload
+tests\test_reporting_semantics.py:10:from services.report_aggregation import build_event_report_payload, build_process_report_payload
+tests\test_reporting_semantics.py:11:from services import reporting
+tests\test_reporting_v2_contracts.py:1:from __future__ import annotations
+tests\test_reporting_v2_contracts.py:3:import pytest
+tests\test_reporting_v2_contracts.py:4:from pydantic import ValidationError
+tests\test_reporting_v2_contracts.py:6:from services.reporting_v2.contracts_internal import (
+tests\test_reporting_v2_event.py:1:from __future__ import annotations
+tests\test_reporting_v2_event.py:3:import asyncio
+tests\test_reporting_v2_event.py:4:from types import SimpleNamespace
+tests\test_reporting_v2_event.py:6:from services import reporting
+tests\test_reporting_v2_event.py:7:from services.llm.openai_client import OpenAIChatCompletionTrace
+tests\test_reporting_v2_event.py:8:from services.reporting_v2.event_pipeline import build_event_report_v2_impl, load_event_input_bundle
+tests\test_reporting_v2_no_litellm.py:1:from __future__ import annotations
+tests\test_reporting_v2_no_litellm.py:3:import ast
+tests\test_reporting_v2_no_litellm.py:4:from pathlib import Path
+tests\test_reporting_v2_post.py:1:from __future__ import annotations
+tests\test_reporting_v2_post.py:3:import asyncio
+tests\test_reporting_v2_post.py:4:from types import SimpleNamespace
+tests\test_reporting_v2_post.py:6:from services import reporting
+tests\test_reporting_v2_post.py:7:from services.llm.openai_client import OpenAIChatCompletionTrace
+tests\test_reporting_v2_post.py:8:from services.reporting_v2.post_pipeline import generate_post_report_payload_v2
+tests\test_reporting_v2_post.py:9:from services.reporting_v2.post_pipeline import MockRetrievalProvider
+tests\test_reporting_v2_post.py:10:from services.reporting_v2.orchestrator import run_reviewer_loop
+tests\test_reporting_v2_post.py:11:from services.reporting_v2.state import init_pipeline_state
+tests\test_reporting_v2_post.py:648:            from services.llm.openai_client import OpenAIChatCompletionTrace
+tests\test_reporting_v2_post.py:697:        from services.llm.openai_client import OpenAIChatCompletionTrace
+tests\test_reporting_v2_post.py:708:            import json
+tests\test_reporting_v2_post.py:733:        from services.llm.openai_client import OpenAIChatCompletionTrace
+tests\test_reporting_v2_post.py:734:        import json
+tests\test_reporting_v2_post.py:835:    import services.reporting_v2.post_pipeline as post_pipeline_module
+tests\test_reporting_v2_skeleton.py:1:from __future__ import annotations
+tests\test_reporting_v2_skeleton.py:3:import asyncio
+tests\test_reporting_v2_skeleton.py:4:from types import SimpleNamespace
+tests\test_reporting_v2_skeleton.py:6:import pytest
+tests\test_reporting_v2_skeleton.py:7:from services import reporting
+tests\test_reporting_v2_skeleton.py:8:from services.reporting_v2 import orchestrator as orchestrator_module
+tests\test_reporting_v2_skeleton.py:9:from schemas.report import PostReportPayload
+tests\test_reporting_v2_skeleton.py:10:from services.reporting_v2.mapper import (
+tests\test_reporting_v2_skeleton.py:15:from services.reporting_v2.orchestrator import (
+tests\test_reporting_v2_skeleton.py:24:from services.reporting_v2.state import (
+tests\test_reports_async_api.py:1:from __future__ import annotations
+tests\test_reports_async_api.py:3:from types import SimpleNamespace
+tests\test_reports_async_api.py:5:from fastapi import FastAPI
+tests\test_reports_async_api.py:6:from fastapi.testclient import TestClient
+tests\test_reports_async_api.py:8:from api.routers import reports
+tests\test_reports_async_api.py:9:from deps import get_current_user
+tests\test_reports_async_api.py:10:from services.auth import AuthUser
+tests\test_report_batch_dispatch.py:1:from __future__ import annotations
+tests\test_report_batch_dispatch.py:3:import asyncio
+tests\test_report_batch_dispatch.py:4:from types import SimpleNamespace
+tests\test_report_batch_dispatch.py:6:from services import pipeline_runtime
+tests\test_report_language.py:1:from __future__ import annotations
+tests\test_report_language.py:3:import asyncio
+tests\test_report_language.py:5:from services import report_language
+tests\test_report_language.py:6:from services import reporting
+tests\test_report_progress_ws_api.py:1:from __future__ import annotations
+tests\test_report_progress_ws_api.py:3:from datetime import datetime, timezone
+tests\test_report_progress_ws_api.py:4:from types import SimpleNamespace
+tests\test_report_progress_ws_api.py:6:from fastapi import FastAPI
+tests\test_report_progress_ws_api.py:7:from fastapi.testclient import TestClient
+tests\test_report_progress_ws_api.py:9:from api.routers import report_progress
+tests\test_report_progress_ws_api.py:10:from db.models import Job, User
+tests\test_report_progress_ws_api.py:11:from services.auth import create_access_token
+tests\test_report_trace_api.py:1:from __future__ import annotations
+tests\test_report_trace_api.py:3:from datetime import datetime, timezone
+tests\test_report_trace_api.py:4:from types import SimpleNamespace
+tests\test_report_trace_api.py:6:from fastapi import FastAPI
+tests\test_report_trace_api.py:7:from fastapi.testclient import TestClient
+tests\test_report_trace_api.py:9:from api.routers import reports
+tests\test_report_trace_api.py:10:from deps import get_current_user
+tests\test_report_trace_api.py:11:from services.auth import AuthUser
+tests\test_retrieval_manager.py:1:from __future__ import annotations
+tests\test_retrieval_manager.py:3:import asyncio
+tests\test_retrieval_manager.py:5:from services.reporting_v2 import retrieval as retrieval_module
+tests\test_run_api.py:1:from __future__ import annotations
+tests\test_run_api.py:3:from scripts import run_api
+tests\test_run_scheduler.py:1:from __future__ import annotations
+tests\test_run_scheduler.py:3:import pytest
+tests\test_run_scheduler.py:5:from scripts import run_scheduler
+tests\test_scheduler_runtime.py:1:from __future__ import annotations
+tests\test_scheduler_runtime.py:3:from datetime import datetime, timezone
+tests\test_scheduler_runtime.py:5:import pytest
+tests\test_scheduler_runtime.py:7:import services.scheduler_dispatch as scheduler_dispatch
+tests\test_scheduler_runtime.py:8:from services.scheduler_dispatch import enqueue_daily_retention_jobs, retention_scheduler_enabled
+tests\test_scheduler_runtime.py:9:from services.scheduler_runtime import build_scheduler_db_url, register_periodic_jobs
+tests\test_settings_defaults_consistency.py:1:from __future__ import annotations
+tests\test_settings_defaults_consistency.py:3:import asyncio
+tests\test_settings_defaults_consistency.py:5:from fastapi import FastAPI
+tests\test_settings_defaults_consistency.py:6:from fastapi.testclient import TestClient
+tests\test_settings_defaults_consistency.py:7:from pydantic import ValidationError
+tests\test_settings_defaults_consistency.py:8:import pytest
+tests\test_settings_defaults_consistency.py:10:from api.routers import settings as settings_router
+tests\test_settings_defaults_consistency.py:11:from deps import get_current_user
+tests\test_settings_defaults_consistency.py:12:from services.auth import AuthUser
+tests\test_settings_defaults_consistency.py:13:from services.settings_defaults import CANONICAL_SETTINGS_DEFAULTS, get_canonical_defaults
+tests\test_settings_defaults_consistency.py:14:from services import pipeline_runtime
+tests\test_settings_defaults_consistency.py:15:from services.settings_store import get_all_settings, is_internal_setting_key
+tests\test_settings_defaults_consistency.py:16:from services.settings_validation import SCHEMA_BY_KEY, validate_setting_payload
+tests\test_settings_validation.py:1:from __future__ import annotations
+tests\test_settings_validation.py:3:import pytest
+tests\test_settings_validation.py:4:from pydantic import ValidationError
+tests\test_settings_validation.py:6:from services.settings_validation import validate_setting_payload
+tests\test_telegram_client_lifecycle.py:1:from __future__ import annotations
+tests\test_telegram_client_lifecycle.py:3:import asyncio
+tests\test_telegram_client_lifecycle.py:4:import sqlite3
+tests\test_telegram_client_lifecycle.py:6:from client import config as client_config
+tests\test_telegram_client_lifecycle.py:7:from client import telegram as client_telegram
+tests\test_tgqueries_comment_collection_regression.py:1:from __future__ import annotations
+tests\test_tgqueries_comment_collection_regression.py:3:from datetime import datetime, timedelta, timezone
+tests\test_tgqueries_comment_collection_regression.py:4:from types import SimpleNamespace
+tests\test_tgqueries_comment_collection_regression.py:6:import pytest
+tests\test_tgqueries_comment_collection_regression.py:7:from telethon.errors import FloodWaitError
+tests\test_tgqueries_comment_collection_regression.py:9:from services import TGqueries as tgqueries
+tests\test_tgqueries_comment_collection_regression.py:10:from services.involvement import LONG_COMMENT_MIN_LENGTH, compute_involvement
+tests\integration\conftest.py:1:from __future__ import annotations
+tests\integration\conftest.py:3:import os
+tests\integration\conftest.py:4:from pathlib import Path
+tests\integration\conftest.py:5:import subprocess
+tests\integration\conftest.py:6:import sys
+tests\integration\conftest.py:8:from fastapi.testclient import TestClient
+tests\integration\conftest.py:9:import pytest
+tests\integration\conftest.py:10:from sqlalchemy import create_engine, text
+tests\integration\conftest.py:11:from sqlalchemy.engine import URL, make_url
+tests\integration\conftest.py:12:from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+tests\integration\conftest.py:13:from sqlalchemy.orm import Session, sessionmaker
+tests\integration\conftest.py:14:from sqlalchemy.pool import NullPool
+tests\integration\conftest.py:34:from deps import get_session
+tests\integration\conftest.py:145:    from api.main import app
+tests\integration\test_auth_real_db.py:1:import pytest
+tests\integration\test_auth_real_db.py:2:from datetime import datetime, timedelta, timezone
+tests\integration\test_auth_real_db.py:4:from sqlalchemy import select
+tests\integration\test_auth_real_db.py:6:from api.routers import auth as auth_router
+tests\integration\test_auth_real_db.py:7:from db.models import AuthRefreshToken, Role, User, UserRole
+tests\integration\test_auth_real_db.py:8:from services.auth import hash_password
+tests\integration\test_auth_real_db.py:9:from services.auth_rate_limit import reset_auth_rate_limits
+tests\integration\test_auth_real_db.py:177:    import asyncio
+tests\integration\test_auth_real_db.py:218:    import asyncio
+tests\integration\test_auth_real_db.py:263:    import asyncio
+tests\integration\test_auth_real_db.py:308:    import asyncio
+tests\integration\test_involvement_backfill_real_db.py:1:from __future__ import annotations
+tests\integration\test_involvement_backfill_real_db.py:3:from datetime import datetime, timezone
+tests\integration\test_involvement_backfill_real_db.py:5:import pytest
+tests\integration\test_involvement_backfill_real_db.py:6:from sqlalchemy import select
+tests\integration\test_involvement_backfill_real_db.py:8:from db.models import Post
+tests\integration\test_involvement_backfill_real_db.py:9:from scripts.backfill_involvement_metrics import backfill_involvement_metrics
+tests\integration\test_involvement_backfill_real_db.py:10:from services.ingest import set_post_reactions_json, upsert_channel, upsert_comment, upsert_post
+tests\integration\test_involvement_backfill_real_db.py:11:from services.involvement import compute_involvement
+tests\integration\test_jobs_dedupe_lifecycle_real_db.py:1:from __future__ import annotations
+tests\integration\test_jobs_dedupe_lifecycle_real_db.py:3:from datetime import datetime, timedelta, timezone
+tests\integration\test_jobs_dedupe_lifecycle_real_db.py:5:import pytest
+tests\integration\test_jobs_dedupe_lifecycle_real_db.py:7:from db.models import Job
+tests\integration\test_jobs_dedupe_lifecycle_real_db.py:8:from services.jobs import (
+tests\integration\test_orchestration_lifecycle_real_db.py:1:from __future__ import annotations
+tests\integration\test_orchestration_lifecycle_real_db.py:3:import asyncio
+tests\integration\test_orchestration_lifecycle_real_db.py:4:from datetime import datetime, timezone
+tests\integration\test_orchestration_lifecycle_real_db.py:5:from types import SimpleNamespace
+tests\integration\test_orchestration_lifecycle_real_db.py:7:import pytest
+tests\integration\test_orchestration_lifecycle_real_db.py:8:from sqlalchemy import delete, select
+tests\integration\test_orchestration_lifecycle_real_db.py:10:from agents import reporter
+tests\integration\test_orchestration_lifecycle_real_db.py:11:from db.models import (
+tests\integration\test_orchestration_lifecycle_real_db.py:28:from schemas.linking import LinkRunResponse
+tests\integration\test_orchestration_lifecycle_real_db.py:29:from schemas.report import EventReportPayload, PostReportPayload, ProcessReportPayload
+tests\integration\test_orchestration_lifecycle_real_db.py:30:from services.reporting import sync_post_report_staleness
+tests\integration\test_orchestration_lifecycle_real_db.py:31:from services.events.build_events import rebuild_events
+tests\integration\test_orchestration_lifecycle_real_db.py:32:from services.jobs import JobType, enqueue_job
+tests\integration\test_orchestration_lifecycle_real_db.py:33:from services.processes.build_processes import rebuild_processes
+tests\integration\test_orchestration_lifecycle_real_db.py:34:from services import pipeline_runtime
+tests\integration\test_reactions_persistence_real_db.py:1:from __future__ import annotations
+tests\integration\test_reactions_persistence_real_db.py:3:from datetime import datetime, timezone
+tests\integration\test_reactions_persistence_real_db.py:5:import pytest
+tests\integration\test_reactions_persistence_real_db.py:6:from sqlalchemy import select
+tests\integration\test_reactions_persistence_real_db.py:8:from db.models import Comment, Post
+tests\integration\test_reactions_persistence_real_db.py:9:from services.ingest import set_post_reactions_json, upsert_channel, upsert_comment, upsert_post
+tests\integration\test_reports_jobs_real_db.py:1:from datetime import datetime, timezone
+tests\integration\test_reports_jobs_real_db.py:3:import pytest
+tests\integration\test_reports_jobs_real_db.py:5:from api.routers import auth as auth_router
+tests\integration\test_reports_jobs_real_db.py:6:from db.models import Channel, Job, Post, Role, User, UserRole
+tests\integration\test_reports_jobs_real_db.py:7:from services.auth import hash_password
+utils\serialization.py:1:from datetime import date, datetime, time
+utils\serialization.py:2:from decimal import Decimal
+utils\serialization.py:3:from uuid import UUID
+
+

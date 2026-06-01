@@ -1,5 +1,6 @@
 from datetime import datetime
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
+from services.dashboard.common import text_preview
 
 class PostCardOut(BaseModel):
     id: int
@@ -25,3 +26,10 @@ class PostDetailOut(BaseModel):
     reactions: dict | None = Field(default=None, alias="reactions_json")
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+    @computed_field
+    @property
+    def preview(self) -> str | None:
+        """Вычисляет превью текста аналогично text_preview"""
+        return text_preview(self.text)
+
+

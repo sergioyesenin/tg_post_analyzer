@@ -63,6 +63,9 @@ class CommentsSettings(_StrictConfigModel):
     sleep_jitter_sec: float = Field(default=CANONICAL_SETTINGS_DEFAULTS["comments"]["sleep_jitter_sec"], ge=0.0, le=30.0)
     reconciliation_enabled: bool = Field(default=CANONICAL_SETTINGS_DEFAULTS["comments"]["reconciliation_enabled"])
     album_discussion_expansion_steps: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["comments"]["album_discussion_expansion_steps"], ge=2, le=30)
+    reactions_refresh_ttl_seconds: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["comments"]["reactions_refresh_ttl_seconds"], ge=0, le=86400)
+    reactions_top_n: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["comments"]["reactions_top_n"], ge=1, le=100)
+    long_comment_threshold: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["comments"]["long_comment_threshold"], ge=1, le=10000)
 
 
 class MonitorSettings(_StrictConfigModel):
@@ -96,6 +99,11 @@ class MonitorSettings(_StrictConfigModel):
 class FeaturesSettings(_StrictConfigModel):
     keyword_graph_api_enabled: bool = Field(default=CANONICAL_SETTINGS_DEFAULTS["features"]["keyword_graph_api_enabled"])
     keyword_graph_rollout_percent: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["features"]["keyword_graph_rollout_percent"], ge=0, le=100)
+    multi_agent_mode_enabled: bool = Field(default=CANONICAL_SETTINGS_DEFAULTS["features"]["multi_agent_mode_enabled"])
+    multi_agent_rollout_percent: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["features"]["multi_agent_rollout_percent"], ge=0, le=100)
+    retrieval_policy_enabled: bool = Field(default=CANONICAL_SETTINGS_DEFAULTS["features"]["retrieval_policy_enabled"])
+    retrieval_rollout_percent: int = Field(default=CANONICAL_SETTINGS_DEFAULTS["features"]["retrieval_rollout_percent"], ge=0, le=100)
+    retrieval_provider_enabled: bool = Field(default=CANONICAL_SETTINGS_DEFAULTS["features"]["retrieval_provider_enabled"])
 
 
 SCHEMA_BY_KEY = {

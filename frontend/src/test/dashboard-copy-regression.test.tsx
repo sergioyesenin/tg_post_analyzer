@@ -10,7 +10,8 @@ import {
 } from '@test/dashboard-fixtures';
 import { createMemoryTokenStorage, renderAuthHarness } from '@test/auth-harness';
 
-const mojibakePattern = /[ÐÑÏÄ�]/;
+const mojibakePattern = /[\u00D0\u00D1\u00CF\u00C4\uFFFD]/;
+const ru = (value: string) => JSON.parse('"' + value + '"') as string;
 const guardedFiles = [
   'src/shared/dashboard/search-availability.ts',
   'src/modules/workspace/posts/PostsDashboardScreen.tsx',
@@ -127,10 +128,10 @@ describe('dashboard analytical copy regression guard', () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText(/Ищем посты по запросу/i)).toBeInTheDocument();
+        expect(screen.getByText(new RegExp(ru('\\u0418\\u0449\\u0435\\u043c \\u043f\\u043e\\u0441\\u0442\\u044b \\u043f\\u043e \\u0437\\u0430\\u043f\\u0440\\u043e\\u0441\\u0443'), 'i'))).toBeInTheDocument();
       });
 
-      expect(screen.getByText(/Текущая таблица остается на экране, пока обновляются результаты поиска/i)).toBeInTheDocument();
+      expect(screen.getByText(new RegExp(ru('\\u0422\\u0435\\u043a\\u0443\\u0449\\u0430\\u044f \\u0442\\u0430\\u0431\\u043b\\u0438\\u0446\\u0430 \\u043e\\u0441\\u0442\\u0430\\u0435\\u0442\\u0441\\u044f \\u043d\\u0430 \\u044d\\u043a\\u0440\\u0430\\u043d\\u0435, \\u043f\\u043e\\u043a\\u0430 \\u043e\\u0431\\u043d\\u043e\\u0432\\u043b\\u044f\\u044e\\u0442\\u0441\\u044f \\u0440\\u0435\\u0437\\u0443\\u043b\\u044c\\u0442\\u0430\\u0442\\u044b \\u043f\\u043e\\u0438\\u0441\\u043a\\u0430'), 'i'))).toBeInTheDocument();
       expect(screen.queryByText(mojibakePattern)).toBeNull();
     } finally {
       searchDeferred.resolve?.({ total: 0, items: [] });

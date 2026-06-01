@@ -21,15 +21,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements-base.txt requirements-ai.txt ./
-RUN pip install --index-url https://download.pytorch.org/whl/cpu torch \
-    && pip install -r requirements-base.txt -r requirements-ai.txt
+COPY requirements.txt ./
+RUN pip install -r requirements.txt
 
 COPY . .
 COPY --from=frontend-build /frontend/dist /app/frontend/dist
 
 RUN mkdir -p /app/runtime
 
-EXPOSE 8000
+EXPOSE 8044
 
-CMD ["python", "scripts/run_api.py", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "scripts/run_api.py", "--host", "0.0.0.0", "--port", "8044"]

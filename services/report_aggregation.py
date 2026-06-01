@@ -7,8 +7,33 @@ from typing import Any
 from schemas.report import EventReportPayload, ProcessReportPayload
 
 
+PUBLIC_READY_STATUSES = {"ready", "limited"}
+
+
 def _utcnow_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _report_status(payload: dict | None) -> str:
+    if not isinstance(payload, dict):
+        return "ready"
+    value = str(payload.get("status") or "ready").strip().lower()
+    return value or "ready"
+
+
+def _aggregation_status(payloads: list[dict]) -> str:
+    statuses = [_report_status(payload) for payload in payloads]
+    if any(status == "limited" for status in statuses):
+        return "limited"
+    return "ready"
+
+
+def _aggregation_confidence(*, count: int, limited: bool) -> str:
+    if count >= 2 and not limited:
+        return "high"
+    if count >= 1:
+        return "medium"
+    return "low"
 
 
 def _safe_str_list(values: list[Any], *, limit: int = 5) -> list[str]:
@@ -72,8 +97,12 @@ def build_event_report_payload(
     event_title: str | None,
     post_reports: list[dict],
 ) -> dict:
-    ordered_reports = sorted(post_reports, key=lambda item: str(item.get("published_at") or ""))
+    ordered_reports = sorted(
+        [item for item in post_reports if _report_status(item) in PUBLIC_READY_STATUSES],
+        key=lambda item: str(item.get("published_at") or ""),
+    )
     sentiment = _weighted_sentiment(ordered_reports)
+    status = _aggregation_status(ordered_reports)
 
     topic_counter: Counter[str] = Counter()
     risk_counter: Counter[str] = Counter()
@@ -127,6 +156,7 @@ def build_event_report_payload(
         f"Основные темы: {', '.join(name for name, _ in topic_counter.most_common(3)) or 'явно не выделены'}."
     )
     payload = EventReportPayload(
+        status=status,
         event_id=event_id,
         event_title=event_title or f"Event {event_id}",
         posts_count=len(ordered_reports),
@@ -143,8 +173,12 @@ def build_event_report_payload(
         anomalies=[name for name, _ in anomaly_counter.most_common(5)],
         summary=summary,
         confidence={
-            "overall": "high" if len(ordered_reports) >= 2 else "medium",
-            "reason": "Отчет собран детерминированно из готовых post_report_v2.",
+            "overall": _aggregation_confidence(count=len(ordered_reports), limited=status == "limited"),
+            "reason": (
+                "Сводка собрана по готовым public post_report_v2."
+                if status == "ready"
+                else "Сводка собрана по public post_report_v2 с ограниченными дочерними выводами."
+            ),
         },
         meta={"prompt_version": "event_report_v2", "source_type": "post_reports", "generated_at": _utcnow_iso()},
     )
@@ -157,7 +191,8 @@ def build_process_report_payload(
     process_title: str | None,
     event_reports: list[dict],
 ) -> dict:
-    ordered_reports = event_reports
+    ordered_reports = [item for item in event_reports if _report_status(item) in PUBLIC_READY_STATUSES]
+    status = _aggregation_status(ordered_reports)
     totals = {"positive": 0.0, "negative": 0.0, "neutral": 0.0}
     for payload in ordered_reports:
         report_sentiment = payload.get("sentiment") if isinstance(payload.get("sentiment"), dict) else payload.get("overall_sentiment")
@@ -199,6 +234,7 @@ def build_process_report_payload(
         f"Ключевой фокус обсуждения смещается между событиями по мере развития процесса."
     )
     payload = ProcessReportPayload(
+        status=status,
         process_id=process_id,
         process_title=process_title or f"Process {process_id}",
         events_count=len(ordered_reports),
@@ -214,8 +250,12 @@ def build_process_report_payload(
         risks=[name for name, _ in risks.most_common(5)],
         summary=summary,
         confidence={
-            "overall": "high" if len(ordered_reports) >= 2 else "medium",
-            "reason": "Отчет собран детерминированно из event_report_v2.",
+            "overall": _aggregation_confidence(count=len(ordered_reports), limited=status == "limited"),
+            "reason": (
+                "Сводка собрана по готовым event_report_v2."
+                if status == "ready"
+                else "Сводка собрана по event_report_v2 с ограниченными дочерними выводами."
+            ),
         },
         meta={"prompt_version": "process_report_v2", "source_type": "event_reports", "generated_at": _utcnow_iso()},
     )

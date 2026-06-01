@@ -35,7 +35,7 @@ from services.runtime_topology import AI_PIPELINE_RUNTIME
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run AI reporting pipeline.")
-    parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument("--log-level", type=str, default="DEBUG", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     parser.add_argument("--daemon", action="store_true")
     parser.add_argument("--skip-db-migrations", action="store_true")
     parser.add_argument("--poll-seconds", type=int, default=None)

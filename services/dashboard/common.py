@@ -8,7 +8,14 @@ from sqlalchemy import Integer, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import EventPost, EventReport, Job, Post, PostLink, ProcessEvent, ProcessReport, Report
-from services.reporting import REPORT_STATUS_DRAFT, REPORT_STATUS_FAILED, REPORT_STATUS_READY, report_status_from_payload
+from services.reporting import (
+    REPORT_STATUS_DRAFT,
+    REPORT_STATUS_FAILED,
+    REPORT_STATUS_INSUFFICIENT_DATA,
+    REPORT_STATUS_LIMITED,
+    REPORT_STATUS_READY,
+    report_status_from_payload,
+)
 
 
 POST_PENDING_JOB_STATUSES = ("pending", "running")
@@ -176,6 +183,8 @@ def summarize_report_statuses(statuses: list[str]) -> dict[str, int]:
     counts = {
         REPORT_STATUS_DRAFT: 0,
         REPORT_STATUS_READY: 0,
+        REPORT_STATUS_LIMITED: 0,
+        REPORT_STATUS_INSUFFICIENT_DATA: 0,
         REPORT_STATUS_FAILED: 0,
         "missing": 0,
         "pending": 0,

@@ -13,6 +13,11 @@ const reportStatusMeta: Record<string, StatusMeta> = {
   draft: { label: i18n.t('statusLabels.draft'), tone: 'info' },
   stale: { label: i18n.exists('statusLabels.stale') ? i18n.t('statusLabels.stale') : 'Stale', tone: 'warning' },
   ready: { label: i18n.t('statusLabels.ready'), tone: 'success' },
+  limited: { label: i18n.exists('statusLabels.limited') ? i18n.t('statusLabels.limited') : 'Limited', tone: 'warning' },
+  insufficient_data: {
+    label: i18n.exists('statusLabels.insufficient_data') ? i18n.t('statusLabels.insufficient_data') : 'Insufficient data',
+    tone: 'warning',
+  },
   failed: { label: i18n.t('statusLabels.failed'), tone: 'danger' },
 };
 

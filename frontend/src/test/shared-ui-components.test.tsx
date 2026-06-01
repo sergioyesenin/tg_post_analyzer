@@ -111,15 +111,16 @@ describe('Shared UI components', () => {
     render(
       <div>
         <ReportStatusBadge status="ready" />
+        <ReportStatusBadge status="limited" />
         <JobStatusInline status="running" jobId={42} />
         <MonitorStatusBadge status="critical" />
       </div>,
     );
 
     expect(screen.getByLabelText(/Статус отчета: Готов/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Статус отчета: Ограничен/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/Задания: Выполняется/i)).toHaveTextContent('Выполняется #42');
     expect(screen.getByLabelText(/Мониторинг: Критично/i)).toBeInTheDocument();
 
   });
 });
-

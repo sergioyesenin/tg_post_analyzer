@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sqlite3
 from types import SimpleNamespace
 
@@ -8,6 +9,7 @@ import pytest
 
 from services import pipeline_runtime
 from services import pipeline_runtime_common
+from services import TGqueries as tgqueries
 from services.jobs import JobType
 
 
@@ -292,3 +294,64 @@ async def test_run_telegram_cycle_processes_urgent_jobs_between_channels_and_res
         "link-drain",
         "telegram-backlog",
     ]
+
+
+@pytest.mark.asyncio
+async def test_persist_post_engagement_metrics_logs_involvement_anomalies(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    async def _noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(tgqueries, "set_post_comments_count", _noop)
+    monkeypatch.setattr(tgqueries, "set_post_commenters", _noop)
+    monkeypatch.setattr(tgqueries, "set_post_long_comments", _noop)
+    monkeypatch.setattr(tgqueries, "set_post_involvement", _noop)
+
+    with caplog.at_level(logging.WARNING):
+        involvement = await tgqueries._persist_post_engagement_metrics(
+            object(),
+            post_id=123,
+            views=0,
+            reactions_payload={},
+            comments_count=3,
+            commenters_count=0,
+            long_comments_count=5,
+        )
+
+    assert involvement == 0.0
+    assert "anomaly=views_non_positive" in caplog.text
+    assert "anomaly=comments_without_commenters" in caplog.text
+    assert "anomaly=long_comments_overflow" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_persist_post_engagement_metrics_logs_recalculation_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    async def _failing_set_post_comments_count(*_args, **_kwargs):
+        raise RuntimeError("boom")
+
+    async def _noop(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(tgqueries, "set_post_comments_count", _failing_set_post_comments_count)
+    monkeypatch.setattr(tgqueries, "set_post_commenters", _noop)
+    monkeypatch.setattr(tgqueries, "set_post_long_comments", _noop)
+    monkeypatch.setattr(tgqueries, "set_post_involvement", _noop)
+
+    with caplog.at_level(logging.ERROR):
+        with pytest.raises(RuntimeError, match="boom"):
+            await tgqueries._persist_post_engagement_metrics(
+                object(),
+                post_id=456,
+                views=100,
+                reactions_payload={},
+                comments_count=2,
+                commenters_count=1,
+                long_comments_count=1,
+            )
+
+    assert "involvement_recalculation_failed" in caplog.text

@@ -230,6 +230,8 @@ class Post(Base):
     views: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     comments_count: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    commenters: Mapped[int] = mapped_column(Integer, default=0)
+    long_comments: Mapped[int] = mapped_column(Integer, default=0)
     involvement: Mapped[float | None] = mapped_column(nullable=True)
     text_normalized: Mapped[str | None] = mapped_column(Text, nullable=True)
     content_hash: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)

@@ -14,6 +14,13 @@ import { CommentsBlock } from '@modules/workspace/post-detail/components/Comment
 import { LinksBlock } from '@modules/workspace/post-detail/components/LinksBlock';
 import { ReportBlock } from '@modules/workspace/post-detail/components/ReportBlock';
 import { usePostDetailQueries, useRefreshCommentsAction, useUpdateReportAction } from '@modules/workspace/post-detail/hooks';
+import { TraceSection } from './components/TraceViewer/TraceSection';
+
+function getPostPreview(text: string | null): string {
+  if (!text) return '';
+  const firstLine = text.split('\n')[0].trim();
+  return firstLine || text.slice(0, 100); // fallback
+}
 
 function ActionPanel({
   title,
@@ -103,7 +110,7 @@ export function PostDetailsPage() {
       <header className="post-detail-page__header">
         <div>
           <span className="state-card__eyebrow">{t('posts.detail.eyebrow')}</span>
-          <h1>{t('posts.detail.title', { id: viewModel.post.id })}</h1>
+          <h1>{getPostPreview(viewModel.post.text) || t('posts.detail.title', { id: viewModel.post.id })}</h1>
           <p>{viewModel.post.text}</p>
         </div>
 
@@ -118,19 +125,21 @@ export function PostDetailsPage() {
         </div>
       </header>
 
+      <TraceSection postId={postId} />
+
       {postQuery.isFetching ? (
         <QueryActivityNotice
           eyebrow={t('states.loading')}
-          title={t('posts.detail.refreshingTitle', { defaultValue: 'Детали поста обновляются' })}
-          description={t('posts.detail.refreshingDescription', { defaultValue: 'Текущая карточка поста остается на экране, пока подтягивается обновленный payload.' })}
+          title={t('posts.detail.refreshingTitle', { defaultValue: 'пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ' })}
+          description={t('posts.detail.refreshingDescription', { defaultValue: 'пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ, пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ payload.' })}
         />
       ) : null}
 
       {postQuery.isError && hasPostData ? (
         <QueryActivityNotice
           eyebrow={t('states.error')}
-          title={t('posts.detail.refreshErrorTitle', { defaultValue: 'Не удалось обновить детали поста' })}
-          description={t('posts.detail.refreshErrorDescription', { defaultValue: 'Показываем последнюю успешную версию карточки поста.' })}
+          title={t('posts.detail.refreshErrorTitle', { defaultValue: 'пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ' })}
+          description={t('posts.detail.refreshErrorDescription', { defaultValue: 'пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ.' })}
           tone="danger"
         />
       ) : null}
@@ -214,7 +223,7 @@ export function PostDetailsPage() {
           />
         </aside>
       </div>
-    </div>
+  </div>
   );
 }
 

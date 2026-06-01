@@ -5,8 +5,7 @@ from copy import deepcopy
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from agents.reporter import ReportConfig
+from dataclasses import dataclass
 from db.models import AppSetting
 from services.settings_defaults import get_canonical_defaults
 from services.settings_validation import validate_setting_payload
@@ -14,6 +13,12 @@ from services.settings_validation import validate_setting_payload
 
 DEFAULT_SETTINGS: dict[str, dict] = get_canonical_defaults()
 
+@dataclass(frozen=True)
+class ReportConfig:
+    min_comments: int = 20
+    report_word_target: int = 350
+    report_word_min: int = 200
+    report_word_max: int = 500
 
 def is_internal_setting_key(key: str) -> bool:
     return key.startswith("runtime.")

@@ -55,6 +55,7 @@ function installPostsKeywordSearchApiMock(response = createKeywordSearchResponse
     throw new Error(`Unhandled POST path in posts test: ${path} body=${JSON.stringify(body)}`);
   });
 }
+
 function installPostsKeywordSearchApiErrorMock(status: number) {
   return vi.spyOn(apiClient, 'post').mockImplementation(async (path: string) => {
     if (path === '/api/keyword/search/posts') {
@@ -64,6 +65,7 @@ function installPostsKeywordSearchApiErrorMock(status: number) {
     throw new Error(`Unhandled POST path in posts test: ${path}`);
   });
 }
+
 function installPostsApiMock(options?: {
   dashboard?: ReturnType<typeof createPostsDashboardResponse>;
   onPath?: (path: string) => unknown | Promise<unknown>;
@@ -216,7 +218,6 @@ describe('Posts dashboard', () => {
     });
   });
 
-
   it('shows unavailable search message when backend returns 404 for keyword search', async () => {
     installPostsApiMock();
     installPostsKeywordSearchApiErrorMock(404);
@@ -254,14 +255,14 @@ describe('Posts dashboard', () => {
     await user.click(screen.getByRole('button', { name: /^\u041d\u0430\u0439\u0442\u0438$/i }));
 
     await waitFor(() => {
-      expect(screen.getByText(/���� ���������� �� �������� ������/i)).toBeInTheDocument();
+      expect(screen.getByText(/Ищем посты по запросу/i)).toBeInTheDocument();
       expect(screen.getByText(/Top post preview for posts dashboard rendering/i)).toBeInTheDocument();
     });
 
     resolveKeywordSearch?.(createKeywordSearchResponse({ total: 1, items: [createKeywordSearchResponse().items[0]] }));
 
     await waitFor(() => {
-      expect(screen.queryByText(/���� ���������� �� �������� ������/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Ищем посты по запросу/i)).not.toBeInTheDocument();
     });
   });
 
@@ -305,13 +306,14 @@ describe('Posts dashboard', () => {
     renderPostsDashboard('/dashboard/posts?query=policy');
 
     await waitFor(() => {
-      expect(screen.getAllByText(/�� �������� ������� ����� �� ������� � ���� �������/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/По этому запросу постов в текущей выборке нет/i).length).toBeGreaterThan(0);
     });
 
     expect(screen.getByText('537')).toBeInTheDocument();
     expect(screen.queryByText(/Top post preview for posts dashboard rendering/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Secondary row validates dense table layout/i)).not.toBeInTheDocument();
   });
+
   it('shows inline validation and blocks apply when the date range is invalid', async () => {
     const user = userEvent.setup();
     const getSpy = installPostsApiMock();
@@ -413,6 +415,7 @@ describe('Posts dashboard', () => {
       expect(screen.getByText(/\u0412 \u044d\u0442\u043e\u043c \u0441\u043d\u0438\u043c\u043a\u0435 \u0434\u0430\u043d\u043d\u044b\u0445 \u043f\u043e\u043a\u0430 \u043d\u0435\u0442/i)).toBeInTheDocument();
     });
   });
+
   it('distinguishes an empty result caused by narrow filters', async () => {
     installPostsApiMock({
       dashboard: createPostsDashboardResponse({
@@ -547,23 +550,3 @@ describe('Posts dashboard', () => {
     expect(screen.queryByRole('link', { name: ru('\u041e\u0442\u0447\u0435\u0442') })).not.toBeInTheDocument();
   });
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

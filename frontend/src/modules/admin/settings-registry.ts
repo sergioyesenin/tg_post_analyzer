@@ -210,6 +210,9 @@ const settingsRegistryDefinitions: Record<SettingsCategoryKey, SettingsCategoryD
       field('comments', 5, 'sleep_jitter_sec', 'Джиттер паузы при обходе комментариев, сек', 'Случайная добавка к антифлуд-паузе.', floatValue(0, 30), 'seconds', 'comment-throttling'),
       field('comments', 6, 'reconciliation_enabled', 'Включить сверку снимка комментариев', 'Удалять устаревшие комментарии после подтверждённого пересканирования треда.', booleanValue(), null, 'comment-reconciliation'),
       field('comments', 7, 'album_discussion_expansion_steps', 'Глубина поиска discussion для альбомов', 'Сколько расширений окна использовать при поиске сообщения альбома с discussion.', integerValue(2, 30), null, 'discussion-fallback'),
+      field('comments', 8, 'reactions_refresh_ttl_seconds', 'TTL обновления реакций, сек', 'Как долго можно переиспользовать снимок реакций комментариев до следующего обновления.', integerValue(0, 86400), 'seconds', 'comment-reconciliation'),
+      field('comments', 9, 'reactions_top_n', 'Число топ-реакций', 'Сколько самых частых реакций сохранять в агрегированном отчёте.', integerValue(1, 100), null, 'comment-reconciliation'),
+      field('comments', 10, 'long_comment_threshold', 'Порог длинного комментария, символов', 'Комментарий считается длинным, если len(text.strip()) не меньше этого порога.', integerValue(1, 10000), null, 'comment-reconciliation'),
     ],
   },
   monitor: {
@@ -252,6 +255,8 @@ const settingsRegistryDefinitions: Record<SettingsCategoryKey, SettingsCategoryD
     fields: [
       field('features', 1, 'keyword_graph_api_enabled', 'Включить API графа ключевых слов', 'Глобальный переключатель keyword graph API.', booleanValue(), null, 'feature-flags'),
       field('features', 2, 'keyword_graph_rollout_percent', 'Rollout графа ключевых слов, %', 'Доля пользователей, которым доступен keyword graph.', integerValue(0, 100), 'percent', 'feature-flags'),
+      field('features', 3, 'multi_agent_mode_enabled', 'Включить multi-agent режим', 'Глобальный rollout gate для multi-agent исполнения внутри существующего AI pipeline.', booleanValue(), null, 'feature-flags'),
+      field('features', 4, 'multi_agent_rollout_percent', 'Rollout multi-agent режима, %', 'Доля трафика, для которой разрешён multi-agent path после включения флага.', integerValue(0, 100), 'percent', 'feature-flags'),
     ],
   },
 };

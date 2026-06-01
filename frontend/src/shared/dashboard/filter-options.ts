@@ -125,7 +125,7 @@ export function getPostsDashboardFilterOptions(params: {
     channel_ids: buildChannelOptions(channels, filters.channel_ids),
     categories: buildCategoryOptions(channels, filters.categories),
     report_status: buildStringOptions(
-      ['missing', 'pending', 'draft', 'ready', 'failed', ...(dashboardData?.items.map((item) => item.report_status) ?? [])],
+      ['missing', 'pending', 'draft', 'ready', 'limited', 'insufficient_data', 'failed', ...(dashboardData?.items.map((item) => item.report_status) ?? [])],
       filters.report_status,
     ),
   };

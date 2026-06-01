@@ -1,3 +1,23 @@
--r requirements-base.txt
--r requirements-ai.txt
--r requirements-dev.txt
+alembic
+apscheduler
+argon2-cffi
+asyncpg
+bcrypt
+fastapi
+httpx
+natasha
+openai
+psutil
+pydantic
+PyJWT
+pymorphy2
+pytest
+python-dotenv
+SQLAlchemy
+starlette
+telethon
+trafilatura
+uvicorn
+websockets
+tzdata
+psycopg2-binary>=2.9.0

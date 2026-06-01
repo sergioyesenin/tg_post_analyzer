@@ -2659,4 +2659,347 @@ textarea {
   font-weight: 600;
 }
 
+/* ===== TRACE SECTION (основной контейнер) ===== */
+.trace-section {
+  max-width: 100%;
+  overflow-x: hidden;
+  margin-top: 1.5rem;
+  border-top: 1px solid var(--border-color, #e0e0e0);
+  padding-top: 1rem;
+}
 
+.trace-section * {
+  max-width: 100%;
+  overflow-x: hidden;
+  word-wrap: break-word;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.trace-section__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.trace-section__actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* Глобальный статус */
+.trace-global-status {
+  padding: 0.5rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+.trace-global-status--healthy { background: #e6f4ea; color: #137333; }
+.trace-global-status--failed { background: #fce8e6; color: #c5221f; }
+.trace-global-status--warning { background: #fef7e0; color: #b45f06; }
+.trace-global-status--running { background: #e8f0fe; color: #1967d2; }
+
+/* Карточка шага */
+.trace-step-card {
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 8px;
+  margin-bottom: 0.75rem;
+  background: var(--card-bg, #fff);
+  max-width: 100%;
+  overflow-x: hidden;
+}
+.trace-step-card--warning {
+  border-left: 4px solid #c5221f;
+}
+
+.trace-step-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  cursor: pointer;
+  background: var(--card-header-bg, #f5f5f5);
+  border-radius: 8px;
+}
+
+.trace-step-card__title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.trace-step-card__name {
+  font-weight: 600;
+}
+
+.trace-step-card__run-count {
+  font-size: 0.75rem;
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+  background: #e8eaed;
+  color: #3c4043;
+}
+.trace-step-card__run-count--warn {
+  background-color: #fef7e0;
+  color: #b45f06;
+  font-weight: bold;
+}
+
+.trace-step-card__warning-icon {
+  font-size: 0.75rem;
+  color: #c5221f;
+  background: #fce8e6;
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+}
+
+.trace-step-card__expand {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+/* Содержимое карточки — без прокрутки, только перенос */
+.trace-step-card__content {
+  padding: 0.75rem;
+  border-top: 1px solid var(--border-color, #eee);
+  overflow-x: hidden;
+}
+
+/* Длинные блоки кода и JSON */
+.trace-step-card__content pre,
+.trace-step-card__content code,
+.trace-synthesis-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: hidden;
+  max-width: 100%;
+  background: #f8f9fa;
+  padding: 0.75rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: monospace;
+}
+
+.trace-synthesis-meta {
+  font-size: 0.8rem;
+  color: #5f6368;
+  margin-top: 0.5rem;
+}
+
+/* Блоки Retrieval, Review, Claims */
+.trace-retrieval,
+.trace-review,
+.trace-claims {
+  margin-top: 1rem;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+/* Сетка в Retrieval — переносится, не расширяет */
+.trace-retrieval__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.trace-retrieval__grid div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(16, 32, 51, 0.04);
+  border-radius: 6px;
+}
+
+.trace-retrieval__grid span {
+  color: var(--color-text-muted);
+}
+
+/* Список источников */
+.trace-retrieval__sources ul,
+.trace-review__history ul {
+  margin: 0.5rem 0 0 1rem;
+  padding-left: 0;
+  list-style-position: inside;
+}
+
+.trace-retrieval__sources li,
+.trace-review__history li {
+  margin-bottom: 0.5rem;
+  word-break: break-word;
+}
+
+.trace-retrieval__score {
+  margin-left: 0.5rem;
+  font-size: 0.8rem;
+  color: #5f6368;
+}
+
+/* Ссылки в источниках */
+.trace-retrieval__sources a {
+  word-break: break-all;
+}
+
+/* Эпистемические утверждения */
+.trace-claims__list {
+  list-style: none;
+  padding-left: 0;
+}
+.trace-claims__list li {
+  margin-bottom: 0.5rem;
+}
+.trace-claims__confidence {
+  margin-left: 0.5rem;
+  font-size: 0.8rem;
+  color: #5f6368;
+}
+
+/* Пустое состояние */
+.trace-empty {
+  padding: 1rem;
+  text-align: center;
+  color: #5f6368;
+  border: 1px dashed var(--border-color, #ccc);
+  border-radius: 8px;
+  margin-top: 0.5rem;
+}
+
+/* Детали (details/summary) */
+.trace-retrieval details,
+.trace-review details,
+.trace-claims details {
+  cursor: pointer;
+}
+
+.trace-retrieval details summary,
+.trace-review details summary,
+.trace-claims details summary {
+  font-weight: 600;
+  margin: 8px 0;
+}
+
+/* Защита от горизонтального переполнения у всех потомков */
+.trace-section,
+.trace-section *,
+.trace-step-card,
+.trace-step-card *,
+.trace-retrieval,
+.trace-retrieval *,
+.trace-review,
+.trace-review *,
+.trace-claims,
+.trace-claims * {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.expert-output {
+  max-width: 100%;
+}
+
+.expert-output__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px dashed var(--border-color);
+}
+
+.expert-output__status {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.expert-output__label {
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.expert-output__value {
+  font-weight: 500;
+}
+
+.expert-output__status--sufficient {
+  color: #137333;
+}
+.expert-output__status--insufficient {
+  color: #b45f06;
+}
+.expert-output__status--partial {
+  color: #1967d2;
+}
+
+.expert-output__counts {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.expert-output__toggle {
+  background: none;
+  border: none;
+  color: #1967d2;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0.25rem 0;
+  margin-bottom: 0.5rem;
+}
+
+.expert-output__details {
+  margin-top: 0.75rem;
+  border-left: 2px solid var(--border-color);
+  padding-left: 1rem;
+}
+
+.expert-output__section {
+  margin-bottom: 1rem;
+}
+
+.expert-output__section h5 {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.expert-output__section ul {
+  margin: 0;
+  padding-left: 1rem;
+  list-style: none;
+}
+
+.expert-output__section li {
+  margin-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(0,0,0,0.05);
+  padding-bottom: 0.5rem;
+}
+
+.expert-output__section p {
+  margin: 0 0 0.25rem 0;
+  font-size: 0.9rem;
+}
+
+.expert-output__claim-type {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  background: #e8eaed;
+  padding: 0.125rem 0.375rem;
+  border-radius: 4px;
+  margin-right: 0.5rem;
+}
+
+.expert-output__confidence {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+}

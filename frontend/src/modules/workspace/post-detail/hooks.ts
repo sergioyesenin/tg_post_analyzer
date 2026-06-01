@@ -1,4 +1,5 @@
-import { useQueries, useQueryClient } from '@tanstack/react-query';
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ApiError } from '@shared/api/client';
 
 import { dashboardQueryKeys } from '@shared/dashboard/query-keys';
 import { useAsyncJobAction } from '@shared/jobs/hooks';
@@ -7,6 +8,7 @@ import {
   getPostDetail,
   getPostLinks,
   getPostReport,
+  getPostReportTrace,
   refreshPostComments,
   updatePostReport,
 } from '@modules/workspace/post-detail/api';
@@ -79,3 +81,16 @@ export function useUpdateReportAction(postId: number) {
   });
 }
 
+export function usePostReportTrace(postId: number) {
+  return useQuery({
+    queryKey: postDetailQueryKeys.trace(postId),
+    queryFn: () => getPostReportTrace(postId),
+    retry: (failureCount, error) => {
+      // Не ретраить 404 (трейс отсутствует)
+      if (error instanceof ApiError && error.status === 404) return false;
+      return failureCount < 2;
+    },
+    staleTime: 5 * 60 * 1000, // 5 минут
+    enabled: Number.isFinite(postId) && postId > 0,
+  });
+}

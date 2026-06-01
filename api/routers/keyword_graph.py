@@ -3,7 +3,6 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agents.reporter import get_report_project
 from deps import get_session, require_roles
 from schemas.keyword_graph import (
     GraphBuildRequest,
@@ -14,7 +13,7 @@ from schemas.keyword_graph import (
     KeywordSearchResponse,
 )
 from services.auth import AuthUser, write_audit_log
-from services.keyword_graph import build_posts_graph, generate_graph_report, search_posts_by_keywords
+from services.keyword_graph import build_posts_graph, search_posts_by_keywords
 from services.settings_store import get_setting
 
 router = APIRouter()
@@ -90,25 +89,25 @@ async def build_graph(
     return result
 
 
-@router.post("/graph/report", response_model=GraphReportResponse)
-async def report_graph(
-    payload: GraphReportRequest,
-    current_user: AuthUser = Depends(require_roles("admin", "analyst")),
-    session: AsyncSession = Depends(get_session),
-):
-    await _ensure_feature_enabled(session, current_user.id)
-    result = await generate_graph_report(session, payload, report_project=get_report_project())
-    await write_audit_log(
-        session,
-        action="keyword_graph.report_graph",
-        actor_user_id=current_user.id,
-        target_type="keyword_graph",
-        details={
-            "status": result.status,
-            "seed_count": len(payload.post_ids),
-            "excluded_count": len(payload.exclude_post_ids),
-            "graph_mode": payload.graph_mode,
-        },
-    )
-    await session.commit()
-    return result
+#@router.post("/graph/report", response_model=GraphReportResponse)
+#async def report_graph(
+#    payload: GraphReportRequest,
+#    current_user: AuthUser = Depends(require_roles("admin", "analyst")),
+#    session: AsyncSession = Depends(get_session),
+#):
+#    await _ensure_feature_enabled(session, current_user.id)
+#    result = await generate_graph_report(session, payload, report_project=get_report_project())
+#    await write_audit_log(
+#        session,
+#        action="keyword_graph.report_graph",
+#        actor_user_id=current_user.id,
+#        target_type="keyword_graph",
+#        details={
+#            "status": result.status,
+#            "seed_count": len(payload.post_ids),
+#            "excluded_count": len(payload.exclude_post_ids),
+#            "graph_mode": payload.graph_mode,
+#        },
+#    )
+#    await session.commit()
+#    return result

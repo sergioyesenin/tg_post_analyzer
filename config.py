@@ -55,6 +55,71 @@ class Settings:
             default=None,
             errors=errors,
         )
+        self.REPORT_V2_PROMPTS_ROOT = self._env_str(
+            "REPORT_V2_PROMPTS_ROOT",
+            default="configs/prompts/report_v2",
+            errors=errors,
+        )
+        self.REPORT_V2_OPENAI_MODEL = self._env_str(
+            "REPORT_V2_OPENAI_MODEL",
+            default="gpt-4o-mini",
+            errors=errors,
+        )
+        self.REPORT_V2_OPENAI_FALLBACK_MODELS = self._env_csv(
+            "REPORT_V2_OPENAI_FALLBACK_MODELS",
+            default=[],
+            errors=errors,
+        )
+        self.REPORT_V2_OPENAI_ROUTING_ENABLED = self._env_bool(
+            "REPORT_V2_OPENAI_ROUTING_ENABLED",
+            default=False,
+            errors=errors,
+        )
+        self.REPORT_V2_OPENAI_BASE_URL = self._env_str(
+            "REPORT_V2_OPENAI_BASE_URL",
+            default=None,
+            errors=errors,
+        )
+        self.REPORT_V2_OPENAI_API_KEY = self._env_str(
+            "REPORT_V2_OPENAI_API_KEY",
+            default=None,
+            errors=errors,
+        )
+        self.REPORT_V2_OPENAI_TIMEOUT_SEC = self._env_float(
+            "REPORT_V2_OPENAI_TIMEOUT_SEC",
+            default=120.0,
+            errors=errors,
+        )
+        self.REPORT_V2_OPENAI_MAX_RETRIES = self._env_int(
+            "REPORT_V2_OPENAI_MAX_RETRIES",
+            default=2,
+            errors=errors,
+        )
+        self.REPORT_V2_LOCAL_FALLBACK_ENABLED = self._env_bool(
+            "REPORT_V2_LOCAL_FALLBACK_ENABLED",
+            default=False,
+            errors=errors,
+        )
+        self.REPORT_V2_LOCAL_MODEL = self._env_str(
+            "REPORT_V2_LOCAL_MODEL",
+            default="llama3.1:8b-instruct-q4_K_M",
+            errors=errors,
+        )
+        self.REPORT_V2_LOCAL_BASE_URL = self._env_str(
+            "REPORT_V2_LOCAL_BASE_URL",
+            default="http://localhost:11434/v1",
+            errors=errors,
+        )
+        self.REPORT_V2_LOCAL_API_KEY = self._env_str(
+            "REPORT_V2_LOCAL_API_KEY",
+            default=None,
+            errors=errors,
+        )
+
+        self.RETRIEVAL_POLICY_ENABLED = self._env_bool("RETRIEVAL_POLICY_ENABLED", default=False, errors=errors)
+        self.RETRIEVAL_ROLLOUT_PERCENT = self._env_int("RETRIEVAL_ROLLOUT_PERCENT", default=0, errors=errors)
+        self.RETRIEVAL_PROVIDER_ENABLED = self._env_bool("RETRIEVAL_PROVIDER_ENABLED", default=False, errors=errors)
+        self.RETRIEVAL_PROVIDER_NAME = self._env_str("RETRIEVAL_PROVIDER_NAME", default="none", errors=errors)
 
         self.LINKING_PIPELINE_VERSION = self._env_str("LINKING_PIPELINE_VERSION", default="v2-evidence-first", errors=errors)
         self.LINKING_TOP_K = self._env_int("LINKING_TOP_K", default=50, errors=errors)
@@ -83,6 +148,11 @@ class Settings:
             errors=errors,
         )
         self.COMMENTS_REACTIONS_TOP_N = self._env_int("COMMENTS_REACTIONS_TOP_N", default=10, errors=errors)
+        self.COMMENTS_LONG_COMMENT_THRESHOLD = self._env_int(
+            "COMMENTS_LONG_COMMENT_THRESHOLD",
+            default=100,
+            errors=errors,
+        )
         self.AUTH_JWT_SECRET = self._env_str("AUTH_JWT_SECRET", required=True, errors=errors)
         self._validate_jwt_secret(self.AUTH_JWT_SECRET, errors)
         self.AUTH_JWT_ALG = self._env_str("AUTH_JWT_ALG", default="HS256", errors=errors)

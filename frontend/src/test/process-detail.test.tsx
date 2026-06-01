@@ -99,6 +99,47 @@ describe('Process detail', () => {
     expect(screen.getAllByRole('link', { name: ru('\u0412\u0435\u0434\u0443\u0449\u0438\u0439 \u043f\u043e\u0441\u0442') }).length).toBeGreaterThan(0);
   });
 
+  it('renders limited process report status and mapped stage topics', async () => {
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/processes/201') {
+        return createProcessDetailResponse({
+          latest_report: {
+            id: 802,
+            status: 'limited',
+            version: 6,
+            report_text: 'Process report text.',
+            report_json: {
+              summary: 'Сводка по процессу с ограничениями.',
+              stage_analysis: [{ main_topics: ['эскалация', 'реакция'] }],
+            },
+            created_at: '2026-03-13T08:45:00Z',
+          },
+        });
+      }
+
+      if (path === '/api/dashboard/processes/201/graph') {
+        return createProcessGraphResponse({
+          summary: {
+            ...createProcessGraphResponse().summary,
+            report_status: 'limited',
+          },
+        });
+      }
+
+      throw new Error(`Unhandled GET path in limited process detail test: ${path}`);
+    });
+
+    renderProcessDetail();
+
+    await waitFor(() => {
+      expect(screen.getAllByText(/Narrative escalation chain/i).length).toBeGreaterThan(0);
+    });
+
+    expect(screen.getAllByLabelText(/Статус отчета: Ограничен/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Сводка по процессу с ограничениями/i)).toBeInTheDocument();
+    expect(screen.getByText(/эскалация, реакция/i)).toBeInTheDocument();
+  });
+
   it('navigates to related event and post context when confirmed', async () => {
     const user = userEvent.setup();
 

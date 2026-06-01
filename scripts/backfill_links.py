@@ -1,12 +1,14 @@
 from __future__ import annotations
-
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from config import settings
 import argparse
 import asyncio
 from dataclasses import dataclass
 
 from sqlalchemy import select
 
-from config import settings
 from db.models import Post
 from db.session import AsyncSessionLocal
 from services.linker import link_post_to_graph

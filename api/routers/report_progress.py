@@ -4,7 +4,11 @@ import asyncio
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, WebSocket
+from starlette.websockets import WebSocketDisconnect, WebSocketState
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+from uvicorn.protocols.utils import ClientDisconnected
 
 from db.models import Job, User
 from deps import get_session
@@ -40,6 +44,7 @@ async def _resolve_current_user(session: AsyncSession, *, access_token: str | No
 
 
 def _extract_entity(job: Job) -> tuple[str | None, int | None]:
+    # Этот вызов безопасен, так как атрибуты подгружены через selectinload.
     entity_type = REPORT_JOB_TYPES.get(str(job.type))
     payload = dict(job.payload_json or {})
     if entity_type == "post":
@@ -56,6 +61,66 @@ def _safe_int(value: object) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _normalize_request_id(value: str | None) -> int | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    if normalized in {"", "undefined", "null", "none"}:
+        return None
+    return _safe_int(value)
+
+
+async def _resolve_report_job(
+    session: AsyncSession,
+    *,
+    request_id: int | None,
+    expected_entity_type: str | None,
+    expected_entity_id: int | None,
+    current_user_id: int,
+) -> Job | None:
+    # Явно подгружаем ленивые атрибуты (type, payload_json, result)
+    if request_id is not None:
+        stmt = (
+            select(Job)
+            .where(Job.id == request_id)
+            .options(
+                selectinload(Job.type),
+                selectinload(Job.payload_json),
+            )
+        )
+        return (await session.execute(stmt)).scalar_one_or_none()
+
+    if expected_entity_type is None or expected_entity_id is None:
+        return None
+
+    report_job_type = next(
+        (job_type for job_type, entity in REPORT_JOB_TYPES.items() if entity == expected_entity_type), None
+    )
+    if report_job_type is None:
+        return None
+
+    stmt = (
+        select(Job)
+        .where(Job.type == report_job_type)
+        .options(
+            selectinload(Job.type),
+            selectinload(Job.payload_json),
+            selectinload(Job.result),
+        )
+        .order_by(Job.created_at.desc(), Job.id.desc())
+        .limit(100)
+    )
+    candidates = (await session.execute(stmt)).scalars().all()
+    for candidate in candidates:
+        payload = dict(candidate.payload_json or {})
+        if _safe_int(payload.get("requested_by_user_id")) != current_user_id:
+            continue
+        entity_type, entity_id = _extract_entity(candidate)
+        if entity_type == expected_entity_type and entity_id == expected_entity_id:
+            return candidate
+    return None
 
 
 def _job_is_blocked(*, job: Job, result: dict) -> bool:
@@ -76,6 +141,7 @@ def _job_timestamp(job: Job) -> str:
 
 
 def _build_progress_event(job: Job) -> dict | None:
+    # Атрибуты type и payload_json уже загружены через selectinload
     entity_type, entity_id = _extract_entity(job)
     if entity_type is None or entity_id is None:
         return None
@@ -160,29 +226,45 @@ def _event_fingerprint(event: dict) -> tuple[object, ...]:
     )
 
 
+async def _safe_close_websocket(websocket: WebSocket, *, code: int = 1000, reason: str = "") -> None:
+    if websocket.application_state is not WebSocketState.CONNECTED:
+        return
+    try:
+        await websocket.close(code=code, reason=reason)
+    except (RuntimeError, WebSocketDisconnect, ClientDisconnected):
+        return
+
+
 @router.websocket("/ws")
 async def report_progress_websocket(
     websocket: WebSocket,
     session: AsyncSession = Depends(get_session),
 ):
     access_token = websocket.query_params.get("access_token")
-    request_id = _safe_int(websocket.query_params.get("request_id"))
+    request_id = _normalize_request_id(websocket.query_params.get("request_id"))
     expected_entity_type = websocket.query_params.get("entity_type")
     expected_entity_id = _safe_int(websocket.query_params.get("entity_id"))
-
-    if request_id is None:
-        await websocket.close(code=4400, reason="request_id is required")
-        return
 
     current_user = await _resolve_current_user(session, access_token=access_token)
     if current_user is None:
         await websocket.close(code=4401, reason="Authentication required")
         return
 
-    job = await session.get(Job, request_id, populate_existing=True)
+    if request_id is None and (expected_entity_type is None or expected_entity_id is None):
+        await websocket.close(code=4400, reason="request_id or entity binding is required")
+        return
+
+    job = await _resolve_report_job(
+        session,
+        request_id=request_id,
+        expected_entity_type=expected_entity_type,
+        expected_entity_id=expected_entity_id,
+        current_user_id=int(current_user.id),
+    )
     if job is None or str(job.type) not in REPORT_JOB_TYPES:
         await websocket.close(code=4404, reason="Report request not found")
         return
+    request_id = int(job.id)
 
     payload = dict(job.payload_json or {})
     if _safe_int(payload.get("requested_by_user_id")) != int(current_user.id):
@@ -205,9 +287,19 @@ async def report_progress_websocket(
 
     try:
         while True:
-            job = await session.get(Job, request_id, populate_existing=True)
+            # Всегда подгружаем ленивые атрибуты при каждом опросе
+            stmt = (
+                select(Job)
+                .where(Job.id == request_id)
+                .options(
+                    selectinload(Job.type),
+                    selectinload(Job.payload_json),
+                    selectinload(Job.result),
+                )
+            )
+            job = (await session.execute(stmt)).scalar_one_or_none()
             if job is None:
-                await websocket.close(code=4404, reason="Report request not found")
+                await _safe_close_websocket(websocket, code=4404, reason="Report request not found")
                 return
 
             event = _build_progress_event(job)
@@ -220,5 +312,7 @@ async def report_progress_websocket(
                     return
 
             await asyncio.sleep(1.0)
-    except Exception:
-        await websocket.close()
+    except (WebSocketDisconnect, ClientDisconnected):
+        return
+    finally:
+        await _safe_close_websocket(websocket)

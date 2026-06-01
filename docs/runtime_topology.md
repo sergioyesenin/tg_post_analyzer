@@ -58,6 +58,7 @@
   - execute queued `BUILD_POST_REPORT`, `BUILD_EVENT_REPORT`, and `BUILD_PROCESS_REPORT`
   - consume `BUILD_POST_REPORT_BATCH` without expanding it into child `BUILD_POST_REPORT` jobs
   - persist report build results and stale-mark downstream reports when applicable
+  - keep post-report multi-agent orchestration inside one existing `BUILD_POST_REPORT` job when rollout is enabled
 - Diagnostics:
   - `/api/monitor/pipeline`
   - `/api/monitor/health`
@@ -67,6 +68,7 @@
 - Explicit non-responsibility:
   - does not auto-enqueue background report jobs
   - does not fan out batch report jobs into new report jobs
+  - does not expose internal multi-agent traces through public API payloads
 
 ## Ownership rules
 
@@ -82,3 +84,6 @@
 - Existing reports may still become `stale` after ingest, comments refresh, or downstream dependency changes.
 - Fresh report jobs should appear only after explicit manual/API-triggered requests.
 - This topology does not promise dependency orchestration, automatic rebuild cascades, or readiness-driven background scheduling.
+- Default rollout position remains safe-off: `features.multi_agent_mode_enabled=false` and `features.multi_agent_rollout_percent=0`.
+- Rollout enablement must happen through existing settings surfaces only, with frontend status-label coverage already shipped for `limited` and `insufficient_data`.
+- Public report contracts stay stable while internal multi-agent stages, reruns, and reviewer history remain internal to persisted `report_json.meta.multi_agent`.

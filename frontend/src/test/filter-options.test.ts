@@ -51,4 +51,27 @@ describe('dashboard filter channel options', () => {
       }),
     ).not.toThrow();
   });
+
+  it('includes expanded public report statuses for posts', () => {
+    const options = getPostsDashboardFilterOptions({
+      filters: {
+        query: '',
+        date_from: '',
+        date_to: '',
+        limit: 25,
+        channel_ids: [],
+        categories: [],
+        min_comments: null,
+        report_status: [],
+        sort_by: 'date',
+        sort_order: 'desc',
+      },
+      dashboardData: null,
+      channels: [],
+    });
+
+    expect(options.report_status.map((item) => item.value)).toEqual(
+      expect.arrayContaining(['ready', 'limited', 'insufficient_data', 'failed']),
+    );
+  });
 });

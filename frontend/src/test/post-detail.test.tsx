@@ -136,6 +136,51 @@ describe('Post detail screen', () => {
     expect(screen.getByText(/Report content body/i)).toBeInTheDocument();
   });
 
+  it('renders limited public report semantics without needing internal traces', async () => {
+    installDetailGetMock({
+      report: createReportResponse({
+        status: 'limited',
+        content: 'Limited report body.',
+        report_json: {
+          summary: 'Анализ ограничен: проанализировано 8 комментариев; преобладает нейтральный тон.',
+          topics: [{ name: 'бюджет' }, { name: 'регионы' }],
+        },
+      }),
+    });
+
+    renderPostDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Limited report body/i)).toBeInTheDocument();
+    });
+
+    expect(screen.getByLabelText(/Статус отчета: Ограничен/i)).toBeInTheDocument();
+    expect(screen.getByText(/Анализ ограничен:/i)).toBeInTheDocument();
+    expect(screen.getByText(/Темы: бюджет, регионы/i)).toBeInTheDocument();
+  });
+
+  it('renders insufficient-data public report semantics as a normal detail state', async () => {
+    installDetailGetMock({
+      report: createReportResponse({
+        status: 'insufficient_data',
+        content: 'Insufficient-data report body.',
+        report_json: {
+          summary: 'Недостаточно данных для надежного вывода: проанализировано 2 комментария.',
+          topics: [],
+        },
+      }),
+    });
+
+    renderPostDetail();
+
+    await waitFor(() => {
+      expect(screen.getByText(/Insufficient-data report body/i)).toBeInTheDocument();
+    });
+
+    expect(screen.getByLabelText(/Статус отчета: Недостаточно данных/i)).toBeInTheDocument();
+    expect(screen.getByText(/Недостаточно данных для надежного вывода/i)).toBeInTheDocument();
+  });
+
   it('runs refresh comments async job flow and invalidates detail queries', async () => {
     const user = userEvent.setup();
     let commentsVersion = 0;
@@ -376,6 +421,72 @@ describe('Post detail screen', () => {
       expect(screen.getByText(/WebSocket completed draft report/i)).toBeInTheDocument();
     });
 
+    globalThis.WebSocket = originalWebSocket;
+  });
+
+  it('does not open report progress websocket when update endpoint returns blocked response', async () => {
+    const user = userEvent.setup();
+    const originalWebSocket = globalThis.WebSocket;
+
+    class FakeWebSocket {
+      static instances: FakeWebSocket[] = [];
+      url: string;
+
+      constructor(url: string) {
+        this.url = url;
+        FakeWebSocket.instances.push(this);
+      }
+
+      close() {
+        return undefined;
+      }
+    }
+
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+
+    vi.spyOn(apiClient, 'get').mockImplementation(async (path: string) => {
+      if (path === '/api/posts/42') {
+        return createPostDetailResponse();
+      }
+
+      if (path === '/api/posts/42/comments') {
+        return createCommentsResponse();
+      }
+
+      if (path === '/api/reports/post/42') {
+        return null;
+      }
+
+      if (path === '/api/posts/42/links') {
+        return createLinksResponse();
+      }
+
+      if (path.startsWith('/api/dashboard/posts')) {
+        return createPostsDashboardResponse();
+      }
+
+      throw new Error(`Unhandled GET path in test: ${path}`);
+    });
+
+    vi.spyOn(apiClient, 'post').mockResolvedValue({
+      status: 'blocked',
+      reason: 'duplicate_request',
+      message: 'Report is already building.',
+    });
+
+    renderPostDetail();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043e\u0442\u0447\u0435\u0442') })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole('button', { name: ru('\u0421\u0444\u043e\u0440\u043c\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u043e\u0442\u0447\u0435\u0442') }));
+
+    await waitFor(() => {
+      expect(screen.getByText(ru('\u0417\u0430\u0434\u0430\u043d\u0438\u0435 \u043e\u0442\u0447\u0435\u0442\u0430'))).toBeInTheDocument();
+    });
+
+    expect(FakeWebSocket.instances).toHaveLength(0);
     globalThis.WebSocket = originalWebSocket;
   });
   it('hides mutation actions for viewer', async () => {

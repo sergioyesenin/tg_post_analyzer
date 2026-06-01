@@ -22,7 +22,7 @@ from services.runtime_topology import SCHEDULER_RUNTIME
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run APScheduler-based control plane.")
-    parser.add_argument("--log-level", type=str, default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument("--log-level", type=str, default="DEBUG", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     return parser
 
 
@@ -35,6 +35,7 @@ async def main_async() -> None:
         return
 
     scheduler = build_scheduler()
+    logging.info(f"Using timezone: {scheduler.timezone}")
     register_periodic_jobs(scheduler, effective_settings=effective_settings)
     scheduler.start()
     job_ids = sorted(job.id for job in scheduler.get_jobs())

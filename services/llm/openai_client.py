@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import time
-from dataclasses import dataclass
-from typing import Any, TYPE_CHECKING
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Any, TYPE_CHECKING, Optional
 
 from config import settings
+from services.llm.model_router import ModelEntry, ModelRouter
 
 try:
     from openai import AsyncOpenAI
@@ -75,6 +79,7 @@ class OpenAIChatCompletionTrace:
     input_hash: str | None = None
     output_ref: str | None = None
     output_hash: str | None = None
+    total_tokens: int | None = None   # добавлено для роутера
 
 
 class OpenAIClientAdapter:
@@ -84,8 +89,10 @@ class OpenAIClientAdapter:
         *,
         client: Any | None = None,
         local_client: Any | None = None,
+        router: Optional[ModelRouter] = None,
     ) -> None:
         self.config = config
+        self.router = router
         if client is not None:
             self.client = client
         else:
@@ -106,7 +113,6 @@ class OpenAIClientAdapter:
             )
 
     @staticmethod
-    @staticmethod
     def _build_client(*, api_key: str | None, base_url: str | None, timeout: float, max_retries: int) -> Any:
         if AsyncOpenAI is None:
             raise RuntimeError("openai package is required for OpenAIClientAdapter")
@@ -117,7 +123,6 @@ class OpenAIClientAdapter:
 
             async def log_response(response: HttpxResponse) -> None:
                 if logger.isEnabledFor(logging.DEBUG):
-                    # Читаем тело ответа, чтобы сделать его доступным для response.text
                     await response.aread()
                     body = response.text
                     max_body_len = 2000
@@ -175,7 +180,8 @@ class OpenAIClientAdapter:
         temperature: float,
         response_format: dict[str, Any] | None,
         routed_models: list[str] | None = None,
-    ) -> str:
+    ) -> Any:
+        """Выполняет один запрос и возвращает полный объект ответа."""
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -186,6 +192,11 @@ class OpenAIClientAdapter:
         if routed_models:
             kwargs["extra_body"] = {"models": routed_models}
         response = await client.chat.completions.create(**kwargs)
+        return response
+
+    @staticmethod
+    def _extract_content(response: Any) -> str:
+        """Извлекает строку content из ответа."""
         choice = response.choices[0]
         content = choice.message.content
         if isinstance(content, str):
@@ -208,6 +219,11 @@ class OpenAIClientAdapter:
         temperature: float = 0.0,
         response_format: dict[str, Any] | None = None,
     ) -> OpenAIChatCompletionTrace:
+        # Если включён роутер и есть маршрутизатор – используем его
+        if self.router and self.config.routing_enabled:
+            return await self._router_completion(messages, model, temperature, response_format)
+
+        # Старая логика (fallback на первичные модели и local)
         primary_models = self._build_primary_models(model)
         primary_errors: list[str] = []
         requested_model = model or self.config.model
@@ -217,7 +233,7 @@ class OpenAIClientAdapter:
             started = time.perf_counter()
             try:
                 logger.warning("LLM routing request activated models=%s", primary_models)
-                content = await self._create_once(
+                response = await self._create_once(
                     client=self.client,
                     model=primary_models[0],
                     messages=messages,
@@ -225,6 +241,7 @@ class OpenAIClientAdapter:
                     response_format=response_format,
                     routed_models=primary_models,
                 )
+                content = self._extract_content(response)
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
                 return OpenAIChatCompletionTrace(
                     content=content,
@@ -247,13 +264,14 @@ class OpenAIClientAdapter:
             try:
                 if model_name != requested_model:
                     logger.info("LLM model fallback activated model=%s", model_name)
-                content = await self._create_once(
+                response = await self._create_once(
                     client=self.client,
                     model=model_name,
                     messages=messages,
                     temperature=temperature,
                     response_format=response_format,
                 )
+                content = self._extract_content(response)
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
                 fallback_used = model_name != requested_model
                 return OpenAIChatCompletionTrace(
@@ -280,13 +298,14 @@ class OpenAIClientAdapter:
                     self.config.local_model,
                     self.config.local_base_url,
                 )
-                content = await self._create_once(
+                response = await self._create_once(
                     client=self.local_client,
                     model=self.config.local_model,
                     messages=messages,
                     temperature=temperature,
                     response_format=response_format,
                 )
+                content = self._extract_content(response)
                 elapsed_ms = int((time.perf_counter() - started) * 1000)
                 return OpenAIChatCompletionTrace(
                     content=content,
@@ -306,6 +325,83 @@ class OpenAIClientAdapter:
 
         summary = " | ".join(primary_errors) if primary_errors else "no_models_configured"
         raise RuntimeError(f"All LLM fallbacks failed: {summary}")
+
+    async def _router_completion(
+        self,
+        messages: list[dict[str, str]],
+        requested_model: str | None,
+        temperature: float,
+        response_format: dict[str, Any] | None,
+    ) -> OpenAIChatCompletionTrace:
+        """Выполняет запрос через роутер, выбирая модель по лимитам."""
+        started = time.perf_counter()
+
+        # Оценка токенов (грубая: символы / 4)
+        estimated_tokens = sum(len(m.get("content", "")) // 4 for m in messages)
+
+        def client_factory(model_entry: ModelEntry):
+            return self._build_client(
+                api_key=model_entry.api_key,
+                base_url=model_entry.base_url,
+                timeout=self.config.timeout_sec,
+                max_retries=self.config.max_retries,
+            )
+
+        try:
+            response, used_model = await self.router.execute_with_fallback(
+                client_factory=client_factory,
+                estimated_tokens=estimated_tokens,
+                messages=messages,
+                temperature=temperature,
+                response_format=response_format,
+            )
+            content = self._extract_content(response)
+            elapsed_ms = int((time.perf_counter() - started) * 1000)
+            total_tokens = 0
+            if hasattr(response, 'usage') and response.usage:
+                total_tokens = getattr(response.usage, 'total_tokens', 0)
+            return OpenAIChatCompletionTrace(
+                content=content,
+                provider=used_model.provider,
+                model=used_model.name,
+                latency_ms=max(0, elapsed_ms),
+                fallback_used=False,
+                fallback_reason=None,
+                executed=True,
+                success=True,
+                attempt_index=0,
+                total_tokens=total_tokens,
+            )
+        except Exception as exc:
+            # Если роутер не смог, пробуем local fallback (если включён)
+            if self.local_client is not None and self.config.local_fallback_enabled:
+                started_local = time.perf_counter()
+                try:
+                    logger.warning("Router failed, activating local fallback: %s", exc)
+                    response = await self._create_once(
+                        client=self.local_client,
+                        model=self.config.local_model,
+                        messages=messages,
+                        temperature=temperature,
+                        response_format=response_format,
+                    )
+                    content = self._extract_content(response)
+                    elapsed_ms = int((time.perf_counter() - started_local) * 1000)
+                    return OpenAIChatCompletionTrace(
+                        content=content,
+                        provider=self._provider_for_client(client_kind="local"),
+                        model=self.config.local_model,
+                        latency_ms=max(0, elapsed_ms),
+                        fallback_used=True,
+                        fallback_reason="router_failed_local_fallback",
+                        executed=True,
+                        success=True,
+                        attempt_index=0,
+                    )
+                except Exception as local_exc:
+                    logger.error("Local fallback also failed: %s", local_exc)
+
+            raise RuntimeError(f"Router and all fallbacks failed: {exc}")
 
     async def create_chat_completion(
         self,

@@ -5,6 +5,14 @@ x-app-image: &app-image
     dockerfile: Dockerfile
 
 services:
+  redis:
+    image: redis:alpine
+    container_name: redis-searxng
+    restart: unless-stopped
+    networks:
+      - searxng-net 
+    volumes:
+      - redis-data:/data
   postgres:
     image: postgres:16
     container_name: tg_analytics_postgres
@@ -95,6 +103,8 @@ services:
     command:
       - python
       - scripts/run_scheduler.py
+    volumes:
+      - ./services:/app/services
 
   telegram_pipeline:
     <<: *app-image
@@ -148,14 +158,24 @@ services:
     image: searxng/searxng:latest
     container_name: searxng
     ports:
-      - "8088:8080"
+      - "8088:8080"              # хост:контейнер (8088 на хосте)
     environment:
       - BASE_URL=http://localhost:8088/
       - INSTANCE_NAME=reporting-retrieval
+      - SEARXNG_REDIS_URL=redis://redis:6379/0   # подключение к Redis
     volumes:
       - ./searxng:/etc/searxng
     restart: unless-stopped
+    depends_on:
+      - redis
+    networks:
+      - searxng-net
 
 volumes:
   pgdata:
+  redis-data:
   tg_session:
+
+networks:
+  searxng-net:
+    driver: bridge

@@ -11,7 +11,7 @@ from services.settings_store import get_all_settings
 
 def retention_scheduler_enabled(settings_payload: dict) -> bool:
     scheduler = settings_payload.get("scheduler", {})
-    return bool(scheduler.get("enabled", False))
+    return bool(scheduler.get("enabled", True))
 
 
 async def enqueue_daily_retention_jobs(

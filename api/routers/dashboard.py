@@ -42,8 +42,8 @@ async def _resolve_limit(session: AsyncSession, limit: int | None) -> int:
 
 @router.get("/posts", response_model=PostsDashboardResponse)
 async def get_posts_dashboard(
-    date_from: datetime,
-    date_to: datetime,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
     limit: int | None = Query(default=None, ge=1, le=500),
     channel_ids: Annotated[CsvIntList, Query()] = [],
     categories: Annotated[CsvStrList, Query()] = [],

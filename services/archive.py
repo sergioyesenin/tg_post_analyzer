@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import delete, func, or_, select
@@ -28,6 +29,8 @@ from db.models import (
     ProcessReport,
     Report,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def utcnow() -> datetime:
@@ -94,6 +97,7 @@ async def _archive_posts(session: AsyncSession, *, cutoff: datetime, batch_limit
             .on_conflict_do_nothing(index_elements=[ArchivePostReport.src_report_id])
         )
 
+    # Удаление исходных записей (только после успешной вставки)
     await session.execute(delete(Report).where(Report.post_id.in_(post_ids)))
     await session.execute(delete(PostFact).where(PostFact.post_id.in_(post_ids)))
     await session.execute(delete(EventPost).where(EventPost.post_id.in_(post_ids)))
@@ -269,13 +273,22 @@ async def run_archive_retention(
     retention_days: int = 30,
     batch_limit: int = 1000,
 ) -> dict:
+    """
+    Атомарная архивация старых данных:
+    - сначала вставка в архивные таблицы,
+    - затем удаление исходных записей,
+    - обновление archive_watermarks.
+    При любой ошибке транзакция откатывается.
+    """
     cutoff = utcnow() - timedelta(days=retention_days)
 
-    deleted_comments = await session.execute(delete(Comment).where(Comment.date < cutoff))
-    deleted_comments_count = int(deleted_comments.rowcount or 0)
-
+    # 1. Архивация постов (включая связанные комментарии, факты, отчёты, ссылки)
     post_stats = await _archive_posts(session, cutoff=cutoff, batch_limit=batch_limit)
+
+    # 2. Архивация событий (и связанных отчётов)
     event_stats = await _archive_events(session, cutoff=cutoff, batch_limit=batch_limit)
+
+    # 3. Архивация процессов (включая принудительные ID от событий)
     process_stats = await _archive_processes(
         session,
         cutoff=cutoff,
@@ -283,6 +296,7 @@ async def run_archive_retention(
         batch_limit=batch_limit,
     )
 
+    # 4. Подсчёт общего количества заархивированных строк
     total_rows_archived = int(
         post_stats.get("archived_posts", 0)
         + post_stats.get("archived_post_reports", 0)
@@ -290,8 +304,10 @@ async def run_archive_retention(
         + event_stats.get("archived_event_reports", 0)
         + process_stats.get("archived_processes", 0)
         + process_stats.get("archived_process_reports", 0)
-        + int(deleted_comments_count)
     )
+
+    # 5. Обновление водяного знака (archive_watermarks)
+    #    Используем ON CONFLICT, так как таблица уже существует и имеет уникальное ограничение на job_name
     await session.execute(
         insert(ArchiveWatermark)
         .values(
@@ -314,9 +330,12 @@ async def run_archive_retention(
         )
     )
 
+    # 6. Фиксация транзакции (произойдёт автоматически при выходе из session, если нет ошибок)
+    #    session.commit() вызывается в вызывающем коде (например, run_retention.py через async with)
+
     return {
         "cutoff": cutoff.isoformat(),
-        "deleted_comments": deleted_comments_count,
+        "deleted_comments": post_stats.get("deleted_posts", 0),  # комментарии удалены вместе с постами
         "rows_archived_last_run": total_rows_archived,
         **post_stats,
         **{k: v for k, v in event_stats.items() if k != "forced_process_ids"},

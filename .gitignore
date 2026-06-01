@@ -16,7 +16,7 @@ venv/
 env/
 ENV/
 .github/
-
+services/llm/router_models.json
 
 # =========================
 # Environment variables
@@ -92,3 +92,4 @@ docs/*_test_results_*.txt
 # =========================
 docker-data/
 
+"services/llm/router_models.json" 

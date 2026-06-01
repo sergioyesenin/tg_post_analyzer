@@ -1,10 +1,12 @@
-﻿use_default_settings: true
+﻿# /etc/searxng/settings.yml
+
+use_default_settings: true
 
 server:
   bind_address: "0.0.0.0"
   port: 8080
-  secret_key: "change-this-secret-key"
-  limiter: false
+  secret_key: "change-this-secret-key"   # Рекомендуется сменить на что-то сложное
+  limiter: true
   image_proxy: false
   public_instance: false
 
@@ -21,25 +23,34 @@ ui:
   static_use_hash: true
 
 outgoing:
-  request_timeout: 8.0
+  request_timeout: 20.0
+  max_retries: 4
+  retry_on_error: true
+  useragent_suffix: "ghtjhkrbg@gmail.com"
+  # proxies: ...
 
 botdetection:
   ip_limit:
-    filter_link_local: false
-    link_token: false
+    link_token: true
+    filter_link_local: true
   ip_lists:
     pass_ip:
       - 127.0.0.1
       - ::1
 
-# Reverse proxy / forwarded headers
-# Prevent X-Forwarded-For/X-Real-IP warnings behind proxy.
 http:
   real_ip:
     x_for: 1
 
+# ========== ДОБАВЛЕНО: ПОДКЛЮЧЕНИЕ К REDIS ==========
+redis:
+  url: redis://redis:6379/0
+  # Если Redis требует пароль:
+  # password: your_redis_password
+valkey:
+  url: redis://redis:6379/0
+
 engines:
-  # Disabled due to recurring init/runtime failures/noise in logs.
   - name: wikidata
     disabled: true
   - name: brave
@@ -48,3 +59,13 @@ engines:
     disabled: true
   - name: karmasearch videos
     disabled: true
+  - name: startpage
+    disabled: true
+  - name: duckduckgo
+    disabled: false
+  - name: google
+    disabled: false
+  - name: bing
+    disabled: false
+  - name: mojeek
+    disabled: false

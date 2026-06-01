@@ -16,11 +16,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from client.telegram import (
-    TelegramClientHandle,
-    is_session_locked_error,
-    with_session_lock_retry,
-)
+from client.telegram import TelegramClientHandle
 from db.models import Channel, EventPost, EventReport, Job, JobDeadLetter, Post, ProcessEvent, ProcessReport, Report
 from db.session import AsyncSessionLocal
 from services.archive import run_archive_retention
@@ -75,8 +71,7 @@ from services.pipeline_runtime_support import (
     mark_related_process_reports_stale as mark_related_process_reports_stale_impl,
     process_channel as process_channel_impl,
     rebuild_event_process_graphs as rebuild_event_process_graphs_impl,
-    schedule_due_post_report_jobs as schedule_due_post_report_jobs_impl,
-    split_jobs_for_telegram_worker,
+    schedule_due_post_report_jobs as schedule_due_post_report_jobs_impl
 )
 from services import reporting as reporting_module
 from services.reporting import (
@@ -89,11 +84,12 @@ from services.scheduler_dispatch import enqueue_daily_retention_jobs, retention_
 from services.settings_defaults import get_default_setting
 from services.settings_store import get_all_settings, report_config_from_settings
 from services.TGqueries import update_post_comments
+from scripts.backfill_events_processes import backfill_events_processes
 
 logger = logging.getLogger(__name__)
 
 PRIORITY_API_REPORT = 1
-PRIORITY_API_COMMENT_REFRESH = 1
+PRIORITY_API_COMMENT_REFRESH = 10
 PRIORITY_API_POST_REPORT = 1
 PRIORITY_API_POST_REPORT_BATCH = 5
 PRIORITY_BUILD_POST_LINKS = 4

@@ -7,9 +7,12 @@ from collections import Counter
 from typing import Any, Literal
 import logging
 import traceback
+import os
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+from services.llm.model_router import ModelRouter, ModelEntry
 from schemas.report import PostReportPayload
 from services.llm.openai_client import OpenAIAdapterConfig, OpenAIChatCompletionTrace, OpenAIClientAdapter
 from services.prompts.loader import PromptLoader
@@ -23,7 +26,7 @@ from services.reporting_v2.contracts_internal import (
     decide_retrieval_required,
     validate_multi_agent_meta,
 )
-from services.reporting_v2.retrieval import run_retrieval_manager, run_retrieval_provider
+from services.reporting_v2.retrieval import run_retrieval_manager
 from services.reporting_v2.steps import (
     SIX_STEP_SEQUENCE,
     apply_step_trace_envelope,
@@ -83,6 +86,16 @@ def _infer_reviewer_target(llm_reviewer: dict[str, Any] | None, default_target: 
     issues = (llm_reviewer or {}).get("issues")
     if isinstance(issues, list):
         for item in issues:
+            if isinstance(item, str):
+                lower_item = item.lower()
+                if "expert" in lower_item:
+                    return "expert"
+                if "public_opinion" in lower_item or "public" in lower_item:
+                    return "public_opinion"
+                if "context" in lower_item:
+                    return "context"
+                continue
+            # item is dict
             field = str((item or {}).get("field") or "").lower()
             problem = str((item or {}).get("problem") or "").lower()
             if "expert" in field or "malformed expert" in problem or "empty expert" in problem:
@@ -929,6 +942,30 @@ async def _try_llm_json_step(
             output_ref=output_ref,
             output_hash=_stable_hash(content),
         )
+    
+    # Быстрая проверка: ответ должен начинаться с '{' (JSON object)
+    content_stripped = content.strip()
+    if not content_stripped.startswith('{'):
+        logger.warning(
+            "Step %s returned content that does not start with '{': %s",
+            step_name, content_stripped[:200]
+        )
+        return None, OpenAIChatCompletionTrace(
+            content=content,
+            provider=trace.provider,
+            model=trace.model,
+            latency_ms=trace.latency_ms,
+            fallback_used=True,
+            fallback_reason=f"{step_name}_malformed_not_object",
+            executed=True,
+            success=False,
+            attempt_index=trace.attempt_index,
+            input_ref=input_ref,
+            input_hash=input_hash,
+            output_ref=output_ref,
+            output_hash=_stable_hash(content),
+        )
+    
     try:
         data = json.loads(content)
     except json.JSONDecodeError:
@@ -979,6 +1016,37 @@ async def _try_llm_json_step(
         output_hash=_stable_hash(content),
     )
 
+def create_router_from_file() -> ModelRouter | None:
+    file_path = os.getenv("REPORT_V2_ROUTER_MODELS_FILE")
+    if not file_path:
+        # Можно задать путь по умолчанию
+        file_path = "services/llm/router_models.json"
+    
+    path = Path(file_path)
+    if not path.exists():
+        logger.warning(f"Router models file not found: {path}")
+        return None
+    
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        models = []
+        for item in data:
+            models.append(ModelEntry(
+                name=item["name"],
+                provider=item["provider"],
+                base_url=item["base_url"],
+                api_key=item.get("api_key"),  # может быть None
+                max_tokens_per_day=item.get("max_tokens_per_day", 0),
+                max_requests_per_minute=item.get("max_requests_per_minute", 0),
+            ))
+        router = ModelRouter(models)
+        logger.info(f"Loaded {len(models)} models from {path}")
+        return router
+    except Exception as e:
+        logger.error(f"Failed to load router models from {path}: {e}")
+        return None
 
 async def generate_post_report_payload_v2(
     *,
@@ -1028,8 +1096,54 @@ async def generate_post_report_payload_v2(
 
         if llm_adapter is None:
             cfg = OpenAIAdapterConfig.from_settings()
+            router = None
+            
+            logger.info(f"Routing enabled in config: {cfg.routing_enabled}")
+            
+            if cfg.routing_enabled:
+                file_path = os.getenv("REPORT_V2_ROUTER_MODELS_FILE")
+                if not file_path:
+                    # Кросс-платформенный путь по умолчанию
+                    file_path = "services/llm/router_models.json"
+                
+                logger.info(f"Attempting to load router from: {file_path}")
+                
+                # Проверяем существование файла
+                path = Path(file_path)
+                if not path.exists():
+                    logger.error(f"Router models file NOT FOUND at: {path.absolute()}")
+                else:
+                    try:
+                        with open(path, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                        models = []
+                        for item in data:
+                            models.append(ModelEntry(
+                                name=item["name"],
+                                provider=item["provider"],
+                                base_url=item["base_url"],
+                                api_key=item.get("api_key"),
+                                max_tokens_per_day=item.get("max_tokens_per_day", 0),
+                                max_requests_per_minute=item.get("max_requests_per_minute", 0),
+                            ))
+                        if models:
+                            router = ModelRouter(models)
+                            logger.info(f"✅ ModelRouter successfully loaded with {len(models)} models from {path}")
+                        else:
+                            logger.warning("Router file contains no models")
+                    except Exception as e:
+                        logger.exception(f"Failed to load router models from {path}: {e}")
+            else:
+                logger.info("Routing is disabled (REPORT_V2_OPENAI_ROUTING_ENABLED=false)")
+            
             if cfg.api_key:
-                llm_adapter = OpenAIClientAdapter(cfg)
+                llm_adapter = OpenAIClientAdapter(cfg, router=router)
+                if router:
+                    logger.info("✅ Router attached to OpenAIClientAdapter")
+                else:
+                    logger.info("OpenAIClientAdapter created without router (fallback to single model)")
+            else:
+                logger.error("No API key provided for LLM adapter")
 
         llm_error: str | None = None
         llm_output: dict[str, Any] | None = None

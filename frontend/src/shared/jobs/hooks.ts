@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { tokenStorage } from '@shared/auth/token-storage';
@@ -161,6 +161,7 @@ export function useAsyncJobAction<TVariables>({
   const [terminalState, setTerminalState] = useState<AsyncJobTerminalState | null>(null);
   const [progressEvent, setProgressEvent] = useState<ReportBuildProgressEvent | null>(null);
   const isReportBuildAction = progress?.mode === 'report-build' && progress.entityId !== null;
+  const previousJobIdRef = useRef<number | null>(null);
 
   const mutation = useMutation({
     mutationFn,
@@ -246,44 +247,47 @@ export function useAsyncJobAction<TVariables>({
       return;
     }
 
-    const reportBuildProgress = progress;
-    if (!reportBuildProgress || reportBuildProgress.entityId === null) {
-      return;
-    }
+
+    const jobId = activeJob.job_id;
+    if (previousJobIdRef.current === jobId) return;
+    previousJobIdRef.current = jobId;
+    // ---
 
     const accessToken = tokenStorage.load()?.accessToken;
-    if (!accessToken) {
-      return;
-    }
+    if (!accessToken) return;
+
+    // ✅ Убеждаемся, что entityId не null (хотя isReportBuildAction уже гарантирует)
+    const entityId = progress.entityId;
+    if (entityId === null) return;  // <-- добавляем эту строку
 
     const socket = new WebSocket(
       buildReportProgressWebSocketUrl({
         requestId: activeJob.job_id,
-        entityType: reportBuildProgress.entityType,
-        entityId: reportBuildProgress.entityId,
+        entityType: progress.entityType,
+        entityId,                    // <-- теперь точно number
         accessToken,
-      }),
+      })
     );
 
-    socket.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(String(event.data));
-        if (!isReportBuildProgressEvent(payload)) {
-          return;
-        }
-        if (payload.request_id !== activeJob.job_id) {
-          return;
-        }
-        setProgressEvent(payload);
-      } catch {
-        // Ignore malformed websocket payloads and keep polling fallback.
+  socket.onmessage = (event) => {
+    try {
+      const payload = JSON.parse(String(event.data));
+      if (!isReportBuildProgressEvent(payload)) {
+        return;
       }
-    };
+      if (payload.request_id !== activeJob.job_id) {
+        return;
+      }
+      setProgressEvent(payload);
+    } catch {
+      // Игнорируем ошибки парсинга
+    }
+  };
 
-    return () => {
-      socket.close();
-    };
-  }, [activeJob, isReportBuildAction, progress]);
+  return () => {
+    socket.close();
+  };
+}, [activeJob, isReportBuildAction, progress]);
 
   useEffect(() => {
     if (!activeJob || !progressEvent || !isTerminalProgressStatus(progressEvent.status)) {

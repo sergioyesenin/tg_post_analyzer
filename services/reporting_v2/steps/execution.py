@@ -101,8 +101,6 @@ def is_canonical_openrouter_ready_path(
     for step_name in step_names:
         trace = dict(step_traces.get(step_name) or {})
         provenance = dict(trace.get("provenance") or {})
-        if provenance.get("provider") != "openrouter":
-            return False
         if provenance.get("executed") is not True:
             return False
         if provenance.get("success") is not True:

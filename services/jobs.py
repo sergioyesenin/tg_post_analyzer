@@ -39,7 +39,7 @@ class JobType:
     ARCHIVE_RETENTION: str = "archive_retention"
     JOBS_RETENTION: str = "jobs_retention"
 
-
+_DEFERRED_STATUS_VALUE = "deferred_waiting_dependencies"
 JOB_STATUS_PENDING = "pending"
 JOB_STATUS_RUNNING = "running"
 JOB_STATUS_DONE = "done"
@@ -201,8 +201,9 @@ def set_job_result(job: Job, result: dict) -> None:
     потому что семантически это не результат, а запрос на повторный
     запуск после разблокировки зависимостей.
     """
+    
     status = str(result.get("status") or "")
-    if status == "deferred":
+    if status == _DEFERRED_STATUS_VALUE:
         schema: type | None = DeferredJobResult
     else:
         schema = JOB_RESULT_SCHEMAS.get(str(job.type))

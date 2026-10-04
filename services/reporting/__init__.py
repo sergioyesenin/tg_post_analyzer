@@ -43,38 +43,6 @@ def _render_event_or_process_text(payload: dict) -> str:
     return _trim_sentence(summary, fallback="Недостаточно данных для итогового описания.")
 
 
-async def build_event_report_draft(
-    session: AsyncSession,
-    *,
-    event_id: int,
-) -> dict:
-    payload = await build_event_report_v2_impl(session=session, event_id=event_id)
-    if payload.get("status") == "not_found":
-        return {"status": "not_found", "event_id": event_id}
-    status = report_status_from_payload(payload, fallback=REPORT_STATUS_READY)
-    payload = dict(payload or {})
-    payload["status"] = status
-
-    last_version = (
-        await session.execute(
-            select(EventReport.version)
-            .where(EventReport.event_id == event_id)
-            .order_by(EventReport.version.desc(), EventReport.id.desc())
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    next_version = int(last_version or 0) + 1
-    report = EventReport(
-        event_id=event_id,
-        report_text=_render_event_or_process_text(payload),
-        report_json=payload,
-        version=next_version,
-    )
-    session.add(report)
-    await session.flush()
-    return {"status": status, "event_id": event_id, "report_id": report.id}
-
-
 async def _load_latest_event_report_snapshots_for_process(session: AsyncSession, *, process_id: int) -> list[tuple[int, str | None, dict | None, str]]:
     event_rows = (
         await session.execute(

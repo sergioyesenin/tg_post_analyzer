@@ -12,7 +12,9 @@ from db.models import Post
 from services.reporting.mapping import (
     _canonicalize_multi_agent_trace,
     _clean_list_text,
+    _localize_public_section_labels,
     _share_to_percent,
+    _trim_sentence,
 )
 
 
@@ -269,3 +271,7 @@ def _aggregate_child_coverage(payloads: list[dict]) -> tuple[dict, dict]:
             "reason": f"Агрегация по дочерним отчетам: supportive={stance_counts['supportive']}, critical={stance_counts['critical']}, mixed={stance_counts['mixed']}, neutral={stance_counts['neutral']}.",
         },
     )
+
+def _render_event_or_process_text(payload: dict) -> str:
+    summary = _localize_public_section_labels(str(payload.get("summary") or ""))
+    return _trim_sentence(summary, fallback="Недостаточно данных для итогового описания.")

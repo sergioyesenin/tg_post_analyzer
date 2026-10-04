@@ -22,6 +22,21 @@ function getPostPreview(text: string | null): string {
   return firstLine || text.slice(0, 100); // fallback
 }
 
+function safeResultSummary(summary: unknown): string | null {
+  if (summary == null) return null;
+  if (typeof summary === 'string') return summary;
+  if (typeof summary === 'object') {
+    // Приоритет: message, description, effect
+    const obj = summary as Record<string, unknown>;
+    if (typeof obj.message === 'string') return obj.message;
+    if (typeof obj.description === 'string') return obj.description;
+    if (typeof obj.effect === 'string') return obj.effect;
+    // fallback – сериализация
+    return JSON.stringify(summary, null, 2);
+  }
+  return String(summary);
+}
+
 function ActionPanel({
   title,
   description,
@@ -179,7 +194,7 @@ export function PostDetailsPage() {
             description={t('posts.detail.commentsJobDescription')}
             status={refreshCommentsAction.jobStatus}
             jobId={refreshCommentsAction.activeJob?.job_id ?? refreshCommentsAction.terminalState?.jobId}
-            resultSummary={refreshCommentsAction.resultSummary}
+            resultSummary={safeResultSummary(refreshCommentsAction.resultSummary)}
             isFailure={refreshCommentsAction.terminalState?.status === 'failed'}
           />
 
@@ -212,13 +227,12 @@ export function PostDetailsPage() {
               ) : null
             }
           />
-
           <ActionPanel
             title={t('posts.detail.reportJobTitle')}
             description={t('posts.detail.reportJobDescription')}
             status={updateReportAction.jobStatus}
             jobId={updateReportAction.activeJob?.job_id ?? updateReportAction.terminalState?.jobId}
-            resultSummary={updateReportAction.resultSummary}
+            resultSummary={safeResultSummary(updateReportAction.resultSummary)}
             isFailure={updateReportAction.terminalState?.status === 'failed'}
           />
         </aside>

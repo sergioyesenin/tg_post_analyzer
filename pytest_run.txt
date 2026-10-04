@@ -1,0 +1,910 @@
+
+=================================== ERRORS ====================================
+_______________ ERROR collecting tests/test_ai_runtime_mode.py ________________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_ai_runtime_mode.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_ai_runtime_mode.py:8: in <module>
+    from services import pipeline_runtime
+services\pipeline_runtime.py:56: in <module>
+    from services.pipeline_runtime_support import (
+services\pipeline_runtime_support.py:16: in <module>
+    from services.reporting import (
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+____________ ERROR collecting tests/test_comment_job_semantics.py _____________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_comment_job_semantics.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_comment_job_semantics.py:9: in <module>
+    from services import pipeline_runtime
+services\pipeline_runtime.py:56: in <module>
+    from services.pipeline_runtime_support import (
+services\pipeline_runtime_support.py:16: in <module>
+    from services.reporting import (
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+________________ ERROR collecting tests/test_dashboard_api.py _________________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_dashboard_api.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_dashboard_api.py:8: in <module>
+    from api.routers import dashboard
+api\routers\dashboard.py:19: in <module>
+    from services.dashboard import (
+services\dashboard\__init__.py:1: in <module>
+    from services.dashboard.events_dashboard import build_event_graph, build_events_dashboard
+services\dashboard\events_dashboard.py:23: in <module>
+    from services.dashboard.common import (
+services\dashboard\common.py:11: in <module>
+    from services.reporting import (
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+______________ ERROR collecting tests/test_dashboard_services.py ______________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_dashboard_services.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_dashboard_services.py:7: in <module>
+    from services.dashboard import events_dashboard, posts_dashboard, processes_dashboard
+services\dashboard\__init__.py:1: in <module>
+    from services.dashboard.events_dashboard import build_event_graph, build_events_dashboard
+services\dashboard\events_dashboard.py:23: in <module>
+    from services.dashboard.common import (
+services\dashboard\common.py:11: in <module>
+    from services.reporting import (
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+_______ ERROR collecting tests/test_dependency_orchestration_runtime.py _______
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_dependency_orchestration_runtime.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_dependency_orchestration_runtime.py:8: in <module>
+    from services import pipeline_runtime
+services\pipeline_runtime.py:56: in <module>
+    from services.pipeline_runtime_support import (
+services\pipeline_runtime_support.py:16: in <module>
+    from services.reporting import (
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+_________________ ERROR collecting tests/test_linking_api.py __________________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_linking_api.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_linking_api.py:9: in <module>
+    from api.routers import linking, links
+api\routers\linking.py:29: in <module>
+    from services.orchestration import (
+services\orchestration.py:12: in <module>
+    from services.pipeline_runtime import (
+services\pipeline_runtime.py:56: in <module>
+    from services.pipeline_runtime_support import (
+services\pipeline_runtime_support.py:16: in <module>
+    from services.reporting import (
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+______________ ERROR collecting tests/test_linking_async_api.py _______________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_linking_async_api.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_linking_async_api.py:9: in <module>
+    from api.routers import linking
+api\routers\linking.py:29: in <module>
+    from services.orchestration import (
+services\orchestration.py:12: in <module>
+    from services.pipeline_runtime import (
+services\pipeline_runtime.py:56: in <module>
+    from services.pipeline_runtime_support import (
+services\pipeline_runtime_support.py:16: in <module>
+    from services.reporting import (
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+_____________ ERROR collecting tests/test_linking_jobs_runtime.py _____________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_linking_jobs_runtime.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_linking_jobs_runtime.py:9: in <module>
+    from services import pipeline_runtime
+services\pipeline_runtime.py:56: in <module>
+    from services.pipeline_runtime_support import (
+services\pipeline_runtime_support.py:16: in <module>
+    from services.reporting import (
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+___________ ERROR collecting tests/test_pipeline_add_channel_job.py ___________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_pipeline_add_channel_job.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_pipeline_add_channel_job.py:6: in <module>
+    from services import pipeline_runtime
+services\pipeline_runtime.py:56: in <module>
+    from services.pipeline_runtime_support import (
+services\pipeline_runtime_support.py:16: in <module>
+    from services.reporting import (
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+_____________ ERROR collecting tests/test_pipeline_error_paths.py _____________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_pipeline_error_paths.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_pipeline_error_paths.py:10: in <module>
+    from services import pipeline_runtime
+services\pipeline_runtime.py:56: in <module>
+    from services.pipeline_runtime_support import (
+services\pipeline_runtime_support.py:16: in <module>
+    from services.reporting import (
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+________ ERROR collecting tests/test_pipeline_job_failure_recovery.py _________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_pipeline_job_failure_recovery.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_pipeline_job_failure_recovery.py:6: in <module>
+    from services import pipeline_runtime
+services\pipeline_runtime.py:56: in <module>
+    from services.pipeline_runtime_support import (
+services\pipeline_runtime_support.py:16: in <module>
+    from services.reporting import (
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+______________ ERROR collecting tests/test_posts_comments_api.py ______________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_posts_comments_api.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_posts_comments_api.py:7: in <module>
+    from api.routers import posts
+api\routers\posts.py:11: in <module>
+    from schemas.post import PostCardOut, PostDetailOut
+schemas\post.py:3: in <module>
+    from services.dashboard.common import text_preview
+services\dashboard\__init__.py:1: in <module>
+    from services.dashboard.events_dashboard import build_event_graph, build_events_dashboard
+services\dashboard\events_dashboard.py:23: in <module>
+    from services.dashboard.common import (
+services\dashboard\common.py:11: in <module>
+    from services.reporting import (
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+____________ ERROR collecting tests/test_public_report_boundary.py ____________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_public_report_boundary.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_public_report_boundary.py:10: in <module>
+    from api.routers import linking, reports
+api\routers\linking.py:29: in <module>
+    from services.orchestration import (
+services\orchestration.py:12: in <module>
+    from services.pipeline_runtime import (
+services\pipeline_runtime.py:56: in <module>
+    from services.pipeline_runtime_support import (
+services\pipeline_runtime_support.py:16: in <module>
+    from services.reporting import (
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+____________ ERROR collecting tests/test_report_batch_dispatch.py _____________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_report_batch_dispatch.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_report_batch_dispatch.py:6: in <module>
+    from services import pipeline_runtime
+services\pipeline_runtime.py:56: in <module>
+    from services.pipeline_runtime_support import (
+services\pipeline_runtime_support.py:16: in <module>
+    from services.reporting import (
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+_______________ ERROR collecting tests/test_report_language.py ________________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_report_language.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_report_language.py:6: in <module>
+    from services import reporting
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+_______________ ERROR collecting tests/test_report_trace_api.py _______________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_report_trace_api.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_report_trace_api.py:9: in <module>
+    from api.routers import reports
+api\routers\reports.py:29: in <module>
+    from services.orchestration import (
+services\orchestration.py:12: in <module>
+    from services.pipeline_runtime import (
+services\pipeline_runtime.py:56: in <module>
+    from services.pipeline_runtime_support import (
+services\pipeline_runtime_support.py:16: in <module>
+    from services.reporting import (
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+_____________ ERROR collecting tests/test_reporting_semantics.py ______________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_reporting_semantics.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_reporting_semantics.py:11: in <module>
+    from services import reporting
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+______________ ERROR collecting tests/test_reporting_v2_event.py ______________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_reporting_v2_event.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_reporting_v2_event.py:6: in <module>
+    from services import reporting
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+______________ ERROR collecting tests/test_reporting_v2_post.py _______________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_reporting_v2_post.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_reporting_v2_post.py:6: in <module>
+    from services import reporting
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+____________ ERROR collecting tests/test_reporting_v2_skeleton.py _____________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_reporting_v2_skeleton.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_reporting_v2_skeleton.py:7: in <module>
+    from services import reporting
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+______________ ERROR collecting tests/test_reports_async_api.py _______________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_reports_async_api.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_reports_async_api.py:8: in <module>
+    from api.routers import reports
+api\routers\reports.py:29: in <module>
+    from services.orchestration import (
+services\orchestration.py:12: in <module>
+    from services.pipeline_runtime import (
+services\pipeline_runtime.py:56: in <module>
+    from services.pipeline_runtime_support import (
+services\pipeline_runtime_support.py:16: in <module>
+    from services.reporting import (
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+________ ERROR collecting tests/test_settings_defaults_consistency.py _________
+ImportError while importing test module 'D:\Projects\tg_post_analyzer\tests\test_settings_defaults_consistency.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests\test_settings_defaults_consistency.py:14: in <module>
+    from services import pipeline_runtime
+services\pipeline_runtime.py:56: in <module>
+    from services.pipeline_runtime_support import (
+services\pipeline_runtime_support.py:16: in <module>
+    from services.reporting import (
+services\reporting.py:28: in <module>
+    from services.reporting_v2.searxng_provider import SearxngRetrievalProvider
+services\reporting_v2\searxng_provider.py:9: in <module>
+    import trafilatura
+venv\Lib\site-packages\trafilatura\__init__.py:16: in <module>
+    from .core import bare_extraction, extract
+venv\Lib\site-packages\trafilatura\core.py:18: in <module>
+    from .external import compare_extraction
+venv\Lib\site-packages\trafilatura\external.py:11: in <module>
+    from justext.core import ParagraphMaker, classify_paragraphs, revise_paragraph_classification  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\justext\__init__.py:12: in <module>
+    from .core import justext
+venv\Lib\site-packages\justext\core.py:21: in <module>
+    from lxml.html.clean import Cleaner
+venv\Lib\site-packages\lxml\html\clean.py:18: in <module>
+    raise ImportError(
+E   ImportError: lxml.html.clean module is now a separate project lxml_html_clean.
+E   Install lxml[html-clean] or lxml_html_clean directly.
+============================== warnings summary ===============================
+venv\Lib\site-packages\_pytest\config\__init__.py:1434
+  D:\Projects\tg_post_analyzer\venv\Lib\site-packages\_pytest\config\__init__.py:1434: PytestConfigWarning: Unknown config option: asyncio_mode
+  
+    self._warn_or_fail_if_strict(f"Unknown config option: {key}\n")
+
+venv\Lib\site-packages\fastapi\testclient.py:1
+  D:\Projects\tg_post_analyzer\venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests\integration\test_involvement_backfill_real_db.py:15
+  D:\Projects\tg_post_analyzer\tests\integration\test_involvement_backfill_real_db.py:15: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\integration\test_involvement_backfill_real_db.py:139
+  D:\Projects\tg_post_analyzer\tests\integration\test_involvement_backfill_real_db.py:139: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\integration\test_jobs_dedupe_lifecycle_real_db.py:18
+  D:\Projects\tg_post_analyzer\tests\integration\test_jobs_dedupe_lifecycle_real_db.py:18: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\integration\test_jobs_dedupe_lifecycle_real_db.py:76
+  D:\Projects\tg_post_analyzer\tests\integration\test_jobs_dedupe_lifecycle_real_db.py:76: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\integration\test_jobs_dedupe_lifecycle_real_db.py:123
+  D:\Projects\tg_post_analyzer\tests\integration\test_jobs_dedupe_lifecycle_real_db.py:123: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\integration\test_jobs_dedupe_lifecycle_real_db.py:193
+  D:\Projects\tg_post_analyzer\tests\integration\test_jobs_dedupe_lifecycle_real_db.py:193: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\integration\test_jobs_dedupe_lifecycle_real_db.py:253
+  D:\Projects\tg_post_analyzer\tests\integration\test_jobs_dedupe_lifecycle_real_db.py:253: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\integration\test_reactions_persistence_real_db.py:13
+  D:\Projects\tg_post_analyzer\tests\integration\test_reactions_persistence_real_db.py:13: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_auth_refresh_rotation.py:79
+  D:\Projects\tg_post_analyzer\tests\test_auth_refresh_rotation.py:79: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_comment_reconciliation.py:239
+  D:\Projects\tg_post_analyzer\tests\test_comment_reconciliation.py:239: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_comment_reconciliation.py:261
+  D:\Projects\tg_post_analyzer\tests\test_comment_reconciliation.py:261: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_comment_reconciliation.py:281
+  D:\Projects\tg_post_analyzer\tests\test_comment_reconciliation.py:281: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_comment_reconciliation.py:344
+  D:\Projects\tg_post_analyzer\tests\test_comment_reconciliation.py:344: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_run_scheduler.py:36
+  D:\Projects\tg_post_analyzer\tests\test_run_scheduler.py:36: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_run_scheduler.py:57
+  D:\Projects\tg_post_analyzer\tests\test_run_scheduler.py:57: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_run_scheduler.py:95
+  D:\Projects\tg_post_analyzer\tests\test_run_scheduler.py:95: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_scheduler_runtime.py:73
+  D:\Projects\tg_post_analyzer\tests\test_scheduler_runtime.py:73: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_scheduler_runtime.py:112
+  D:\Projects\tg_post_analyzer\tests\test_scheduler_runtime.py:112: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_scheduler_runtime.py:133
+  D:\Projects\tg_post_analyzer\tests\test_scheduler_runtime.py:133: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:293
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:293: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:357
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:357: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:399
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:399: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:420
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:420: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:462
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:462: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:496
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:496: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:534
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:534: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:575
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:575: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:617
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:617: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:650
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:650: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:692
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:692: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:752
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:752: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:799
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:799: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:875
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:875: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:921
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:921: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:978
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:978: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:1008
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:1008: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:1053
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:1053: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:1083
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:1083: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\test_tgqueries_comment_collection_regression.py:1126
+  D:\Projects\tg_post_analyzer\tests\test_tgqueries_comment_collection_regression.py:1126: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/test_ai_runtime_mode.py
+ERROR tests/test_comment_job_semantics.py
+ERROR tests/test_dashboard_api.py
+ERROR tests/test_dashboard_services.py
+ERROR tests/test_dependency_orchestration_runtime.py
+ERROR tests/test_linking_api.py
+ERROR tests/test_linking_async_api.py
+ERROR tests/test_linking_jobs_runtime.py
+ERROR tests/test_pipeline_add_channel_job.py
+ERROR tests/test_pipeline_error_paths.py
+ERROR tests/test_pipeline_job_failure_recovery.py
+ERROR tests/test_posts_comments_api.py
+ERROR tests/test_public_report_boundary.py
+ERROR tests/test_report_batch_dispatch.py
+ERROR tests/test_report_language.py
+ERROR tests/test_report_trace_api.py
+ERROR tests/test_reporting_semantics.py
+ERROR tests/test_reporting_v2_event.py
+ERROR tests/test_reporting_v2_post.py
+ERROR tests/test_reporting_v2_skeleton.py
+ERROR tests/test_reports_async_api.py
+ERROR tests/test_settings_defaults_consistency.py
+!!!!!!!!!!!!!!!!!! Interrupted: 22 errors during collection !!!!!!!!!!!!!!!!!!!
+41 warnings, 22 errors in 6.66s

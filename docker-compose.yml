@@ -24,8 +24,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
-    #ports:
-    #  - "5432:5432"
+    ports:
+      - "5432:5432"
     logging:
       driver: "json-file"
       options:
@@ -81,8 +81,8 @@ services:
     env_file:
       - .env
     environment:
-      DB_URL: ${DOCKER_DB_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics}
-      TEST_DATABASE_URL: ${DOCKER_TEST_DATABASE_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics_test}
+      DB_URL: ${DOCKER_DB_URL:-postgresql+asyncpg://tg_analytics:replace-with-url-encoded-password@postgres:5432/tg_analytics}
+      TEST_DATABASE_URL: ${DOCKER_TEST_DATABASE_URL:-postgresql+asyncpg://tg_analytics:replace-with-url-encoded-password@postgres:5432/tg_analytics_test}
       REPORT_LLM_BASE_URL: http://ollama:11434
     depends_on:
       ollama: 
@@ -142,7 +142,7 @@ services:
       DB_URL: ${DOCKER_DB_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics}
       TEST_DATABASE_URL: ${DOCKER_TEST_DATABASE_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics_test}
       REPORT_LLM_BASE_URL: http://ollama:11434
-      TG_SESSION_NAME: ${DOCKER_TG_SESSION_NAME:-/app/runtime/tg_analytics.session}
+      TG_SESSION_NAME: ${DOCKER_TG_SESSION_NAME:-/app/runtime/tg_analytics_new.session}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -154,6 +154,8 @@ services:
       - python
       - scripts/run_telegram_pipeline.py
       - --daemon
+      - --session-suffix
+      - new
 
   ai_pipeline:
     <<: *app-image

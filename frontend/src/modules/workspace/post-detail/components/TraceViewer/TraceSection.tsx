@@ -136,55 +136,76 @@ function TraceContent({ postId }: { postId: number }) {
         <>
           <p><strong>{t('trace.details_discussion_state')}:</strong> {step.llm_public_opinion.discussion_state}</p>
           <p><strong>{t('trace.confidence')}:</strong> {step.llm_public_opinion.confidence}</p>
-          
-          {/* НОВО: статус данных и флаг повреждённого вывода */}
+
           {step.data_status && <p><strong>Статус данных:</strong> {step.data_status}</p>}
           {step.malformed_output && <p className="warning-text">⚠️ Некорректный вывод LLM</p>}
-          
-          {/* НОВО: социальные эффекты */}
+
+          {/* Социальные эффекты */}
           {step.social_effects && step.social_effects.length > 0 && (
             <details>
               <summary>Социальные эффекты</summary>
               <ul>
-                {step.social_effects.map((effect, idx) => (
-                  <li key={idx}>{effect}</li>
-                ))}
+                {step.social_effects.map((item, idx) => {
+                  if (typeof item === 'string') {
+                    return <li key={idx}>{item}</li>;
+                  }
+                  if (typeof item === 'object' && item !== null && 'effect' in item) {
+                    return (
+                      <li key={idx}>
+                        <strong>{item.effect}</strong>: {item.description}
+                      </li>
+                    );
+                  }
+                  return <li key={idx}>{String(item)}</li>;
+                })}
               </ul>
             </details>
           )}
-          
-          {/* НОВО: доминирующие реакции */}
-          {(step.dominant_reactions && step.dominant_reactions.length > 0) && (
+
+          {/* Доминирующие реакции */}
+          {step.dominant_reactions && step.dominant_reactions.length > 0 && (
             <details>
               <summary>Доминирующие реакции</summary>
               <ul>
-                {step.dominant_reactions.map((reaction, idx) => (
-                  <li key={idx}>
-                    {typeof reaction === 'string' 
-                      ? reaction 
-                      : `${reaction.text} (${reaction.type}, уверенность: ${reaction.confidence})`}
-                  </li>
-                ))}
+                {step.dominant_reactions.map((reaction, idx) => {
+                  if (typeof reaction === 'string') {
+                    return <li key={idx}>{reaction}</li>;
+                  }
+                  if (typeof reaction === 'object' && reaction !== null && 'type' in reaction) {
+                    return (
+                      <li key={idx}>
+                        {reaction.type}: {reaction.description}
+                        {reaction.confidence !== undefined && ` (уверенность: ${reaction.confidence})`}
+                      </li>
+                    );
+                  }
+                  return <li key={idx}>{String(reaction)}</li>;
+                })}
               </ul>
             </details>
           )}
-          
-          {/* Существующий блок main_topics */}
+
+          {/* Основные темы */}
           <details>
             <summary>{t('trace.details_main_topics')}</summary>
             <ul>
-              {step.llm_public_opinion.main_topics?.map((topic, i) => (
-                <li key={i}>
-                  <strong>{typeof topic === 'string' ? topic : topic.topic}</strong>
-                  {typeof topic !== 'string' && topic.subtopics && topic.subtopics.length > 0 && (
-                    <ul>
-                      {topic.subtopics.map((subtopic, j) => (
-                        <li key={j}>{subtopic}</li>
-                      ))}
-                    </ul>
-                  )}
-                </li>
-              ))}
+              {step.llm_public_opinion.main_topics?.map((topic, i) => {
+                if (typeof topic === 'string') {
+                  return <li key={i}>{topic}</li>;
+                }
+                return (
+                  <li key={i}>
+                    <strong>{topic.topic}</strong>
+                    {topic.subtopics && topic.subtopics.length > 0 && (
+                      <ul>
+                        {topic.subtopics.map((sub, j) => (
+                          <li key={j}>{sub}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </details>
         </>

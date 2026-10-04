@@ -128,10 +128,11 @@ export interface LlmReviewer {
 
 export interface LlmPublicOpinion {
   confidence: number;
-  main_topics?: Array<{ topic: string; subtopics?: string[] }> | string[];
+  main_topics?: string[] | Array<{ topic: string; subtopics?: string[] }>;
   social_effects?: string[] | Array<{ effect: string; description: string }>;
   discussion_state: string;
-  dominant_reactions?: string[] | Array<{ text: string; type: string; confidence: number }>;
+  dominant_reactions?: string[] | Array<{ type: string; description: string; confidence?: number }>;
+  [key: string]: unknown;
 }
 
 
@@ -151,8 +152,8 @@ export interface StepDetail {
   search_queries?: Array<{ text: string; type: string }>;
 
   // Для public_opinion
-  social_effects?: string[];
-  dominant_reactions?: string[] | Array<{ text: string; type: string; confidence: number }>;
+  social_effects?: string[] | Array<{ effect: string; description: string }>;
+  dominant_reactions?: string[] | Array<{ type: string; description: string; confidence?: number }>;
 
   // Для synthesis
   quality?: 'ok' | 'partial' | 'poor';
@@ -223,13 +224,4 @@ export interface ReviewInfo {
     iteration: number;
     confidence: number;
   }>;
-}
-
-export interface LlmPublicOpinion {
-  confidence: number;
-  main_topics?: Array<{ topic: string; subtopics?: string[] }> | string[];
-  social_effects?: string[] | Array<{ effect: string; description: string }>;
-  discussion_state: string;
-  dominant_reactions?: string[] | Array<{ text: string; type: string; confidence: number }>;
-  [key: string]: unknown;
 }

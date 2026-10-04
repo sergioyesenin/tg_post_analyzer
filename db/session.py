@@ -12,9 +12,9 @@ _engine_kwargs = {
 if not settings.DB_URL.lower().startswith("sqlite"):
     _engine_kwargs.update(
         {
-            "pool_size": 20,
-            "max_overflow": 20,
-            "pool_timeout": 30,
+            "pool_size": 50,        # было 20
+            "max_overflow": 50,     # было 20
+            "pool_timeout": 60,     # было 30
             "pool_recycle": 1800,
         }
     )

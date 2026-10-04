@@ -7,8 +7,6 @@ import { TraceExpandProvider, useTraceExpand } from './TraceExpandContext';
 import { TraceGlobalIndicator } from './TraceGlobalIndicator';
 import { TraceStepCard } from './TraceStepCard';
 import { TraceRetrieval } from './TraceRetrieval';
-import { TraceReview } from './TraceReview';
-import { TraceEpistemicClaims } from './TraceEpistemicClaims';
 import { ExpertOutput } from './ExpertOutput';
 
 function TraceContent({ postId }: { postId: number }) {
@@ -58,9 +56,39 @@ function TraceContent({ postId }: { postId: number }) {
           <p><strong>{t('trace.details_article_focus')}:</strong> {step.llm_context.article_focus}</p>
           <details>
             <summary>{t('trace.details_data_quality')}</summary>
-            <pre>{JSON.stringify(step.llm_context.data_quality, null, 2)}</pre>
-            <pre>{JSON.stringify(step.llm_context.key_entities, null, 2)}</pre>
-          </details>
+            <div className="data-quality-block">
+              <div className="data-quality-item">
+                <span>Комментарии присутствуют:</span>
+                <strong>{step.llm_context.data_quality.comments_present ? '✅ Да' : '❌ Нет'}</strong>
+              </div>
+              <div className="data-quality-item">
+                <span>Статья достаточна:</span>
+                <strong>{step.llm_context.data_quality.article_sufficient ? '✅ Да' : '❌ Нет'}</strong>
+              </div>
+              {step.llm_context.data_quality.issues?.length > 0 && (
+                <div className="data-quality-item">
+                  <span>Проблемы:</span>
+                  <strong>{step.llm_context.data_quality.issues.join(', ')}</strong>
+                </div>
+              )}
+            </div>
+
+            <div className="entities-block">
+              {Object.entries(step.llm_context.key_entities).map(([key, values]) => {
+                if (!values || values.length === 0) return null;
+                return (
+                  <div key={key} className="entity-group">
+                    <h6>{key === 'persons' ? 'Люди' : key === 'locations' ? 'Локации' : key === 'organizations' ? 'Организации' : 'Платформы'}</h6>
+                    <div>
+                      {values.map((item, idx) => (
+                        <span key={idx} className="entity-tag">{item}</span>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+</details>
         </>
       )}
     </div>
@@ -73,6 +101,21 @@ function TraceContent({ postId }: { postId: number }) {
           <p><strong>{t('trace.details_primary_category')}:</strong> {step.llm_routing.primary_category}</p>
           <p><strong>{t('trace.details_routing_focus')}:</strong> {step.llm_routing.routing_focus}</p>
           <p><strong>{t('trace.confidence')}:</strong> {step.llm_routing.confidence}</p>
+          
+          {/* НОВО: поисковые запросы */}
+          {step.search_queries && step.search_queries.length > 0 && (
+            <details>
+              <summary>Поисковые запросы ({step.search_queries.length})</summary>
+              <ul className="search-queries-list">
+                {step.search_queries.map((q, idx) => (
+                  <li key={idx}>
+                    <code>{q.text}</code> <span className="query-type">[{q.type}]</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          
           <ul>
             {step.llm_routing.reasoning?.map((r, i) => <li key={i}>{r}</li>)}
           </ul>
@@ -93,13 +136,77 @@ function TraceContent({ postId }: { postId: number }) {
         <>
           <p><strong>{t('trace.details_discussion_state')}:</strong> {step.llm_public_opinion.discussion_state}</p>
           <p><strong>{t('trace.confidence')}:</strong> {step.llm_public_opinion.confidence}</p>
+
+          {step.data_status && <p><strong>Статус данных:</strong> {step.data_status}</p>}
+          {step.malformed_output && <p className="warning-text">⚠️ Некорректный вывод LLM</p>}
+
+          {/* Социальные эффекты */}
+          {step.social_effects && step.social_effects.length > 0 && (
+            <details>
+              <summary>Социальные эффекты</summary>
+              <ul>
+                {step.social_effects.map((item, idx) => {
+                  if (typeof item === 'string') {
+                    return <li key={idx}>{item}</li>;
+                  }
+                  if (typeof item === 'object' && item !== null && 'effect' in item) {
+                    return (
+                      <li key={idx}>
+                        <strong>{item.effect}</strong>: {item.description}
+                      </li>
+                    );
+                  }
+                  return <li key={idx}>{String(item)}</li>;
+                })}
+              </ul>
+            </details>
+          )}
+
+          {/* Доминирующие реакции */}
+          {step.dominant_reactions && step.dominant_reactions.length > 0 && (
+            <details>
+              <summary>Доминирующие реакции</summary>
+              <ul>
+                {step.dominant_reactions.map((reaction, idx) => {
+                  if (typeof reaction === 'string') {
+                    return <li key={idx}>{reaction}</li>;
+                  }
+                  if (typeof reaction === 'object' && reaction !== null && 'type' in reaction) {
+                    return (
+                      <li key={idx}>
+                        {reaction.type}: {reaction.description}
+                        {reaction.confidence !== undefined && ` (уверенность: ${reaction.confidence})`}
+                      </li>
+                    );
+                  }
+                  return <li key={idx}>{String(reaction)}</li>;
+                })}
+              </ul>
+            </details>
+          )}
+
+          {/* Основные темы */}
           <details>
             <summary>{t('trace.details_main_topics')}</summary>
-            <ul>{step.llm_public_opinion.main_topics?.map((t, i) => <li key={i}>{t}</li>)}</ul>
-          </details>
-          <details>
-            <summary>{t('trace.details_dominant_reactions')}</summary>
-            <ul>{step.llm_public_opinion.dominant_reactions?.map((r, i) => <li key={i}>{r.text} (conf: {r.confidence})</li>)}</ul>
+            <ul>
+              {step.llm_public_opinion.main_topics?.map((topic, i) => {
+                if (typeof topic === 'string') {
+                  return <li key={i}>{topic}</li>;
+                }
+                return (
+                  <li key={i}>
+                    <strong>{topic.topic}</strong>
+                    {topic.subtopics && topic.subtopics.length > 0 && (
+                      <ul>
+                        {topic.subtopics.map((sub, j) => (
+                          <li key={j}>{sub}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
           </details>
         </>
       )}
@@ -113,6 +220,21 @@ function TraceContent({ postId }: { postId: number }) {
           <p><strong>{t('trace.details_report_text')}:</strong></p>
           <div className="trace-synthesis-text">{step.report_text}</div>
           <p className="trace-synthesis-meta">{t('trace.details_sentence_count')}: {step.sentence_count}</p>
+          
+          {/* НОВО: метрики качества */}
+          {step.quality && <p><strong>Качество синтеза:</strong> {step.quality}</p>}
+          {step.components && (
+            <details>
+              <summary>Компоненты отчёта</summary>
+              <ul>
+                {Object.entries(step.components).map(([key, included]) => (
+                  <li key={key}>{key}: {included ? '✅' : '❌'}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {step.confidence_reason && <p><strong>Обоснование уверенности:</strong> {step.confidence_reason}</p>}
+          {step.rerun_requested && <p className="warning-text">⚠️ Был запрошен повторный запуск</p>}
         </>
       )}
     </div>
@@ -121,6 +243,8 @@ function TraceContent({ postId }: { postId: number }) {
   const renderReviewer = (step: typeof steps.reviewer) => (
     <div>
       <p><strong>{t('trace.decision')}:</strong> {step.decision || step.llm_reviewer?.decision}</p>
+      {step.rerun_iterations && <p><strong>Повторных запусков:</strong> {step.rerun_iterations}</p>}
+      {step.llm_reviewer?.rerun_target && <p><strong>Цель перезапуска:</strong> {step.llm_reviewer.rerun_target}</p>}
       {step.llm_reviewer?.issues && step.llm_reviewer.issues.length > 0 && (
         <p><strong>{t('trace.details_issues')}:</strong> {step.llm_reviewer.issues.join(', ')}</p>
       )}
@@ -129,7 +253,10 @@ function TraceContent({ postId }: { postId: number }) {
           <summary>{t('trace.history')} ({step.history.length})</summary>
           <ul>
             {step.history.map((item, idx) => (
-              <li key={idx}>{item.decision} – {item.reason}</li>
+              <li key={idx}>
+                {item.decision} – {item.reason}
+                {item.target && ` (цель: ${item.target})`}
+              </li>
             ))}
           </ul>
         </details>
@@ -158,7 +285,6 @@ function TraceContent({ postId }: { postId: number }) {
       </div>
 
       <TraceGlobalIndicator trace={trace} />
-      <TraceEpistemicClaims claims={trace.epistemic_claims} />
 
       <div className="trace-steps-list">
         <TraceStepCard
@@ -178,6 +304,8 @@ function TraceContent({ postId }: { postId: number }) {
         >
           {renderRouting(steps.routing)}
         </TraceStepCard>
+
+        <TraceRetrieval retrieval={trace.retrieval} />
 
         <TraceStepCard
           title={t('trace.step_expert')}
@@ -216,8 +344,7 @@ function TraceContent({ postId }: { postId: number }) {
         </TraceStepCard>
       </div>
 
-      <TraceRetrieval retrieval={trace.retrieval} />
-      <TraceReview review={trace.review} />
+      
     </div>
   );
 }

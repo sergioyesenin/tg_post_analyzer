@@ -35,6 +35,16 @@ export function TraceStepCard({ title, step, expanded, onToggle, children }: Tra
             {runCountLabel}
           </span>
           {hasMalformed && <span className="trace-step-card__warning-icon">{t('trace.malformed_output')}</span>}
+          {step.rerun_requested && (
+            <span className="trace-step-card__warning-icon trace-step-card__warning-icon--rerun">
+              🔁 {t('trace.rerun_requested')}
+            </span>
+          )}
+          {step.data_status === 'insufficient' && (
+            <span className="trace-step-card__warning-icon trace-step-card__warning-icon--insufficient">
+              ⚠️ {t('trace.insufficient_data')}
+            </span>
+          )}
         </div>
         <button className="trace-step-card__expand" aria-label={expanded ? t('trace.collapse_all') : t('trace.expand_all')}>
           {expanded ? '−' : '+'}

@@ -82,14 +82,7 @@ async def _resolve_report_job(
 ) -> Job | None:
     # Явно подгружаем ленивые атрибуты (type, payload_json, result)
     if request_id is not None:
-        stmt = (
-            select(Job)
-            .where(Job.id == request_id)
-            .options(
-                selectinload(Job.type),
-                selectinload(Job.payload_json),
-            )
-        )
+        stmt = select(Job).where(Job.id == request_id)
         return (await session.execute(stmt)).scalar_one_or_none()
 
     if expected_entity_type is None or expected_entity_id is None:
@@ -104,11 +97,6 @@ async def _resolve_report_job(
     stmt = (
         select(Job)
         .where(Job.type == report_job_type)
-        .options(
-            selectinload(Job.type),
-            selectinload(Job.payload_json),
-            selectinload(Job.result),
-        )
         .order_by(Job.created_at.desc(), Job.id.desc())
         .limit(100)
     )
@@ -288,15 +276,7 @@ async def report_progress_websocket(
     try:
         while True:
             # Всегда подгружаем ленивые атрибуты при каждом опросе
-            stmt = (
-                select(Job)
-                .where(Job.id == request_id)
-                .options(
-                    selectinload(Job.type),
-                    selectinload(Job.payload_json),
-                    selectinload(Job.result),
-                )
-            )
+            stmt = select(Job).where(Job.id == request_id)
             job = (await session.execute(stmt)).scalar_one_or_none()
             if job is None:
                 await _safe_close_websocket(websocket, code=4404, reason="Report request not found")

@@ -95,54 +95,98 @@ export interface TraceSteps {
   reviewer: StepDetail;
 }
 
+export interface LlmContext {
+  event_summary: string;
+  article_focus: string;
+  data_quality: {
+    issues: string[];
+    comments_present: boolean;
+    article_sufficient: boolean;
+  };
+  key_entities: {
+    persons: string[];
+    locations: string[];
+    platforms: string[];
+    organizations: string[];
+  };
+}
+
+export interface LlmRouting {
+  reasoning: string[];
+  confidence: number;
+  routing_focus: string;
+  primary_category: string;
+  search_queries?: Array<{ text: string; type: string }>;
+}
+
+export interface LlmReviewer {
+  decision?: string;
+  issues?: string[];
+  rerun_target?: string;
+  [key: string]: unknown;
+}
+
+export interface LlmPublicOpinion {
+  confidence: number;
+  main_topics?: string[] | Array<{ topic: string; subtopics?: string[] }>;
+  social_effects?: string[] | Array<{ effect: string; description: string }>;
+  discussion_state: string;
+  dominant_reactions?: string[] | Array<{ type: string; description: string; confidence?: number }>;
+  [key: string]: unknown;
+}
+
+
 export interface StepDetail {
   status: string;
   run_count: number;
   provenance_source?: string;
   provenance?: Record<string, unknown>;
-  // Поля для разных шагов
-  llm_context?: {
-    event_summary: string;
-    data_quality: Record<string, unknown>;
-    key_entities: Record<string, unknown>;
-    article_focus: string;
+  
+  // Общие для всех шагов
+  data_status?: 'sufficient' | 'insufficient' | 'partial';
+  malformed_output?: boolean;
+  rerun_requested?: boolean;
+  contract_invalid?: boolean;
+
+  // Для routing
+  search_queries?: Array<{ text: string; type: string }>;
+
+  // Для public_opinion
+  social_effects?: string[] | Array<{ effect: string; description: string }>;
+  dominant_reactions?: string[] | Array<{ type: string; description: string; confidence?: number }>;
+
+  // Для synthesis
+  quality?: 'ok' | 'partial' | 'poor';
+  components?: {
+    event?: boolean;
+    context?: boolean;
+    reaction?: boolean;
+    consequences?: boolean;
+    interpretation?: boolean;
   };
-  llm_routing?: {
-    reasoning: string[];
-    confidence: number;
-    routing_focus: string;
-    primary_category: string;
-  };
+  confidence_reason?: string;
+
+  // Для reviewer
+  rerun_iterations?: number;
+
+  // Остальные поля
+  llm_context?: LlmContext;
+  llm_routing?: LlmRouting;
   llm_expert?: Record<string, unknown>;
-  llm_public_opinion?: {
-    confidence: number;
-    main_topics: string[];
-    social_effects: string[];
-    discussion_state: string;
-    dominant_reactions: Array<{
-      text: string;
-      type: string;
-      confidence: number;
-    }>;
-  };
+  llm_public_opinion?: LlmPublicOpinion;
+  llm_reviewer?: LlmReviewer;
   report_text?: string;
   sentence_count?: number;
-  // Для reviewer
   decision?: string;
-  llm_reviewer?: {
-    decision?: string;
-    issues?: string[];
-    rerun_target?: string;
-    [key: string]: unknown;
-  };
   history?: Array<{
     reason: string;
-    target: string;
+    target?: string | null;
     decision: string;
     iteration: number;
     confidence: number;
   }>;
-  [key: string]: unknown; // запасной вариант
+
+  [key: string]: unknown; // запас
 }
 
 export interface RetrievalInfo {
@@ -165,6 +209,10 @@ export interface RetrievalSource {
   relevance: number;
   content_quality: number;
   source_authority: number;
+  semantic_relevance?: number;
+  query_name?: string;
+  uniqueness?: number;
+  published_at?: string | null;
 }
 
 export interface ReviewInfo {

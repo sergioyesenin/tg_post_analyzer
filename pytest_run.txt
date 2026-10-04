@@ -1,0 +1,3715 @@
+sssssssssssssssss...FFFF................................................ [ 17%]
+........................................................................ [ 34%]
+.....F...F.......FF.F..........F.........F..........FFFFFF.F.FFFFF...... [ 51%]
+...F....FFFF.....FFF.....F.F......FFF......................F..FFFFF.FFFF [ 68%]
+FFF..FF.F.............F.FF........................................FFFFFF [ 85%]
+F.................FF...F.....................................            [100%]
+================================== FAILURES ===================================
+_____________ test_run_ai_jobs_processes_queued_build_post_report _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC618A870>
+
+    @pytest.mark.asyncio
+    async def test_run_ai_jobs_processes_queued_build_post_report(monkeypatch: pytest.MonkeyPatch) -> None:
+        settings_session = _FakeSession()
+        fetch_session = _FakeSession()
+        empty_fetch_session = _FakeSession()
+        process_job = _report_job(job_type="build_post_report", payload={"post_id": 42})
+        process_session = _FakeSession(job=process_job)
+        mark_done_calls: list[object] = []
+        fetch_calls = {"count": 0}
+    
+        async def _fake_get_all_settings(_session):
+            return {
+                "jobs": {
+                    "ai_job_timeout_seconds": 30,
+                }
+            }
+    
+        async def _fake_fetch_and_lock_jobs(_session, *, worker_id: str, limit: int, allowed_types: set[str]):
+            assert worker_id == "ai-test-worker"
+            assert limit == 1
+            assert "build_post_report" in allowed_types
+            fetch_calls["count"] += 1
+            return [process_job] if fetch_calls["count"] == 1 else []
+    
+        async def _fake_build_post_report(session, *, post_id: int, report_project, report_config, job_timeout_seconds: int, rerun_stage: str | None):
+            assert session is process_session
+            assert post_id == 42
+            assert report_project is None
+            assert report_config == {"mode": "test"}
+            assert job_timeout_seconds == 30
+            assert rerun_stage is None
+            return {"status": pipeline_runtime.reporting_module.REPORT_STATUS_READY}
+    
+        async def _fake_mark_job_done(_session, *, job):
+            mark_done_calls.append(job)
+    
+        async def _unexpected_mark_related_event_reports_stale(_session, *, post_id: int):
+            assert post_id == 42
+            return 0
+    
+        monkeypatch.setattr(
+            pipeline_runtime,
+            "AsyncSessionLocal",
+            _session_factory(settings_session, fetch_session, process_session, empty_fetch_session),
+        )
+        monkeypatch.setattr(pipeline_runtime, "get_all_settings", _fake_get_all_settings)
+        monkeypatch.setattr(pipeline_runtime, "fetch_and_lock_jobs", _fake_fetch_and_lock_jobs)
+        monkeypatch.setattr(pipeline_runtime, "report_config_from_settings", lambda _settings: {"mode": "test"})
+        monkeypatch.setattr(pipeline_runtime, "build_post_report", _fake_build_post_report)
+        monkeypatch.setattr(pipeline_runtime, "mark_job_done", _fake_mark_job_done)
+        monkeypatch.setattr(
+            pipeline_runtime,
+            "_mark_related_event_reports_stale",
+            _unexpected_mark_related_event_reports_stale,
+        )
+    
+        executed = await pipeline_runtime.run_ai_jobs(
+            job_batch_size=10,
+            worker_id="ai-test-worker",
+            job_worker_concurrency=1,
+        )
+    
+>       assert executed == 1
+E       assert 0 == 1
+
+tests\test_ai_runtime_mode.py:236: AssertionError
+------------------------------ Captured log call ------------------------------
+ERROR    services.pipeline_runtime:pipeline_runtime.py:179 Failed to persist failure state for job_id=1
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\pipeline_runtime.py", line 1202, in run_ai_jobs
+    job_coro = build_post_report(
+               ^^^^^^^^^^^^^^^^^^
+TypeError: test_run_ai_jobs_processes_queued_build_post_report.<locals>._fake_build_post_report() missing 3 required keyword-only arguments: 'report_project', 'report_config', and 'rerun_stage'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\pipeline_runtime.py", line 168, in _persist_job_failure_after_exception
+    await mark_job_failed(
+  File "D:\Projects\tg_post_analyzer\services\jobs.py", line 282, in mark_job_failed
+    await session.flush()
+          ^^^^^^^^^^^^^
+AttributeError: '_FakeSession' object has no attribute 'flush'
+ERROR    services.pipeline_runtime:pipeline_runtime.py:1398 Job failed marker=job_unexpected op=ai_job job_id=1 worker_id=ai-test-worker err=TypeError("test_run_ai_jobs_processes_queued_build_post_report.<locals>._fake_build_post_report() missing 3 required keyword-only arguments: 'report_project', 'report_config', and 'rerun_stage'")
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\pipeline_runtime.py", line 1202, in run_ai_jobs
+    job_coro = build_post_report(
+               ^^^^^^^^^^^^^^^^^^
+TypeError: test_run_ai_jobs_processes_queued_build_post_report.<locals>._fake_build_post_report() missing 3 required keyword-only arguments: 'report_project', 'report_config', and 'rerun_stage'
+__ test_run_ai_jobs_passes_internal_stage_rerun_without_creating_extra_jobs ___
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC62DE810>
+
+    @pytest.mark.asyncio
+    async def test_run_ai_jobs_passes_internal_stage_rerun_without_creating_extra_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
+        settings_session = _FakeSession()
+        fetch_session = _FakeSession()
+        empty_fetch_session = _FakeSession()
+        process_job = _report_job(
+            job_type="build_post_report",
+            payload={"post_id": 42, "stage_rerun_from": "synthesis"},
+        )
+        process_session = _FakeSession(job=process_job)
+        fetch_calls = {"count": 0}
+        mark_done_calls: list[object] = []
+    
+        async def _fake_get_all_settings(_session):
+            return {"jobs": {"ai_job_timeout_seconds": 45}}
+    
+        async def _fake_fetch_and_lock_jobs(_session, *, worker_id: str, limit: int, allowed_types: set[str]):
+            assert worker_id == "ai-test-worker"
+            assert limit == 1
+            assert "build_post_report" in allowed_types
+            fetch_calls["count"] += 1
+            return [process_job] if fetch_calls["count"] == 1 else []
+    
+        async def _fake_build_post_report(session, *, post_id: int, report_project, report_config, job_timeout_seconds: int, rerun_stage: str | None):
+            assert session is process_session
+            assert post_id == 42
+            assert report_project is None
+            assert report_config == {"mode": "test"}
+            assert job_timeout_seconds == 45
+            assert rerun_stage == "synthesis"
+            return {"status": pipeline_runtime.reporting_module.REPORT_STATUS_READY, "report_id": 77, "post_id": 42}
+    
+        async def _fake_mark_job_done(_session, *, job):
+            mark_done_calls.append(job)
+    
+        async def _unexpected_mark_related_event_reports_stale(_session, *, post_id: int):
+            assert post_id == 42
+            return 0
+    
+        monkeypatch.setattr(
+            pipeline_runtime,
+            "AsyncSessionLocal",
+            _session_factory(settings_session, fetch_session, process_session, empty_fetch_session),
+        )
+        monkeypatch.setattr(pipeline_runtime, "get_all_settings", _fake_get_all_settings)
+        monkeypatch.setattr(pipeline_runtime, "fetch_and_lock_jobs", _fake_fetch_and_lock_jobs)
+        monkeypatch.setattr(pipeline_runtime, "report_config_from_settings", lambda _settings: {"mode": "test"})
+        monkeypatch.setattr(pipeline_runtime, "build_post_report", _fake_build_post_report)
+        monkeypatch.setattr(pipeline_runtime, "mark_job_done", _fake_mark_job_done)
+        monkeypatch.setattr(
+            pipeline_runtime,
+            "_mark_related_event_reports_stale",
+            _unexpected_mark_related_event_reports_stale,
+        )
+    
+        executed = await pipeline_runtime.run_ai_jobs(
+            job_batch_size=10,
+            worker_id="ai-test-worker",
+            job_worker_concurrency=1,
+        )
+    
+>       assert executed == 1
+E       assert 0 == 1
+
+tests\test_ai_runtime_mode.py:306: AssertionError
+------------------------------ Captured log call ------------------------------
+ERROR    services.pipeline_runtime:pipeline_runtime.py:179 Failed to persist failure state for job_id=1
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\pipeline_runtime.py", line 1202, in run_ai_jobs
+    job_coro = build_post_report(
+               ^^^^^^^^^^^^^^^^^^
+TypeError: test_run_ai_jobs_passes_internal_stage_rerun_without_creating_extra_jobs.<locals>._fake_build_post_report() missing 3 required keyword-only arguments: 'report_project', 'report_config', and 'rerun_stage'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\pipeline_runtime.py", line 168, in _persist_job_failure_after_exception
+    await mark_job_failed(
+  File "D:\Projects\tg_post_analyzer\services\jobs.py", line 282, in mark_job_failed
+    await session.flush()
+          ^^^^^^^^^^^^^
+AttributeError: '_FakeSession' object has no attribute 'flush'
+ERROR    services.pipeline_runtime:pipeline_runtime.py:1398 Job failed marker=job_unexpected op=ai_job job_id=1 worker_id=ai-test-worker err=TypeError("test_run_ai_jobs_passes_internal_stage_rerun_without_creating_extra_jobs.<locals>._fake_build_post_report() missing 3 required keyword-only arguments: 'report_project', 'report_config', and 'rerun_stage'")
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\pipeline_runtime.py", line 1202, in run_ai_jobs
+    job_coro = build_post_report(
+               ^^^^^^^^^^^^^^^^^^
+TypeError: test_run_ai_jobs_passes_internal_stage_rerun_without_creating_extra_jobs.<locals>._fake_build_post_report() missing 3 required keyword-only arguments: 'report_project', 'report_config', and 'rerun_stage'
+___________ test_run_ai_jobs_keeps_build_post_report_batch_passive ____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC6342DB0>
+
+    @pytest.mark.asyncio
+    async def test_run_ai_jobs_keeps_build_post_report_batch_passive(monkeypatch: pytest.MonkeyPatch) -> None:
+        settings_session = _FakeSession()
+        fetch_session = _FakeSession()
+        empty_fetch_session = _FakeSession()
+        batch_job = _report_job(
+            job_type="build_post_report_batch",
+            payload={"filters": {"channel_ids": [1], "limit": 25}},
+            job_id=7,
+        )
+        process_session = _FakeSession(job=batch_job)
+        fetch_calls = {"count": 0}
+    
+        async def _fake_get_all_settings(_session):
+            return {
+                "jobs": {
+                    "ai_job_timeout_seconds": 30,
+                }
+            }
+    
+        async def _fake_fetch_and_lock_jobs(_session, *, worker_id: str, limit: int, allowed_types: set[str]):
+            assert worker_id == "ai-test-worker"
+            assert limit == 1
+            assert "build_post_report_batch" in allowed_types
+            fetch_calls["count"] += 1
+            return [batch_job] if fetch_calls["count"] == 1 else []
+    
+        async def _unexpected_dispatch_post_report_batch(*args, **kwargs):
+            raise AssertionError("Passive AI worker must not dispatch batch report jobs")
+    
+        monkeypatch.setattr(
+            pipeline_runtime,
+            "AsyncSessionLocal",
+            _session_factory(settings_session, fetch_session, process_session, empty_fetch_session),
+        )
+        monkeypatch.setattr(pipeline_runtime, "get_all_settings", _fake_get_all_settings)
+        monkeypatch.setattr(pipeline_runtime, "fetch_and_lock_jobs", _fake_fetch_and_lock_jobs)
+        monkeypatch.setattr(pipeline_runtime, "report_config_from_settings", lambda _settings: {"mode": "test"})
+        monkeypatch.setattr(pipeline_runtime, "dispatch_post_report_batch", _unexpected_dispatch_post_report_batch)
+    
+        executed = await pipeline_runtime.run_ai_jobs(
+            job_batch_size=5,
+            worker_id="ai-test-worker",
+            job_worker_concurrency=1,
+        )
+    
+        assert executed == 0
+>       assert batch_job.status == pipeline_runtime.JOB_STATUS_FAILED
+E       AssertionError: assert 'pending' == 'failed'
+E         
+E         - failed
+E         + pending
+
+tests\test_ai_runtime_mode.py:362: AssertionError
+------------------------------ Captured log call ------------------------------
+ERROR    services.pipeline_runtime:pipeline_runtime.py:179 Failed to persist failure state for job_id=7
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\pipeline_runtime.py", line 1214, in run_ai_jobs
+    post_ids = await _find_post_ids_by_filters(session, filters)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\tg_post_analyzer\services\pipeline_runtime.py", line 1695, in _find_post_ids_by_filters
+    result = await session.execute(stmt.order_by(Post.id.asc()))
+                   ^^^^^^^^^^^^^^^
+AttributeError: '_FakeSession' object has no attribute 'execute'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\pipeline_runtime.py", line 168, in _persist_job_failure_after_exception
+    await mark_job_failed(
+  File "D:\Projects\tg_post_analyzer\services\jobs.py", line 282, in mark_job_failed
+    await session.flush()
+          ^^^^^^^^^^^^^
+AttributeError: '_FakeSession' object has no attribute 'flush'
+ERROR    services.pipeline_runtime:pipeline_runtime.py:1398 Job failed marker=job_unexpected op=ai_job job_id=7 worker_id=ai-test-worker err=AttributeError("'_FakeSession' object has no attribute 'execute'")
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\pipeline_runtime.py", line 1214, in run_ai_jobs
+    post_ids = await _find_post_ids_by_filters(session, filters)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Projects\tg_post_analyzer\services\pipeline_runtime.py", line 1695, in _find_post_ids_by_filters
+    result = await session.execute(stmt.order_by(Post.id.asc()))
+                   ^^^^^^^^^^^^^^^
+AttributeError: '_FakeSession' object has no attribute 'execute'
+_______________ test_api_main_exposes_app_and_registers_routes ________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AAC33D430>
+
+    def test_api_main_exposes_app_and_registers_routes(monkeypatch: pytest.MonkeyPatch):
+        module = _import_api_app(monkeypatch)
+        app = module.app
+    
+        assert app is not None
+        paths = {route.path for route in app.routes}
+        assert any(path.startswith("/api/auth") for path in paths)
+        assert any(path.startswith("/api/channels") for path in paths)
+        assert "/" in paths
+        assert "/{full_path:path}" in paths
+        assert not any(path.startswith("/web") for path in paths)
+        cors = next((middleware for middleware in app.user_middleware if middleware.cls.__name__ == "CORSMiddleware"), None)
+        assert cors is not None
+>       assert cors.kwargs["allow_origins"] == [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+        ]
+E       AssertionError: assert ['http://loca...7.0.0.1:8044'] == ['http://loca...7.0.0.1:8000']
+E         
+E         At index 2 diff: 'http://localhost:8044' != 'http://localhost:8000'
+E         Use -v to get more diff
+
+tests\test_api_entrypoint.py:37: AssertionError
+____ test_pipeline_snapshot_uses_recent_window_for_collect_comments_rates _____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC7B9A8A0>
+
+    def test_pipeline_snapshot_uses_recent_window_for_collect_comments_rates(monkeypatch):
+        now = datetime(2026, 3, 11, 12, 0, tzinfo=timezone.utc)
+        session = _FakeSession(
+            [
+                now,
+                now,
+                12,
+                10,
+                4,
+                1,
+                1,
+                None,
+                None,
+                15.5,
+                42.25,
+                8,
+                3,
+                2,
+                1,
+                2,
+                3,
+                2,
+                1,
+                5,
+                2,
+                2,
+            ]
+        )
+    
+        monkeypatch.setattr(monitoring, "_utcnow", lambda: now)
+        monkeypatch.setattr(
+            monitoring,
+            "get_runtime_heartbeat",
+            lambda _session, runtime_name: asyncio.sleep(
+                0,
+                result={"status": "running", "heartbeat_at": now.isoformat(), "details": {"pid": 5}},
+            ),
+        )
+    
+>       payload = asyncio.run(monitoring.pipeline_snapshot(session, retention_days=30, window_hours=2))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_monitoring_scheduler.py:267: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py:194: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\asyncio\base_events.py:664: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+services\monitoring.py:413: in pipeline_snapshot
+    await session.scalar(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <test_monitoring_scheduler._FakeSession object at 0x0000018AC7B99490>
+_stmt = <sqlalchemy.sql.selectable.Select object at 0x0000018AC7B9B1D0>
+
+    async def scalar(self, _stmt):
+        if not self._scalar_values:
+>           raise AssertionError("Unexpected scalar() call")
+E           AssertionError: Unexpected scalar() call
+
+tests\test_monitoring_scheduler.py:16: AssertionError
+_______ test_openai_adapter_initializes_sdk_client_with_expected_params _______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC7B9BF50>
+
+    def test_openai_adapter_initializes_sdk_client_with_expected_params(monkeypatch) -> None:
+        captured: dict[str, object] = {}
+    
+        class _FakeAsyncOpenAI:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+                self.chat = object()
+    
+        monkeypatch.setattr(openai_client, "AsyncOpenAI", _FakeAsyncOpenAI)
+    
+        cfg = OpenAIAdapterConfig(
+            model="gpt-test",
+            fallback_models=(),
+            routing_enabled=False,
+            base_url="https://llm.example/v1",
+            api_key="secret",
+            timeout_sec=21.5,
+            max_retries=5,
+            local_fallback_enabled=False,
+            local_model="llama-local",
+            local_base_url="http://localhost:11434/v1",
+            local_api_key=None,
+        )
+        adapter = OpenAIClientAdapter(cfg)
+    
+        assert adapter.client is not None
+>       assert captured == {
+            "api_key": "secret",
+            "base_url": "https://llm.example/v1",
+            "timeout": 21.5,
+            "max_retries": 5,
+        }
+E       AssertionError: assert {'api_key': '...ries': 5, ...} == {'api_key': '...imeout': 21.5}
+E         
+E         Omitting 4 identical items, use -vv to show
+E         Left contains 1 more item:
+E         {'http_client': <httpx.AsyncClient object at 0x0000018AC7B98410>}
+E         Use -v to get more diff
+
+tests\test_openai_adapter.py:65: AssertionError
+_____________ test_with_session_lock_retry_retries_locked_session _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC7B7CCE0>
+
+    def test_with_session_lock_retry_retries_locked_session(monkeypatch: pytest.MonkeyPatch):
+        attempts = {"count": 0}
+        sleep_calls: list[float] = []
+    
+        async def _fake_sleep(delay: float):
+            sleep_calls.append(delay)
+    
+        async def _op():
+            attempts["count"] += 1
+            if attempts["count"] < 3:
+                raise sqlite3.OperationalError("database is locked")
+            return "ok"
+    
+        monkeypatch.setattr(pipeline_runtime.asyncio, "sleep", _fake_sleep)
+    
+        result = asyncio.run(
+>           pipeline_runtime.with_session_lock_retry(lambda: _op(), op_name="client.start", retries=3, delay_sec=0.01)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        )
+E       AttributeError: module 'services.pipeline_runtime' has no attribute 'with_session_lock_retry'
+
+tests\test_pipeline_error_paths.py:32: AttributeError
+________ test_with_session_lock_retry_does_not_swallow_non_lock_errors ________
+
+    def test_with_session_lock_retry_does_not_swallow_non_lock_errors():
+        async def _op():
+            raise ValueError("boom")
+    
+        with pytest.raises(ValueError, match="boom"):
+>           asyncio.run(pipeline_runtime.with_session_lock_retry(lambda: _op(), op_name="client.start", retries=3, delay_sec=0.01))
+                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           AttributeError: module 'services.pipeline_runtime' has no attribute 'with_session_lock_retry'
+
+tests\test_pipeline_error_paths.py:45: AttributeError
+_________ test_split_jobs_for_telegram_worker_separates_comment_jobs __________
+
+    def test_split_jobs_for_telegram_worker_separates_comment_jobs():
+        jobs = [
+            SimpleNamespace(id=1, type=JobType.COLLECT_COMMENTS),
+            SimpleNamespace(id=2, type=JobType.REFRESH_COMMENTS),
+            SimpleNamespace(id=3, type=JobType.BUILD_POST_REPORT),
+            SimpleNamespace(id=4, type=JobType.ARCHIVE_RETENTION),
+        ]
+    
+>       comment_jobs, other_jobs = pipeline_runtime.split_jobs_for_telegram_worker(jobs)
+                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'services.pipeline_runtime' has no attribute 'split_jobs_for_telegram_worker'
+
+tests\test_pipeline_error_paths.py:63: AttributeError
+_ test_get_comments_keeps_success_response_shape_for_existing_post_with_comments _
+
+    def test_get_comments_keeps_success_response_shape_for_existing_post_with_comments():
+        comment = SimpleNamespace(
+            id=7,
+            post_id=42,
+            tg_peer_id=777001,
+            tg_message_id=701,
+            parent_tg_message_id=None,
+            parent_comment_id=None,
+            thread_root_tg_message_id=None,
+            depth=0,
+            text="hello",
+            date=datetime(2026, 3, 8, tzinfo=timezone.utc),
+        )
+        client = _build_client(_FakeSession(existing_post_ids={42}, comments_by_post_id={42: [comment]}))
+    
+        response = client.get("/api/posts/42/comments")
+    
+        assert response.status_code == 200
+>       assert response.json() == [
+            {
+                "id": 7,
+                "post_id": 42,
+                "tg_peer_id": 777001,
+                "tg_message_id": 701,
+                "parent_tg_message_id": None,
+                "parent_comment_id": None,
+                "thread_root_tg_message_id": None,
+                "depth": 0,
+                "text": "hello",
+                "date": "2026-03-08T00:00:00Z",
+            }
+        ]
+E       AssertionError: assert [{'date': '20...': None, ...}] == [{'date': '20...': None, ...}]
+E         
+E         At index 0 diff: {'id': 7, 'post_id': 42, 'tg_peer_id': 777001, 'tg_message_id': 701, 'parent_tg_message_id': None, 'parent_comment_id': None, 'thread_root_tg_message_id': None, 'depth': 0, 'text': 'hello', 'date': '2026-03-08T00:00:00Z', 'reactions_json': None} != {'id': 7, 'post_id': 42, 'tg_peer_id': 777001, 'tg_message_id': 701, 'parent_tg_message_id': None, 'parent_comment_id': None, 'thread_root_tg_message_id': None, 'depth': 0, 'text': 'hello', 'date': '2026-03-08T00:00:00Z'}
+E         Use -v to get more diff
+
+tests\test_posts_comments_api.py:109: AssertionError
+_________ test_synthesis_prompts_define_five_component_order_contract _________
+
+    def test_synthesis_prompts_define_five_component_order_contract() -> None:
+        loader = PromptLoader()
+        for scope in ("post", "event"):
+            text = loader.load(scope, "synthesis").lower()
+>           assert "1. event" in text
+E           assert '1. event' in '\ufeff# post/synthesis\nты — этап синтеза для отчетов reporting_v2 post reports.\n\nсформируй один компактный аналити...nces": true\n  },\n  "sentence_count": 0,\n  "quality": "ok|needs_revision",\n  "confidence_reason": "short reason"\n}'
+
+tests\test_prompt_loader.py:26: AssertionError
+__________________ test_normalize_translates_english_summary __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018ACA94D940>
+
+    def test_normalize_translates_english_summary(monkeypatch) -> None:
+        payload = _payload_base()
+    
+        async def _fake_translate(text: str) -> str:
+            return "В Беларуси власти объявили о новых мерах." if text.startswith("In Belarus") else "Переведенный фрагмент."
+    
+>       monkeypatch.setattr(report_language, "translate_text_to_ru", _fake_translate)
+E       AttributeError: <module 'services.report_language' from 'D:\\Projects\\tg_post_analyzer\\services\\report_language.py'> has no attribute 'translate_text_to_ru'
+
+tests\test_report_language.py:52: AttributeError
+__________________ test_normalize_does_not_translate_quotes ___________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018ACA94E9F0>
+
+    def test_normalize_does_not_translate_quotes(monkeypatch) -> None:
+        payload = _payload_base()
+    
+        async def _fake_translate(text: str) -> str:
+            return "Переведенный фрагмент."
+    
+>       monkeypatch.setattr(report_language, "translate_text_to_ru", _fake_translate)
+E       AttributeError: <module 'services.report_language' from 'D:\\Projects\\tg_post_analyzer\\services\\report_language.py'> has no attribute 'translate_text_to_ru'
+
+tests\test_report_language.py:63: AttributeError
+_______________ test_normalize_does_not_translate_urls_or_enums _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018ACA94D1C0>
+
+    def test_normalize_does_not_translate_urls_or_enums(monkeypatch) -> None:
+        payload = _payload_base()
+    
+        async def _fake_translate(text: str) -> str:
+            return "Резюме"
+    
+>       monkeypatch.setattr(report_language, "translate_text_to_ru", _fake_translate)
+E       AttributeError: <module 'services.report_language' from 'D:\\Projects\\tg_post_analyzer\\services\\report_language.py'> has no attribute 'translate_text_to_ru'
+
+tests\test_report_language.py:74: AttributeError
+_________ test_normalize_translates_multi_agent_synthesis_report_text _________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018ACA94CB90>
+
+    def test_normalize_translates_multi_agent_synthesis_report_text(monkeypatch) -> None:
+        payload = _payload_base()
+    
+        async def _fake_translate(text: str) -> str:
+            if text.startswith("Context:"):
+                return "Контекст: основной тренд и последствия."
+            return "Переведенный фрагмент."
+    
+>       monkeypatch.setattr(report_language, "translate_text_to_ru", _fake_translate)
+E       AttributeError: <module 'services.report_language' from 'D:\\Projects\\tg_post_analyzer\\services\\report_language.py'> has no attribute 'translate_text_to_ru'
+
+tests\test_report_language.py:88: AttributeError
+_______________ test_normalize_is_idempotent_for_russian_report _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC7B3DE50>
+
+    def test_normalize_is_idempotent_for_russian_report(monkeypatch) -> None:
+        payload = _payload_base()
+        payload["title"] = "Заголовок отчета"
+        payload["summary"] = "В Беларуси объявлены новые меры."
+        payload["confidence"]["reason"] = "Данные согласованы."
+        payload["meta"]["multi_agent"]["steps"]["synthesis"]["report_text"] = "Основной тренд и последствия."
+        payload["meta"]["multi_agent"]["steps"]["synthesis"]["confidence_reason"] = "Сигналы согласованы."
+        payload["meta"]["multi_agent"]["steps"]["context"]["llm_context"]["event_summary"] = "Сводка события."
+        payload["meta"]["multi_agent"]["steps"]["context"]["llm_context"]["article_focus"] = "Фокус публикации."
+    
+        async def _should_not_call(_text: str) -> str:
+            raise AssertionError("translate_text_to_ru should not be called for Russian payload")
+    
+>       monkeypatch.setattr(report_language, "translate_text_to_ru", _should_not_call)
+E       AttributeError: <module 'services.report_language' from 'D:\\Projects\\tg_post_analyzer\\services\\report_language.py'> has no attribute 'translate_text_to_ru'
+
+tests\test_report_language.py:106: AttributeError
+__________ test_normalize_translates_mixed_language_synthesis_phrase __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC7BC6AB0>
+
+    def test_normalize_translates_mixed_language_synthesis_phrase(monkeypatch) -> None:
+        payload = _payload_base()
+        payload["meta"]["multi_agent"]["steps"]["synthesis"]["report_text"] = (
+            "В отчете отмечены administrative barriers, which discourage longer-term stays."
+        )
+    
+        async def _fake_translate(text: str) -> str:
+            if "administrative barriers" in text:
+                return "В отчете отмечены административные барьеры, которые препятствуют более длительному пребыванию."
+            return "Переведенный фрагмент."
+    
+>       monkeypatch.setattr(report_language, "translate_text_to_ru", _fake_translate)
+E       AttributeError: <module 'services.report_language' from 'D:\\Projects\\tg_post_analyzer\\services\\report_language.py'> has no attribute 'translate_text_to_ru'
+
+tests\test_report_language.py:122: AttributeError
+__________________ test_renderer_keeps_enum_values_unchanged __________________
+
+    def test_renderer_keeps_enum_values_unchanged() -> None:
+        payload = {
+            "status": "ready",
+            "audience_stance": {"label": "mixed", "confidence": "medium"},
+            "meta": {"multi_agent": {"steps": {"synthesis": {"report_text": "Context: сигнал."}}}},
+        }
+        mapped = reporting.map_internal_post_report_to_public_payload(payload)
+        assert mapped is not None
+>       assert mapped["status"] == "ready"
+E       AssertionError: assert 'limited' == 'ready'
+E         
+E         - ready
+E         + limited
+
+tests\test_report_language.py:168: AssertionError
+_________________ test_report_progress_ws_emits_started_event _________________
+
+self = <starlette.testclient.WebSocketTestSession object at 0x0000018AC7A92090>
+
+    def __enter__(self) -> WebSocketTestSession:
+        with contextlib.ExitStack() as stack:
+            self.portal = portal = stack.enter_context(self.portal_factory())
+            fut, cs = portal.start_task(self._run)
+            stack.callback(fut.result)
+            stack.callback(portal.call, cs.cancel)
+>           self.send({"type": "websocket.connect"})
+
+venv\Lib\site-packages\starlette\testclient.py:127: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+venv\Lib\site-packages\starlette\testclient.py:172: in send
+    self.portal.call(self._receive_tx.send, message)
+venv\Lib\site-packages\anyio\from_thread.py:334: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:449: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:401: in __get_result
+    raise self._exception
+venv\Lib\site-packages\anyio\from_thread.py:259: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\anyio\streams\memory.py:249: in send
+    self.send_nowait(item)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = MemoryObjectSendStream(_state=_MemoryObjectStreamState(max_buffer_size=inf, buffer=deque([]), open_send_channels=0, open_receive_channels=0, waiting_receivers=OrderedDict(), waiting_senders=OrderedDict()), _closed=True)
+item = {'type': 'websocket.connect'}
+
+    def send_nowait(self, item: T_contra) -> None:
+        """
+        Send an item immediately if it can be done without waiting.
+    
+        :param item: the item to send
+        :raises ~anyio.ClosedResourceError: if this send stream has been closed
+        :raises ~anyio.BrokenResourceError: if the stream has been closed from the
+            receiving end
+        :raises ~anyio.WouldBlock: if the buffer is full and there are no tasks waiting
+            to receive
+    
+        """
+        if self._closed:
+>           raise ClosedResourceError
+E           anyio.ClosedResourceError
+
+venv\Lib\site-packages\anyio\streams\memory.py:218: ClosedResourceError
+
+During handling of the above exception, another exception occurred:
+
+    def test_report_progress_ws_emits_started_event():
+        user = SimpleNamespace(id=7, username="analyst", is_active=True)
+        job = _build_job(
+            job_id=501,
+            status="running",
+            payload={"post_id": 42, "requested_by_user_id": 7, "source": "api"},
+        )
+        session = _FakeSession({
+            (User, 7): user,
+            (Job, 501): job,
+        })
+        client = _build_client(session)
+    
+>       with client.websocket_connect(
+            f"/api/reports/progress/ws?access_token={_access_token(7)}&request_id=501&entity_type=post&entity_id=42"
+        ) as websocket:
+
+tests\test_report_progress_ws_api.py:85: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+venv\Lib\site-packages\starlette\testclient.py:122: in __enter__
+    with contextlib.ExitStack() as stack:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\contextlib.py:598: in __exit__
+    raise exc_details[1]
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\contextlib.py:583: in __exit__
+    if cb(*exc_details):
+       ^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\contextlib.py:466: in _exit_wrapper
+    callback(*args, **kwds)
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:449: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:401: in __get_result
+    raise self._exception
+venv\Lib\site-packages\anyio\from_thread.py:259: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\starlette\testclient.py:151: in _run
+    await self.app(self.scope, receive_rx.receive, send_tx.send)
+venv\Lib\site-packages\fastapi\applications.py:1159: in __call__
+    await super().__call__(scope, receive, send)
+venv\Lib\site-packages\starlette\applications.py:90: in __call__
+    await self.middleware_stack(scope, receive, send)
+venv\Lib\site-packages\starlette\middleware\errors.py:151: in __call__
+    await self.app(scope, receive, send)
+venv\Lib\site-packages\starlette\middleware\exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+venv\Lib\site-packages\starlette\_exception_handler.py:53: in wrapped_app
+    raise exc
+venv\Lib\site-packages\starlette\_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+venv\Lib\site-packages\starlette\routing.py:660: in __call__
+    await self.middleware_stack(scope, receive, send)
+venv\Lib\site-packages\starlette\routing.py:680: in app
+    await route.handle(scope, receive, send)
+venv\Lib\site-packages\starlette\routing.py:350: in handle
+    await self.app(scope, receive, send)
+venv\Lib\site-packages\fastapi\routing.py:160: in app
+    await wrap_app_handling_exceptions(app, session)(scope, receive, send)
+venv\Lib\site-packages\starlette\_exception_handler.py:53: in wrapped_app
+    raise exc
+venv\Lib\site-packages\starlette\_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+venv\Lib\site-packages\fastapi\routing.py:157: in app
+    await func(session)
+venv\Lib\site-packages\fastapi\routing.py:764: in app
+    await dependant.call(**solved_result.values)
+api\routers\report_progress.py:245: in report_progress_websocket
+    job = await _resolve_report_job(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+session = <test_report_progress_ws_api._FakeSession object at 0x0000018AC7BC68D0>
+
+    async def _resolve_report_job(
+        session: AsyncSession,
+        *,
+        request_id: int | None,
+        expected_entity_type: str | None,
+        expected_entity_id: int | None,
+        current_user_id: int,
+    ) -> Job | None:
+        # Явно подгружаем ленивые атрибуты (type, payload_json, result)
+        if request_id is not None:
+            stmt = select(Job).where(Job.id == request_id)
+>           return (await session.execute(stmt)).scalar_one_or_none()
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           AttributeError: 'types.SimpleNamespace' object has no attribute 'scalar_one_or_none'
+
+api\routers\report_progress.py:86: AttributeError
+________________ test_report_progress_ws_emits_completed_event ________________
+
+self = <starlette.testclient.WebSocketTestSession object at 0x0000018AC7BAB8C0>
+
+    def __enter__(self) -> WebSocketTestSession:
+        with contextlib.ExitStack() as stack:
+            self.portal = portal = stack.enter_context(self.portal_factory())
+            fut, cs = portal.start_task(self._run)
+            stack.callback(fut.result)
+            stack.callback(portal.call, cs.cancel)
+>           self.send({"type": "websocket.connect"})
+
+venv\Lib\site-packages\starlette\testclient.py:127: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+venv\Lib\site-packages\starlette\testclient.py:172: in send
+    self.portal.call(self._receive_tx.send, message)
+venv\Lib\site-packages\anyio\from_thread.py:334: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:456: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:401: in __get_result
+    raise self._exception
+venv\Lib\site-packages\anyio\from_thread.py:259: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\anyio\streams\memory.py:249: in send
+    self.send_nowait(item)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = MemoryObjectSendStream(_state=_MemoryObjectStreamState(max_buffer_size=inf, buffer=deque([]), open_send_channels=0, open_receive_channels=0, waiting_receivers=OrderedDict(), waiting_senders=OrderedDict()), _closed=True)
+item = {'type': 'websocket.connect'}
+
+    def send_nowait(self, item: T_contra) -> None:
+        """
+        Send an item immediately if it can be done without waiting.
+    
+        :param item: the item to send
+        :raises ~anyio.ClosedResourceError: if this send stream has been closed
+        :raises ~anyio.BrokenResourceError: if the stream has been closed from the
+            receiving end
+        :raises ~anyio.WouldBlock: if the buffer is full and there are no tasks waiting
+            to receive
+    
+        """
+        if self._closed:
+>           raise ClosedResourceError
+E           anyio.ClosedResourceError
+
+venv\Lib\site-packages\anyio\streams\memory.py:218: ClosedResourceError
+
+During handling of the above exception, another exception occurred:
+
+    def test_report_progress_ws_emits_completed_event():
+        user = SimpleNamespace(id=8, username="analyst", is_active=True)
+        job = _build_job(
+            job_id=601,
+            status="done",
+            payload={"post_id": 77, "requested_by_user_id": 8, "source": "api"},
+            result={"status": "ready", "post_id": 77, "report_id": 999},
+        )
+        session = _FakeSession({
+            (User, 8): user,
+            (Job, 601): job,
+        })
+        client = _build_client(session)
+    
+>       with client.websocket_connect(
+            f"/api/reports/progress/ws?access_token={_access_token(8)}&request_id=601&entity_type=post&entity_id=77"
+        ) as websocket:
+
+tests\test_report_progress_ws_api.py:111: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+venv\Lib\site-packages\starlette\testclient.py:122: in __enter__
+    with contextlib.ExitStack() as stack:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\contextlib.py:598: in __exit__
+    raise exc_details[1]
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\contextlib.py:583: in __exit__
+    if cb(*exc_details):
+       ^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\contextlib.py:466: in _exit_wrapper
+    callback(*args, **kwds)
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:449: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:401: in __get_result
+    raise self._exception
+venv\Lib\site-packages\anyio\from_thread.py:259: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\starlette\testclient.py:151: in _run
+    await self.app(self.scope, receive_rx.receive, send_tx.send)
+venv\Lib\site-packages\fastapi\applications.py:1159: in __call__
+    await super().__call__(scope, receive, send)
+venv\Lib\site-packages\starlette\applications.py:90: in __call__
+    await self.middleware_stack(scope, receive, send)
+venv\Lib\site-packages\starlette\middleware\errors.py:151: in __call__
+    await self.app(scope, receive, send)
+venv\Lib\site-packages\starlette\middleware\exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+venv\Lib\site-packages\starlette\_exception_handler.py:53: in wrapped_app
+    raise exc
+venv\Lib\site-packages\starlette\_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+venv\Lib\site-packages\starlette\routing.py:660: in __call__
+    await self.middleware_stack(scope, receive, send)
+venv\Lib\site-packages\starlette\routing.py:680: in app
+    await route.handle(scope, receive, send)
+venv\Lib\site-packages\starlette\routing.py:350: in handle
+    await self.app(scope, receive, send)
+venv\Lib\site-packages\fastapi\routing.py:160: in app
+    await wrap_app_handling_exceptions(app, session)(scope, receive, send)
+venv\Lib\site-packages\starlette\_exception_handler.py:53: in wrapped_app
+    raise exc
+venv\Lib\site-packages\starlette\_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+venv\Lib\site-packages\fastapi\routing.py:157: in app
+    await func(session)
+venv\Lib\site-packages\fastapi\routing.py:764: in app
+    await dependant.call(**solved_result.values)
+api\routers\report_progress.py:245: in report_progress_websocket
+    job = await _resolve_report_job(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+session = <test_report_progress_ws_api._FakeSession object at 0x0000018ACA98BC80>
+
+    async def _resolve_report_job(
+        session: AsyncSession,
+        *,
+        request_id: int | None,
+        expected_entity_type: str | None,
+        expected_entity_id: int | None,
+        current_user_id: int,
+    ) -> Job | None:
+        # Явно подгружаем ленивые атрибуты (type, payload_json, result)
+        if request_id is not None:
+            stmt = select(Job).where(Job.id == request_id)
+>           return (await session.execute(stmt)).scalar_one_or_none()
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           AttributeError: 'types.SimpleNamespace' object has no attribute 'scalar_one_or_none'
+
+api\routers\report_progress.py:86: AttributeError
+______ test_report_progress_ws_treats_limited_report_result_as_completed ______
+
+self = <starlette.testclient.WebSocketTestSession object at 0x0000018AC798CE90>
+
+    def __enter__(self) -> WebSocketTestSession:
+        with contextlib.ExitStack() as stack:
+            self.portal = portal = stack.enter_context(self.portal_factory())
+            fut, cs = portal.start_task(self._run)
+            stack.callback(fut.result)
+            stack.callback(portal.call, cs.cancel)
+>           self.send({"type": "websocket.connect"})
+
+venv\Lib\site-packages\starlette\testclient.py:127: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+venv\Lib\site-packages\starlette\testclient.py:172: in send
+    self.portal.call(self._receive_tx.send, message)
+venv\Lib\site-packages\anyio\from_thread.py:334: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:449: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:401: in __get_result
+    raise self._exception
+venv\Lib\site-packages\anyio\from_thread.py:259: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\anyio\streams\memory.py:249: in send
+    self.send_nowait(item)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = MemoryObjectSendStream(_state=_MemoryObjectStreamState(max_buffer_size=inf, buffer=deque([]), open_send_channels=0, open_receive_channels=0, waiting_receivers=OrderedDict(), waiting_senders=OrderedDict()), _closed=True)
+item = {'type': 'websocket.connect'}
+
+    def send_nowait(self, item: T_contra) -> None:
+        """
+        Send an item immediately if it can be done without waiting.
+    
+        :param item: the item to send
+        :raises ~anyio.ClosedResourceError: if this send stream has been closed
+        :raises ~anyio.BrokenResourceError: if the stream has been closed from the
+            receiving end
+        :raises ~anyio.WouldBlock: if the buffer is full and there are no tasks waiting
+            to receive
+    
+        """
+        if self._closed:
+>           raise ClosedResourceError
+E           anyio.ClosedResourceError
+
+venv\Lib\site-packages\anyio\streams\memory.py:218: ClosedResourceError
+
+During handling of the above exception, another exception occurred:
+
+    def test_report_progress_ws_treats_limited_report_result_as_completed():
+        user = SimpleNamespace(id=18, username="analyst", is_active=True)
+        job = _build_job(
+            job_id=611,
+            status="done",
+            payload={"post_id": 79, "requested_by_user_id": 18, "source": "api"},
+            result={"status": "limited", "post_id": 79, "report_id": 1001},
+        )
+        session = _FakeSession({
+            (User, 18): user,
+            (Job, 611): job,
+        })
+        client = _build_client(session)
+    
+>       with client.websocket_connect(
+            f"/api/reports/progress/ws?access_token={_access_token(18)}&request_id=611&entity_type=post&entity_id=79"
+        ) as websocket:
+
+tests\test_report_progress_ws_api.py:141: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+venv\Lib\site-packages\starlette\testclient.py:122: in __enter__
+    with contextlib.ExitStack() as stack:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\contextlib.py:598: in __exit__
+    raise exc_details[1]
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\contextlib.py:583: in __exit__
+    if cb(*exc_details):
+       ^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\contextlib.py:466: in _exit_wrapper
+    callback(*args, **kwds)
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:449: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:401: in __get_result
+    raise self._exception
+venv\Lib\site-packages\anyio\from_thread.py:259: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\starlette\testclient.py:151: in _run
+    await self.app(self.scope, receive_rx.receive, send_tx.send)
+venv\Lib\site-packages\fastapi\applications.py:1159: in __call__
+    await super().__call__(scope, receive, send)
+venv\Lib\site-packages\starlette\applications.py:90: in __call__
+    await self.middleware_stack(scope, receive, send)
+venv\Lib\site-packages\starlette\middleware\errors.py:151: in __call__
+    await self.app(scope, receive, send)
+venv\Lib\site-packages\starlette\middleware\exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+venv\Lib\site-packages\starlette\_exception_handler.py:53: in wrapped_app
+    raise exc
+venv\Lib\site-packages\starlette\_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+venv\Lib\site-packages\starlette\routing.py:660: in __call__
+    await self.middleware_stack(scope, receive, send)
+venv\Lib\site-packages\starlette\routing.py:680: in app
+    await route.handle(scope, receive, send)
+venv\Lib\site-packages\starlette\routing.py:350: in handle
+    await self.app(scope, receive, send)
+venv\Lib\site-packages\fastapi\routing.py:160: in app
+    await wrap_app_handling_exceptions(app, session)(scope, receive, send)
+venv\Lib\site-packages\starlette\_exception_handler.py:53: in wrapped_app
+    raise exc
+venv\Lib\site-packages\starlette\_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+venv\Lib\site-packages\fastapi\routing.py:157: in app
+    await func(session)
+venv\Lib\site-packages\fastapi\routing.py:764: in app
+    await dependant.call(**solved_result.values)
+api\routers\report_progress.py:245: in report_progress_websocket
+    job = await _resolve_report_job(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+session = <test_report_progress_ws_api._FakeSession object at 0x0000018AC7763860>
+
+    async def _resolve_report_job(
+        session: AsyncSession,
+        *,
+        request_id: int | None,
+        expected_entity_type: str | None,
+        expected_entity_id: int | None,
+        current_user_id: int,
+    ) -> Job | None:
+        # Явно подгружаем ленивые атрибуты (type, payload_json, result)
+        if request_id is not None:
+            stmt = select(Job).where(Job.id == request_id)
+>           return (await session.execute(stmt)).scalar_one_or_none()
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           AttributeError: 'types.SimpleNamespace' object has no attribute 'scalar_one_or_none'
+
+api\routers\report_progress.py:86: AttributeError
+_________________ test_report_progress_ws_emits_failed_event __________________
+
+self = <starlette.testclient.WebSocketTestSession object at 0x0000018AC7A6D100>
+
+    def __enter__(self) -> WebSocketTestSession:
+        with contextlib.ExitStack() as stack:
+            self.portal = portal = stack.enter_context(self.portal_factory())
+            fut, cs = portal.start_task(self._run)
+            stack.callback(fut.result)
+            stack.callback(portal.call, cs.cancel)
+>           self.send({"type": "websocket.connect"})
+
+venv\Lib\site-packages\starlette\testclient.py:127: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+venv\Lib\site-packages\starlette\testclient.py:172: in send
+    self.portal.call(self._receive_tx.send, message)
+venv\Lib\site-packages\anyio\from_thread.py:334: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:449: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:401: in __get_result
+    raise self._exception
+venv\Lib\site-packages\anyio\from_thread.py:259: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\anyio\streams\memory.py:249: in send
+    self.send_nowait(item)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = MemoryObjectSendStream(_state=_MemoryObjectStreamState(max_buffer_size=inf, buffer=deque([]), open_send_channels=0, open_receive_channels=0, waiting_receivers=OrderedDict(), waiting_senders=OrderedDict()), _closed=True)
+item = {'type': 'websocket.connect'}
+
+    def send_nowait(self, item: T_contra) -> None:
+        """
+        Send an item immediately if it can be done without waiting.
+    
+        :param item: the item to send
+        :raises ~anyio.ClosedResourceError: if this send stream has been closed
+        :raises ~anyio.BrokenResourceError: if the stream has been closed from the
+            receiving end
+        :raises ~anyio.WouldBlock: if the buffer is full and there are no tasks waiting
+            to receive
+    
+        """
+        if self._closed:
+>           raise ClosedResourceError
+E           anyio.ClosedResourceError
+
+venv\Lib\site-packages\anyio\streams\memory.py:218: ClosedResourceError
+
+During handling of the above exception, another exception occurred:
+
+    def test_report_progress_ws_emits_failed_event():
+        user = SimpleNamespace(id=9, username="analyst", is_active=True)
+        job = _build_job(
+            job_id=701,
+            status="failed",
+            payload={"post_id": 88, "requested_by_user_id": 9, "source": "api"},
+            result={"status": "failed", "reason": "model_timeout", "message": "Model timed out"},
+            last_error="worker timeout",
+        )
+        session = _FakeSession({
+            (User, 9): user,
+            (Job, 701): job,
+        })
+        client = _build_client(session)
+    
+>       with client.websocket_connect(
+            f"/api/reports/progress/ws?access_token={_access_token(9)}&request_id=701&entity_type=post&entity_id=88"
+        ) as websocket:
+
+tests\test_report_progress_ws_api.py:166: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+venv\Lib\site-packages\starlette\testclient.py:122: in __enter__
+    with contextlib.ExitStack() as stack:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\contextlib.py:598: in __exit__
+    raise exc_details[1]
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\contextlib.py:583: in __exit__
+    if cb(*exc_details):
+       ^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\contextlib.py:466: in _exit_wrapper
+    callback(*args, **kwds)
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:449: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:401: in __get_result
+    raise self._exception
+venv\Lib\site-packages\anyio\from_thread.py:259: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\starlette\testclient.py:151: in _run
+    await self.app(self.scope, receive_rx.receive, send_tx.send)
+venv\Lib\site-packages\fastapi\applications.py:1159: in __call__
+    await super().__call__(scope, receive, send)
+venv\Lib\site-packages\starlette\applications.py:90: in __call__
+    await self.middleware_stack(scope, receive, send)
+venv\Lib\site-packages\starlette\middleware\errors.py:151: in __call__
+    await self.app(scope, receive, send)
+venv\Lib\site-packages\starlette\middleware\exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+venv\Lib\site-packages\starlette\_exception_handler.py:53: in wrapped_app
+    raise exc
+venv\Lib\site-packages\starlette\_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+venv\Lib\site-packages\starlette\routing.py:660: in __call__
+    await self.middleware_stack(scope, receive, send)
+venv\Lib\site-packages\starlette\routing.py:680: in app
+    await route.handle(scope, receive, send)
+venv\Lib\site-packages\starlette\routing.py:350: in handle
+    await self.app(scope, receive, send)
+venv\Lib\site-packages\fastapi\routing.py:160: in app
+    await wrap_app_handling_exceptions(app, session)(scope, receive, send)
+venv\Lib\site-packages\starlette\_exception_handler.py:53: in wrapped_app
+    raise exc
+venv\Lib\site-packages\starlette\_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+venv\Lib\site-packages\fastapi\routing.py:157: in app
+    await func(session)
+venv\Lib\site-packages\fastapi\routing.py:764: in app
+    await dependant.call(**solved_result.values)
+api\routers\report_progress.py:245: in report_progress_websocket
+    job = await _resolve_report_job(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+session = <test_report_progress_ws_api._FakeSession object at 0x0000018AC7A6C1D0>
+
+    async def _resolve_report_job(
+        session: AsyncSession,
+        *,
+        request_id: int | None,
+        expected_entity_type: str | None,
+        expected_entity_id: int | None,
+        current_user_id: int,
+    ) -> Job | None:
+        # Явно подгружаем ленивые атрибуты (type, payload_json, result)
+        if request_id is not None:
+            stmt = select(Job).where(Job.id == request_id)
+>           return (await session.execute(stmt)).scalar_one_or_none()
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           AttributeError: 'types.SimpleNamespace' object has no attribute 'scalar_one_or_none'
+
+api\routers\report_progress.py:86: AttributeError
+_ test_report_progress_ws_allows_undefined_request_id_when_entity_binding_is_valid _
+
+self = <starlette.testclient.WebSocketTestSession object at 0x0000018AC7A00CE0>
+
+    def __enter__(self) -> WebSocketTestSession:
+        with contextlib.ExitStack() as stack:
+            self.portal = portal = stack.enter_context(self.portal_factory())
+            fut, cs = portal.start_task(self._run)
+            stack.callback(fut.result)
+            stack.callback(portal.call, cs.cancel)
+            self.send({"type": "websocket.connect"})
+>           message = self.receive()
+                      ^^^^^^^^^^^^^^
+
+venv\Lib\site-packages\starlette\testclient.py:128: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+venv\Lib\site-packages\starlette\testclient.py:191: in receive
+    return self.portal.call(self._send_rx.receive)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\anyio\from_thread.py:334: in call
+    return cast(T_Retval, self.start_task_soon(func, *args).result())
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:449: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:401: in __get_result
+    raise self._exception
+venv\Lib\site-packages\anyio\from_thread.py:259: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\anyio\streams\memory.py:117: in receive
+    return self.receive_nowait()
+           ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = MemoryObjectReceiveStream(_state=_MemoryObjectStreamState(max_buffer_size=inf, buffer=deque([{'type': 'websocket.accep...end_channels=0, open_receive_channels=0, waiting_receivers=OrderedDict(), waiting_senders=OrderedDict()), _closed=True)
+
+    def receive_nowait(self) -> T_co:
+        """
+        Receive the next item if it can be done without waiting.
+    
+        :return: the received item
+        :raises ~anyio.ClosedResourceError: if this send stream has been closed
+        :raises ~anyio.EndOfStream: if the buffer is empty and this stream has been
+            closed from the sending end
+        :raises ~anyio.WouldBlock: if there are no items in the buffer and no tasks
+            waiting to send
+    
+        """
+        if self._closed:
+>           raise ClosedResourceError
+E           anyio.ClosedResourceError
+
+venv\Lib\site-packages\anyio\streams\memory.py:99: ClosedResourceError
+
+During handling of the above exception, another exception occurred:
+
+    def test_report_progress_ws_allows_undefined_request_id_when_entity_binding_is_valid():
+        user = SimpleNamespace(id=11, username="analyst", is_active=True)
+        job = _build_job(
+            job_id=901,
+            status="running",
+            payload={"post_id": 72, "requested_by_user_id": 11, "source": "api"},
+        )
+        session = _FakeSession({
+            (User, 11): user,
+            (Job, 901): job,
+        })
+        client = _build_client(session)
+    
+>       with client.websocket_connect(
+            f"/api/reports/progress/ws?access_token={_access_token(11)}&request_id=undefined&entity_type=post&entity_id=72"
+        ) as websocket:
+
+tests\test_report_progress_ws_api.py:189: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+venv\Lib\site-packages\starlette\testclient.py:122: in __enter__
+    with contextlib.ExitStack() as stack:
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\contextlib.py:598: in __exit__
+    raise exc_details[1]
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\contextlib.py:583: in __exit__
+    if cb(*exc_details):
+       ^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\contextlib.py:466: in _exit_wrapper
+    callback(*args, **kwds)
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:449: in result
+    return self.__get_result()
+           ^^^^^^^^^^^^^^^^^^^
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\concurrent\futures\_base.py:401: in __get_result
+    raise self._exception
+venv\Lib\site-packages\anyio\from_thread.py:259: in _call_func
+    retval = await retval_or_awaitable
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+venv\Lib\site-packages\starlette\testclient.py:151: in _run
+    await self.app(self.scope, receive_rx.receive, send_tx.send)
+venv\Lib\site-packages\fastapi\applications.py:1159: in __call__
+    await super().__call__(scope, receive, send)
+venv\Lib\site-packages\starlette\applications.py:90: in __call__
+    await self.middleware_stack(scope, receive, send)
+venv\Lib\site-packages\starlette\middleware\errors.py:151: in __call__
+    await self.app(scope, receive, send)
+venv\Lib\site-packages\starlette\middleware\exceptions.py:63: in __call__
+    await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+venv\Lib\site-packages\starlette\_exception_handler.py:53: in wrapped_app
+    raise exc
+venv\Lib\site-packages\starlette\_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+venv\Lib\site-packages\fastapi\middleware\asyncexitstack.py:18: in __call__
+    await self.app(scope, receive, send)
+venv\Lib\site-packages\starlette\routing.py:660: in __call__
+    await self.middleware_stack(scope, receive, send)
+venv\Lib\site-packages\starlette\routing.py:680: in app
+    await route.handle(scope, receive, send)
+venv\Lib\site-packages\starlette\routing.py:350: in handle
+    await self.app(scope, receive, send)
+venv\Lib\site-packages\fastapi\routing.py:160: in app
+    await wrap_app_handling_exceptions(app, session)(scope, receive, send)
+venv\Lib\site-packages\starlette\_exception_handler.py:53: in wrapped_app
+    raise exc
+venv\Lib\site-packages\starlette\_exception_handler.py:42: in wrapped_app
+    await app(scope, receive, sender)
+venv\Lib\site-packages\fastapi\routing.py:157: in app
+    await func(session)
+venv\Lib\site-packages\fastapi\routing.py:764: in app
+    await dependant.call(**solved_result.values)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+websocket = <starlette.websockets.WebSocket object at 0x0000018AC7A03980>
+session = <test_report_progress_ws_api._FakeSession object at 0x0000018AC7A01730>
+
+    @router.websocket("/ws")
+    async def report_progress_websocket(
+        websocket: WebSocket,
+        session: AsyncSession = Depends(get_session),
+    ):
+        access_token = websocket.query_params.get("access_token")
+        request_id = _normalize_request_id(websocket.query_params.get("request_id"))
+        expected_entity_type = websocket.query_params.get("entity_type")
+        expected_entity_id = _safe_int(websocket.query_params.get("entity_id"))
+    
+        current_user = await _resolve_current_user(session, access_token=access_token)
+        if current_user is None:
+            await websocket.close(code=4401, reason="Authentication required")
+            return
+    
+        if request_id is None and (expected_entity_type is None or expected_entity_id is None):
+            await websocket.close(code=4400, reason="request_id or entity binding is required")
+            return
+    
+        job = await _resolve_report_job(
+            session,
+            request_id=request_id,
+            expected_entity_type=expected_entity_type,
+            expected_entity_id=expected_entity_id,
+            current_user_id=int(current_user.id),
+        )
+        if job is None or str(job.type) not in REPORT_JOB_TYPES:
+            await websocket.close(code=4404, reason="Report request not found")
+            return
+        request_id = int(job.id)
+    
+        payload = dict(job.payload_json or {})
+        if _safe_int(payload.get("requested_by_user_id")) != int(current_user.id):
+            await websocket.close(code=4403, reason="Forbidden")
+            return
+    
+        entity_type, entity_id = _extract_entity(job)
+        if entity_type is None or entity_id is None:
+            await websocket.close(code=4404, reason="Entity binding not found")
+            return
+        if expected_entity_type and expected_entity_type != entity_type:
+            await websocket.close(code=4404, reason="Entity type mismatch")
+            return
+        if expected_entity_id is not None and expected_entity_id != entity_id:
+            await websocket.close(code=4404, reason="Entity id mismatch")
+            return
+    
+        await websocket.accept()
+        last_fingerprint: tuple[object, ...] | None = None
+    
+        try:
+            while True:
+                # Всегда подгружаем ленивые атрибуты при каждом опросе
+                stmt = select(Job).where(Job.id == request_id)
+>               job = (await session.execute(stmt)).scalar_one_or_none()
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: 'types.SimpleNamespace' object has no attribute 'scalar_one_or_none'
+
+api\routers\report_progress.py:280: AttributeError
+_ test_map_internal_post_report_to_public_payload_normalizes_public_semantics _
+
+    def test_map_internal_post_report_to_public_payload_normalizes_public_semantics():
+        payload = reporting.map_internal_post_report_to_public_payload(
+            {
+                "type": "post_report_v2",
+                "status": "limited",
+                "post_id": 42,
+                "title": "draft",
+                "summary": "interpretive summary that should not leak as-is",
+                "comment_count": 8,
+                "sentiment": {
+                    "dominant": "neutral",
+                    "distribution": {"positive": 0.2, "negative": 0.2, "neutral": 0.6},
+                },
+                "topics": [
+                    {"name": "budget", "share": 0.7},
+                    {"name": "budget", "share": 0.6},
+                    {"name": "regions", "share": 0.3},
+                ],
+                "confidence": {"overall": "high", "reason": "internal reviewer note"},
+            }
+        )
+    
+        validated = PostReportPayload.model_validate(payload)
+    
+        assert validated.status == "limited"
+>       assert validated.summary == "Evidence is limited."
+E       AssertionError: assert 'Доказательна...а ограничена.' == 'Evidence is limited.'
+E         
+E         - Evidence is limited.
+E         + Доказательная база ограничена.
+
+tests\test_reporting_semantics.py:149: AssertionError
+___________ test_render_post_report_uses_compact_spec_aligned_text ____________
+
+    def test_render_post_report_uses_compact_spec_aligned_text():
+        text = reporting._render_post_report_text(
+            {
+                "title": "Post 42 discussion snapshot",
+                "status": "limited",
+                "summary": "Limited signal.",
+                "topics": [{"name": "topic-a"}, {"name": "topic-b"}],
+                "confidence": {"overall": "medium", "reason": "weak comment signal"},
+            }
+        )
+    
+>       assert text == "Limited signal."
+E       AssertionError: assert 'Доказательна...а ограничена.' == 'Limited signal.'
+E         
+E         - Limited signal.
+E         + Доказательная база ограничена.
+
+tests\test_reporting_semantics.py:234: AssertionError
+______________ test_mark_report_payload_stale_preserves_context _______________
+
+    def test_mark_report_payload_stale_preserves_context():
+        payload = {
+            "type": "event_report_v2",
+            "status": "ready",
+            "summary": "ok",
+            "meta": {"prompt_version": "event_report_v2"},
+        }
+    
+        result = reporting.mark_report_payload_stale(
+            payload,
+            dependency_type="post_report",
+            dependency_id=17,
+        )
+    
+        assert result["status"] == reporting.REPORT_STATUS_STALE
+        assert result["summary"] == "ok"
+        assert result["meta"]["stale"] is True
+        assert result["meta"]["stale_dependency_type"] == "post_report"
+        assert result["meta"]["stale_dependency_id"] == 17
+>       assert result["meta"]["previous_status"] == "ready"
+E       AssertionError: assert 'limited' == 'ready'
+E         
+E         - ready
+E         + limited
+
+tests\test_reporting_semantics.py:256: AssertionError
+_______________ test_build_post_report_sanitizes_internal_error _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC645BE60>
+
+    def test_build_post_report_sanitizes_internal_error(monkeypatch):
+        channel = SimpleNamespace(id=7, username="test_channel")
+        post = SimpleNamespace(
+            id=11,
+            date=reporting.datetime(2026, 3, 11, 12, 0, tzinfo=reporting.timezone.utc),
+            text="post",
+            views=5,
+            comments_count=0,
+            reactions_json=None,
+        )
+        session = _FakeSession(
+            execute_results=[
+                type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
+                _FakeRowsResult([]),
+            ]
+        )
+    
+        async def _broken_v2(**kwargs):
+            raise RuntimeError("llm exploded")
+    
+        captured = {}
+    
+        async def _fake_upsert_report(session, *, post_id, status, content, report_json=None):
+            captured.update({"post_id": post_id, "status": status, "content": content, "report_json": report_json})
+            return SimpleNamespace(id=91)
+    
+        monkeypatch.setattr(reporting, "upsert_report", _fake_upsert_report)
+        monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _broken_v2)
+        monkeypatch.setattr(
+            reporting,
+            "_post_report_readiness",
+            lambda _session, *, post: asyncio.sleep(0, result={"ready": True, "refresh_attempt": None}),
+        )
+    
+        result = asyncio.run(
+>           reporting.build_post_report(
+                session,
+                post_id=11,
+                report_project=SimpleNamespace(),
+            )
+        )
+E       TypeError: build_post_report() got an unexpected keyword argument 'report_project'
+
+tests\test_reporting_semantics.py:295: TypeError
+_______ test_build_post_report_defers_until_refresh_work_unit_completed _______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC75EB3E0>
+
+    def test_build_post_report_defers_until_refresh_work_unit_completed(monkeypatch):
+        channel = SimpleNamespace(id=7, username="test_channel")
+        post = SimpleNamespace(
+            id=11,
+            date=reporting.datetime(2026, 3, 11, 12, 0, tzinfo=reporting.timezone.utc),
+            text="post",
+            views=5,
+            comments_count=2,
+            reactions_json=None,
+        )
+        session = _FakeSession(
+            execute_results=[
+                type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
+            ]
+        )
+    
+        async def _fake_post_readiness(_session, *, post):
+            assert post.id == 11
+            return {
+                "ready": False,
+                "reason": "waiting_refresh_post_data",
+                "dependencies": [{"job_type": "refresh_comments", "post_id": 11, "reason": "waiting_refresh_post_data"}],
+                "terminal": False,
+            }
+    
+        monkeypatch.setattr(reporting, "_post_report_readiness", _fake_post_readiness)
+    
+        result = asyncio.run(
+>           reporting.build_post_report(
+                session,
+                post_id=11,
+                report_project=SimpleNamespace(),
+            )
+        )
+E       TypeError: build_post_report() got an unexpected keyword argument 'report_project'
+
+tests\test_reporting_semantics.py:340: TypeError
+_______________ test_build_post_report_persists_input_signature _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC6082A80>
+
+    def test_build_post_report_persists_input_signature(monkeypatch):
+        channel = SimpleNamespace(id=7, username="test_channel")
+        post = SimpleNamespace(
+            id=11,
+            date=reporting.datetime(2026, 3, 11, 12, 0, tzinfo=reporting.timezone.utc),
+            text="post",
+            views=5,
+            comments_count=2,
+            reactions_json=None,
+        )
+        session = _FakeSession(
+            execute_results=[
+                type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
+                _FakeRowsResult([(1, None, None, 0, None, "hello", None)]),
+            ]
+        )
+    
+        async def _fake_generate_v2(**kwargs):
+                return {
+                    "type": "post_report_v2",
+                    "status": "ready",
+                    "post_id": 11,
+                    "published_at": "2026-03-11T12:00:00+00:00",
+                    "title": "ok",
+                    "summary": "Готовый отчет",
+                "comment_count": 1,
+                "sentiment": {
+                    "dominant": "neutral",
+                    "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+                },
+                "topics": [],
+                "clusters": [],
+                "time_trends": [],
+                "risks": [],
+                "anomalies": [],
+                "representative_quotes": [],
+                "confidence": {"overall": "medium", "reason": "ok"},
+                "meta": {
+                    "multi_agent": {
+                            "version": "v1",
+                            "status": "ready",
+                            "steps": _canonical_openrouter_steps(synthesis_text="Готовый отчет"),
+                        "review": {"history": [{"iteration": 1, "decision": "accept", "reason": "sufficient"}]},
+                    }
+                },
+            }
+    
+        captured = {}
+    
+        async def _fake_upsert_report(session, *, post_id, status, content, report_json=None):
+            captured.update({"post_id": post_id, "status": status, "content": content, "report_json": report_json})
+            return SimpleNamespace(id=92)
+    
+        monkeypatch.setattr(reporting, "upsert_report", _fake_upsert_report)
+        monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _fake_generate_v2)
+        monkeypatch.setattr(reporting, "normalize_report_language", lambda payload: asyncio.sleep(0, result=payload))
+        monkeypatch.setattr(
+            reporting,
+            "_post_report_readiness",
+            lambda _session, *, post: asyncio.sleep(0, result={"ready": True, "refresh_attempt": None}),
+        )
+    
+        result = asyncio.run(
+>           reporting.build_post_report(
+                session,
+                post_id=11,
+                report_project=SimpleNamespace(),
+            )
+        )
+E       TypeError: build_post_report() got an unexpected keyword argument 'report_project'
+
+tests\test_reporting_semantics.py:538: TypeError
+_____ test_build_post_report_marks_status_failed_for_valid_failed_payload _____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC74C54F0>
+
+    def test_build_post_report_marks_status_failed_for_valid_failed_payload(monkeypatch):
+        channel = SimpleNamespace(id=7, username="test_channel")
+        post = SimpleNamespace(
+            id=11,
+            date=reporting.datetime(2026, 3, 11, 12, 0, tzinfo=reporting.timezone.utc),
+            text="post",
+            views=5,
+            comments_count=2,
+            reactions_json=None,
+        )
+        session = _FakeSession(
+            execute_results=[
+                type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
+                _FakeRowsResult([(1, None, None, 0, None, "hello", None)]),
+            ]
+        )
+    
+        async def _fake_generate_v2(**kwargs):
+            return {
+                "type": "post_report_v2",
+                "status": "failed",
+                "post_id": 11,
+                "title": "fallback",
+                "summary": "fallback",
+                "comment_count": 1,
+                "sentiment": {
+                    "dominant": "neutral",
+                    "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+                    "confidence": "low",
+                },
+                "topics": [],
+                "clusters": [],
+                "time_trends": [],
+                "risks": [],
+                "anomalies": ["model_output_invalid"],
+                "representative_quotes": [],
+                "confidence": {"overall": "low", "reason": "model_output_invalid"},
+                "meta": {
+                    "validation_error": "bad output",
+                    "multi_agent": {
+                        "epistemic_labels": [],
+                        "sufficiency": "insufficient",
+                        "stages": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
+                        "review_iterations": 1,
+                        "final_status": "failed",
+                        "orchestration": {"sequence": ["context", "routing", "expert", "public_opinion", "synthesis"]},
+                    },
+                },
+            }
+    
+        captured = {}
+    
+        async def _fake_upsert_report(session, *, post_id, status, content, report_json=None):
+            captured.update({"post_id": post_id, "status": status, "content": content, "report_json": report_json})
+            return SimpleNamespace(id=93)
+    
+        monkeypatch.setattr(reporting, "upsert_report", _fake_upsert_report)
+        monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _fake_generate_v2)
+        monkeypatch.setattr(
+            reporting,
+            "_post_report_readiness",
+            lambda _session, *, post: asyncio.sleep(0, result={"ready": True, "refresh_attempt": None}),
+        )
+    
+        result = asyncio.run(
+>           reporting.build_post_report(
+                session,
+                post_id=11,
+                report_project=SimpleNamespace(),
+            )
+        )
+E       TypeError: build_post_report() got an unexpected keyword argument 'report_project'
+
+tests\test_reporting_semantics.py:615: TypeError
+_ test_build_post_report_persists_non_ready_reviewer_downgrade_without_job_failure _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC74C55E0>
+
+    def test_build_post_report_persists_non_ready_reviewer_downgrade_without_job_failure(monkeypatch):
+        channel = SimpleNamespace(id=7, username="test_channel")
+        post = SimpleNamespace(
+            id=11,
+            date=reporting.datetime(2026, 3, 11, 12, 0, tzinfo=reporting.timezone.utc),
+            text="post",
+            views=5,
+            comments_count=2,
+            reactions_json=None,
+        )
+        session = _FakeSession(
+            execute_results=[
+                type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
+                _FakeRowsResult([(1, None, None, 0, None, "hello", None)]),
+            ]
+        )
+    
+        async def _fake_generate_v2(**kwargs):
+            return {
+                "type": "post_report_v2",
+                "status": "insufficient_data",
+                "post_id": 11,
+                "title": "fallback",
+                "summary": "fallback",
+                "comment_count": 1,
+                "sentiment": {
+                    "dominant": "neutral",
+                    "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+                    "confidence": "low",
+                },
+                "topics": [],
+                "clusters": [],
+                "time_trends": [],
+                "risks": [],
+                "anomalies": [],
+                "representative_quotes": [],
+                "confidence": {"overall": "low", "reason": "insufficient_data"},
+                "meta": {
+                    "multi_agent": {
+                        "epistemic_labels": [],
+                        "sufficiency": "insufficient",
+                        "stages": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
+                        "review_iterations": 2,
+                        "final_status": "insufficient_data",
+                        "orchestration": {"sequence": ["context", "routing", "expert", "public_opinion", "synthesis"]},
+                    }
+                },
+            }
+    
+        captured = {}
+    
+        async def _fake_upsert_report(session, *, post_id, status, content, report_json=None):
+            captured.update({"post_id": post_id, "status": status, "content": content, "report_json": report_json})
+            return SimpleNamespace(id=94)
+    
+        monkeypatch.setattr(reporting, "upsert_report", _fake_upsert_report)
+        monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _fake_generate_v2)
+        monkeypatch.setattr(
+            reporting,
+            "_post_report_readiness",
+            lambda _session, *, post: asyncio.sleep(0, result={"ready": True, "refresh_attempt": None}),
+        )
+    
+        result = asyncio.run(
+>           reporting.build_post_report(
+                session,
+                post_id=11,
+                report_project=SimpleNamespace(),
+            )
+        )
+E       TypeError: build_post_report() got an unexpected keyword argument 'report_project'
+
+tests\test_reporting_semantics.py:693: TypeError
+_____ test_event_report_readiness_requires_rebuild_for_stale_post_reports _____
+
+    def test_event_report_readiness_requires_rebuild_for_stale_post_reports():
+        session = _FakeSession(
+            execute_results=[
+                _FakeRowsResult(
+                    [
+                        (201, "root", 25, "root text", {"status": "stale"}),
+                        (202, "member", 24, "member text", {"status": "ready"}),
+                        (203, "member", 31, "member text 2", {"status": "ready"}),
+                    ]
+                ),
+            ]
+        )
+    
+>       result = asyncio.run(reporting._event_report_readiness(session, event_id=77))
+                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'services.reporting' has no attribute '_event_report_readiness'. Did you mean: '_post_report_readiness'?
+
+tests\test_reporting_semantics.py:877: AttributeError
+_ test_process_event_loader_does_not_fallback_to_post_reports_when_latest_event_reports_are_stale _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC74C7260>
+
+    def test_process_event_loader_does_not_fallback_to_post_reports_when_latest_event_reports_are_stale(monkeypatch):
+        session = _FakeSession(
+            execute_results=[
+                _FakeRowsResult([(102, "Event 102")]),
+                _FakeRowsResult([(102, {"status": "stale", "summary": "stale"}, 4, 4004)]),
+            ]
+        )
+    
+        async def _fake_load_post_report_payloads_for_event(_session, *, event_id):
+            assert event_id == 102
+            return [{"post_id": 11, "summary": "post report"}]
+    
+>       monkeypatch.setattr(reporting, "_load_post_report_payloads_for_event", _fake_load_post_report_payloads_for_event)
+E       AttributeError: <module 'services.reporting' from 'D:\\Projects\\tg_post_analyzer\\services\\reporting.py'> has no attribute '_load_post_report_payloads_for_event'
+
+tests\test_reporting_semantics.py:917: AttributeError
+______________ test_public_opinion_uses_llm_topics_over_keywords ______________
+
+    def test_public_opinion_uses_llm_topics_over_keywords() -> None:
+        payload = reporting.map_internal_post_report_to_public_payload(
+            {
+                "type": "post_report_v2",
+                "status": "ready",
+                "post_id": 991,
+                "title": "post 991",
+                "summary": "summary",
+                "comment_count": 42,
+                "topics": [],
+                "confidence": {"overall": "high", "reason": "ok"},
+                "meta": {
+                    "multi_agent": {
+                        "version": "v1",
+                        "status": "ready",
+                        "steps": {
+                            **_canonical_openrouter_steps(),
+                            "public_opinion": {
+                                "status": "completed",
+                                "run_count": 1,
+                                "signals": [{"name": "top_topics", "value": ["если", "надо", "налог"]}],
+                                "llm_public_opinion": {"main_topics": [":need_for_cat_registration", ":tax_and_financial_concerns"]},
+                            },
+                        },
+                    }
+                },
+            }
+        )
+>       assert [item["name"] for item in payload["topics"]] == [
+            "сомнения в необходимости регистрации кошек",
+            "опасения будущих налогов и платежей",
+        ]
+E       AssertionError: assert ['need_for_ca...ial_concerns'] == ['сомнения в ...в и платежей']
+E         
+E         At index 0 diff: 'need_for_cat_registration' != 'сомнения в необходимости регистрации кошек'
+E         Use -v to get more diff
+
+tests\test_reporting_semantics.py:1215: AssertionError
+_______________ test_public_opinion_maps_enum_topics_to_russian _______________
+
+    def test_public_opinion_maps_enum_topics_to_russian() -> None:
+        payload = reporting.map_internal_post_report_to_public_payload(
+            {
+                "type": "post_report_v2",
+                "status": "ready",
+                "post_id": 992,
+                "title": "post 992",
+                "summary": "summary",
+                "topics": [],
+                "confidence": {"overall": "high", "reason": "ok"},
+                "meta": {
+                    "multi_agent": {
+                        "version": "v1",
+                        "status": "ready",
+                        "steps": {
+                            **_canonical_openrouter_steps(),
+                            "public_opinion": {
+                                "status": "completed",
+                                "run_count": 1,
+                                "llm_public_opinion": {
+                                    ":main_topics": [
+                                        ":need_for_cat_registration",
+                                        ":tax_and_financial_concerns",
+                                        ":enforcement_and_penalties",
+                                        ":absurdity_of_registering_other_pets",
+                                    ]
+                                },
+                            },
+                        },
+                    }
+                },
+            }
+        )
+>       assert [item["name"] for item in payload["topics"]] == [
+            "сомнения в необходимости регистрации кошек",
+            "опасения будущих налогов и платежей",
+            "вопросы о штрафах и практическом контроле",
+            "саркастические сравнения с регистрацией других животных",
+        ]
+E       AssertionError: assert ['need_for_ca...g_other_pets'] == ['сомнения в ...гих животных']
+E         
+E         At index 0 diff: 'need_for_cat_registration' != 'сомнения в необходимости регистрации кошек'
+E         Use -v to get more diff
+
+tests\test_reporting_semantics.py:1254: AssertionError
+_________ test_public_opinion_filters_stopwords_from_keyword_fallback _________
+
+    def test_public_opinion_filters_stopwords_from_keyword_fallback() -> None:
+        payload = reporting.map_internal_post_report_to_public_payload(
+            {
+                "type": "post_report_v2",
+                "status": "ready",
+                "post_id": 993,
+                "title": "post 993",
+                "summary": "summary",
+                "topics": [],
+                "confidence": {"overall": "high", "reason": "ok"},
+                "meta": {
+                    "multi_agent": {
+                        "version": "v1",
+                        "status": "ready",
+                        "steps": {
+                            **_canonical_openrouter_steps(),
+                            "public_opinion": {
+                                "status": "completed",
+                                "run_count": 1,
+                                "signals": [{"name": "top_topics", "value": ["если", "надо", "это", "что", "налог", "штраф"]}],
+                            },
+                        },
+                    }
+                },
+            }
+        )
+>       assert [item["name"] for item in payload["topics"]] == ["налог", "штраф"]
+E       AssertionError: assert ['если', 'над...что', 'налог'] == ['налог', 'штраф']
+E         
+E         At index 0 diff: 'если' != 'налог'
+E         Left contains 3 more items, first extra item: 'это'
+E         Use -v to get more diff
+
+tests\test_reporting_semantics.py:1288: AssertionError
+___________ test_build_event_report_v2_normalizes_cross_post_topics ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC7523050>
+
+    def test_build_event_report_v2_normalizes_cross_post_topics(monkeypatch) -> None:
+        async def _fake_load_bundle(session, *, event_id):
+            del session
+            return {
+                "event_id": event_id,
+                "event_title": "Local Event",
+                "posts": [{"post_id": 101, "event_role": "root", "text": "Root text", "comments_count": 6}],
+                "post_ids": [101],
+                "root_post_id": 101,
+                "root_post_text": "Root text with enough detail for event summary synthesis.",
+                "comments_all_posts": [f"comment {idx}" for idx in range(1, 8)],
+                "comments_by_post": {101: [f"comment {idx}" for idx in range(1, 8)]},
+            }
+    
+        class _TopicsAdapter:
+            def __init__(self) -> None:
+                self.calls = 0
+    
+            async def create_chat_completion_with_trace(self, **kwargs):
+                del kwargs
+                self.calls += 1
+                if self.calls == 5:
+                    content = (
+                        '{"summary":"EVENT_SYNTHESIS_TEXT",'
+                        '"topics":["budget",{"name":"wages","share":"0.4"},{"text":"loans"},{"name":"budget"},{"name":""},123]}'
+                    )
+                else:
+                    content = "{}"
+                return OpenAIChatCompletionTrace(
+                    content=content,
+                    provider="openrouter",
+                    model="qwen/qwen3-coder:free",
+                    latency_ms=12,
+                    fallback_used=False,
+                    fallback_reason=None,
+                    executed=True,
+                    success=True,
+                    attempt_index=0,
+                )
+    
+        monkeypatch.setattr("services.reporting_v2.event_pipeline.load_event_input_bundle", _fake_load_bundle)
+        payload = asyncio.run(build_event_report_v2_impl(session=object(), event_id=93, llm_adapter=_TopicsAdapter()))
+    
+>       assert payload["cross_post_topics"] == [
+            {"name": "budget"},
+            {"name": "wages", "share": 0.4},
+            {"name": "loans"},
+        ]
+E       AssertionError: assert [{'name': 'bu...share': None}] == [{'name': 'bu...me': 'loans'}]
+E         
+E         At index 0 diff: {'name': 'budget', 'share': None} != {'name': 'budget'}
+E         Use -v to get more diff
+
+tests\test_reporting_v2_event.py:435: AssertionError
+__________________ test_reporting_v2_has_no_litellm_imports ___________________
+
+    def test_reporting_v2_has_no_litellm_imports() -> None:
+        offenders: list[str] = []
+    
+        for path in _reporting_v2_files():
+>           tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_reporting_v2_no_litellm.py:16: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+source = '\ufefffrom __future__ import annotations\nimport asyncio\nimport random\nimport hashlib\nimport inspect\nimport loggi...r, Any]]:\n    result = await run_retrieval_manager(provider, request)\n    return list(result.get("sources") or [])\n'
+filename = 'services\\reporting_v2\\retrieval.py', mode = 'exec'
+
+    def parse(source, filename='<unknown>', mode='exec', *,
+              type_comments=False, feature_version=None):
+        """
+        Parse the source into an AST node.
+        Equivalent to compile(source, filename, mode, PyCF_ONLY_AST).
+        Pass type_comments=True to get back type comments where the syntax allows.
+        """
+        flags = PyCF_ONLY_AST
+        if type_comments:
+            flags |= PyCF_TYPE_COMMENTS
+        if feature_version is None:
+            feature_version = -1
+        elif isinstance(feature_version, tuple):
+            major, minor = feature_version  # Should be a 2-tuple.
+            if major != 3:
+                raise ValueError(f"Unsupported major version: {major}")
+            feature_version = minor
+        # Else it should be an int giving the minor version for 3.x.
+>       return compile(source, filename, mode, flags,
+                       _feature_version=feature_version)
+E         File "services\reporting_v2\retrieval.py", line 1
+E           \ufefffrom __future__ import annotations
+E           ^
+E       SyntaxError: invalid non-printable character U+FEFF
+
+C:\Users\user\AppData\Local\Programs\Python\Python312\Lib\ast.py:52: SyntaxError
+_______ test_reporting_v2_post_pipeline_produces_full_multi_agent_trace _______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC644DA30>
+
+    def test_reporting_v2_post_pipeline_produces_full_multi_agent_trace(monkeypatch) -> None:
+        monkeypatch.setattr(
+            "services.reporting_v2.post_pipeline.OpenAIAdapterConfig.from_settings",
+            lambda: SimpleNamespace(api_key=None),
+        )
+        payload = asyncio.run(
+            generate_post_report_payload_v2(
+                channel="@demo",
+                post_id=101,
+                published_at_iso="2026-04-15T10:00:00+00:00",
+                    post_text=(
+                        "This report describes a local community initiative with operational updates, "
+                        "timeline milestones, stakeholders, and execution notes. The post includes enough "
+                        "context to understand causes, immediate impact, and expected follow-up actions "
+                        "without requiring outside references or institutional background."
+                    ),
+                comments=[f"comment {idx}" for idx in range(1, 8)],
+                thread_comments=[],
+                views=50,
+            )
+        )
+    
+>       multi_agent = payload["meta"]["multi_agent"]
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'multi_agent'
+
+tests\test_reporting_v2_post.py:54: KeyError
+------------------------------ Captured log call ------------------------------
+ERROR    services.reporting_v2.post_pipeline:post_pipeline.py:2030 FATAL: generate_post_report_payload_v2 crashed for post_id=101
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\reporting_v2\post_pipeline.py", line 1145, in generate_post_report_payload_v2
+    logger.info(f"Routing enabled in config: {cfg.routing_enabled}")
+                                              ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'types.SimpleNamespace' object has no attribute 'routing_enabled'
+________ test_reporting_v2_post_pipeline_supports_internal_rerun_trace ________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC74C78F0>
+
+    def test_reporting_v2_post_pipeline_supports_internal_rerun_trace(monkeypatch) -> None:
+        monkeypatch.setattr(
+            "services.reporting_v2.post_pipeline.OpenAIAdapterConfig.from_settings",
+            lambda: SimpleNamespace(api_key=None),
+        )
+        payload = asyncio.run(
+            generate_post_report_payload_v2(
+                channel="@demo",
+                post_id=102,
+                published_at_iso="2026-04-15T10:00:00+00:00",
+                post_text="Post with moderate signal.",
+                comments=["one", "two", "three", "four"],
+                thread_comments=[],
+                views=30,
+                rerun_stage="expert",
+            )
+        )
+    
+>       multi_agent = payload["meta"]["multi_agent"]
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'multi_agent'
+
+tests\test_reporting_v2_post.py:88: KeyError
+------------------------------ Captured log call ------------------------------
+ERROR    services.reporting_v2.post_pipeline:post_pipeline.py:2030 FATAL: generate_post_report_payload_v2 crashed for post_id=102
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\reporting_v2\post_pipeline.py", line 1145, in generate_post_report_payload_v2
+    logger.info(f"Routing enabled in config: {cfg.routing_enabled}")
+                                              ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'types.SimpleNamespace' object has no attribute 'routing_enabled'
+________ test_reporting_v2_post_pipeline_marks_weak_signal_explicitly _________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC61A6FF0>
+
+    def test_reporting_v2_post_pipeline_marks_weak_signal_explicitly(monkeypatch) -> None:
+        monkeypatch.setattr(
+            "services.reporting_v2.post_pipeline.OpenAIAdapterConfig.from_settings",
+            lambda: SimpleNamespace(api_key=None),
+        )
+        payload = asyncio.run(
+            generate_post_report_payload_v2(
+                channel="@demo",
+                post_id=103,
+                published_at_iso="2026-04-15T10:00:00+00:00",
+                post_text="This is a detailed event report body that contains enough textual context to avoid article insufficiency.",
+                comments=["single short comment", "second short comment"],
+                thread_comments=[],
+                views=12,
+            )
+        )
+    
+>       multi_agent = payload["meta"]["multi_agent"]
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'multi_agent'
+
+tests\test_reporting_v2_post.py:114: KeyError
+------------------------------ Captured log call ------------------------------
+ERROR    services.reporting_v2.post_pipeline:post_pipeline.py:2030 FATAL: generate_post_report_payload_v2 crashed for post_id=103
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\reporting_v2\post_pipeline.py", line 1145, in generate_post_report_payload_v2
+    logger.info(f"Routing enabled in config: {cfg.routing_enabled}")
+                                              ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'types.SimpleNamespace' object has no attribute 'routing_enabled'
+_ test_reporting_v2_post_pipeline_retrieval_required_without_provider_is_not_ready _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC61A7800>
+
+    def test_reporting_v2_post_pipeline_retrieval_required_without_provider_is_not_ready(monkeypatch) -> None:
+        monkeypatch.setattr(
+            "services.reporting_v2.post_pipeline.OpenAIAdapterConfig.from_settings",
+            lambda: SimpleNamespace(api_key=None),
+        )
+        payload = asyncio.run(
+            generate_post_report_payload_v2(
+                channel="@demo",
+                post_id=104,
+                published_at_iso="2026-04-15T10:00:00+00:00",
+                post_text=(
+                    "Government officials discussed sanctions and cross-border implications in a high-risk context. "
+                    "The update references previous external decisions without full explanation."
+                ),
+                comments=["comment 1", "comment 2", "comment 3", "comment 4", "comment 5", "comment 6"],
+                thread_comments=[],
+                views=100,
+            )
+        )
+    
+>       multi_agent = payload["meta"]["multi_agent"]
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'multi_agent'
+
+tests\test_reporting_v2_post.py:141: KeyError
+------------------------------ Captured log call ------------------------------
+ERROR    services.reporting_v2.post_pipeline:post_pipeline.py:2030 FATAL: generate_post_report_payload_v2 crashed for post_id=104
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\reporting_v2\post_pipeline.py", line 1145, in generate_post_report_payload_v2
+    logger.info(f"Routing enabled in config: {cfg.routing_enabled}")
+                                              ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'types.SimpleNamespace' object has no attribute 'routing_enabled'
+_ test_reporting_v2_post_pipeline_marks_provider_provenance_for_all_six_steps _
+
+    def test_reporting_v2_post_pipeline_marks_provider_provenance_for_all_six_steps() -> None:
+        class _TraceAdapter:
+            async def create_chat_completion_with_trace(self, **kwargs):
+                del kwargs
+                return OpenAIChatCompletionTrace(
+                    content="{}",
+                    provider="openrouter",
+                    model="qwen/qwen3-coder:free",
+                    latency_ms=15,
+                    fallback_used=False,
+                    fallback_reason=None,
+                    executed=True,
+                    success=True,
+                    attempt_index=0,
+                )
+    
+        payload = asyncio.run(
+            generate_post_report_payload_v2(
+                channel="@demo",
+                post_id=106,
+                published_at_iso="2026-04-15T10:00:00+00:00",
+                post_text=(
+                    "This report describes a local community initiative with operational updates, "
+                    "timeline milestones, stakeholders, and execution notes."
+                ),
+                comments=[f"comment {idx}" for idx in range(1, 8)],
+                thread_comments=[],
+                views=200,
+                llm_adapter=_TraceAdapter(),
+            )
+        )
+    
+        steps = payload["meta"]["multi_agent"]["steps"]
+        required_keys = {
+            "provider",
+            "model",
+            "executed",
+            "success",
+            "latency_ms",
+            "input_ref",
+            "input_hash",
+            "output_ref",
+            "output_hash",
+            "fallback_used",
+            "fallback_reason",
+            "attempt_index",
+            "status",
+        }
+        for step_name in ("context", "routing", "expert", "public_opinion", "synthesis", "reviewer"):
+            provenance = steps[step_name]["provenance"]
+            assert required_keys.issubset(set(provenance.keys()))
+            assert provenance["provider"] == "openrouter"
+            assert provenance["model"] == "qwen/qwen3-coder:free"
+            assert provenance["executed"] is True
+>           assert provenance["success"] is True
+E           assert False is True
+
+tests\test_reporting_v2_post.py:237: AssertionError
+______________ test_build_post_report_uses_reporting_v2_executor ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC645BCB0>
+
+    def test_build_post_report_uses_reporting_v2_executor(monkeypatch) -> None:
+        channel = SimpleNamespace(id=7, username="test_channel")
+        post = SimpleNamespace(
+            id=11,
+            date=reporting.datetime(2026, 3, 11, 12, 0, tzinfo=reporting.timezone.utc),
+            text="post",
+            views=5,
+            comments_count=2,
+            reactions_json=None,
+        )
+        session = _FakeSession(
+            execute_results=[
+                type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
+                _FakeRowsResult([(1, None, None, 0, None, "hello", None), (2, 1, 1, 1, None, "world", None)]),
+            ]
+        )
+    
+        async def _fake_generate_v2(**kwargs):
+            assert kwargs["post_id"] == 11
+            canonical_step = {
+                "status": "completed",
+                "run_count": 1,
+                "provenance": {
+                    "provider": "openrouter",
+                    "model": "qwen/qwen3-coder:free",
+                    "executed": True,
+                    "success": True,
+                    "latency_ms": 10,
+                    "input_ref": None,
+                    "input_hash": None,
+                    "output_ref": None,
+                    "output_hash": None,
+                    "fallback_used": False,
+                    "fallback_reason": None,
+                    "attempt_index": 0,
+                    "status": "completed",
+                },
+            }
+            return {
+                "type": "post_report_v2",
+                "status": "ready",
+                "post_id": 11,
+                "published_at": "2026-03-11T12:00:00+00:00",
+                "title": "ok",
+                "summary": "done",
+                "comment_count": 2,
+                "sentiment": {
+                    "dominant": "neutral",
+                    "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+                },
+                "topics": [],
+                "clusters": [],
+                "time_trends": [],
+                "risks": [],
+                "anomalies": [],
+                "representative_quotes": [],
+                "confidence": {"overall": "medium", "reason": "ok"},
+                    "meta": {
+                        "multi_agent": {
+                            "version": "v1",
+                            "status": "ready",
+                            "steps": {name: dict(canonical_step) for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
+                            "retrieval": {"required": False, "used": False, "status": "none", "sources": []},
+                            "review": {
+                                "iterations": 0,
+                                "history": [{"iteration": 1, "decision": "accept", "target": None, "reason": "ok", "confidence": 0.9}],
+                            },
+                    }
+                },
+            }
+    
+        async def _fake_upsert_report(_session, *, post_id, status, content, report_json=None):
+            assert post_id == 11
+            assert status == "ready"
+            assert report_json["meta"]["multi_agent"]["status"] == "ready"
+            assert report_json["meta"]["input_signature"]
+            return SimpleNamespace(id=95)
+    
+        class _LegacyProject:
+            async def generate_post_report_payload(self, **kwargs):
+                raise AssertionError("legacy project must not be used")
+    
+        monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _fake_generate_v2)
+        monkeypatch.setattr(reporting, "upsert_report", _fake_upsert_report)
+        monkeypatch.setattr(
+            reporting,
+            "_post_report_readiness",
+            lambda _session, *, post: asyncio.sleep(0, result={"ready": True, "refresh_attempt": None}),
+        )
+    
+        result = asyncio.run(
+>           reporting.build_post_report(
+                session,
+                post_id=11,
+                report_project=_LegacyProject(),
+            )
+        )
+E       TypeError: build_post_report() got an unexpected keyword argument 'report_project'
+
+tests\test_reporting_v2_post.py:340: TypeError
+___________________ test_acceptance_matrix_full_sufficient ____________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC74FD790>
+
+    def test_acceptance_matrix_full_sufficient(monkeypatch) -> None:
+        monkeypatch.setattr(
+            "services.reporting_v2.post_pipeline.OpenAIAdapterConfig.from_settings",
+            lambda: SimpleNamespace(api_key=None),
+        )
+        payload = asyncio.run(
+            generate_post_report_payload_v2(
+                channel="@demo",
+                post_id=201,
+                published_at_iso="2026-04-15T10:00:00+00:00",
+                post_text=(
+                    "This report describes a local community initiative with operational updates, "
+                    "timeline milestones, stakeholders, and execution notes. The post includes enough "
+                    "context to understand causes, immediate impact, and expected follow-up actions "
+                    "without requiring outside references or institutional background."
+                ),
+                comments=[f"comment {idx}" for idx in range(1, 8)],
+                thread_comments=[],
+                views=80,
+            )
+        )
+    
+>       multi_agent = payload["meta"]["multi_agent"]
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'multi_agent'
+
+tests\test_reporting_v2_post.py:373: KeyError
+------------------------------ Captured log call ------------------------------
+ERROR    services.reporting_v2.post_pipeline:post_pipeline.py:2030 FATAL: generate_post_report_payload_v2 crashed for post_id=201
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\reporting_v2\post_pipeline.py", line 1145, in generate_post_report_payload_v2
+    logger.info(f"Routing enabled in config: {cfg.routing_enabled}")
+                                              ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'types.SimpleNamespace' object has no attribute 'routing_enabled'
+_________________ test_acceptance_matrix_weak_signal_comments _________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC644D8E0>
+
+    def test_acceptance_matrix_weak_signal_comments(monkeypatch) -> None:
+        monkeypatch.setattr(
+            "services.reporting_v2.post_pipeline.OpenAIAdapterConfig.from_settings",
+            lambda: SimpleNamespace(api_key=None),
+        )
+        payload = asyncio.run(
+            generate_post_report_payload_v2(
+                channel="@demo",
+                post_id=202,
+                published_at_iso="2026-04-15T10:00:00+00:00",
+                post_text="This is a detailed event report body that contains enough textual context to avoid article insufficiency.",
+                comments=["single short comment", "second short comment"],
+                thread_comments=[],
+                views=12,
+            )
+        )
+    
+>       multi_agent = payload["meta"]["multi_agent"]
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'multi_agent'
+
+tests\test_reporting_v2_post.py:399: KeyError
+------------------------------ Captured log call ------------------------------
+ERROR    services.reporting_v2.post_pipeline:post_pipeline.py:2030 FATAL: generate_post_report_payload_v2 crashed for post_id=202
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\reporting_v2\post_pipeline.py", line 1145, in generate_post_report_payload_v2
+    logger.info(f"Routing enabled in config: {cfg.routing_enabled}")
+                                              ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'types.SimpleNamespace' object has no attribute 'routing_enabled'
+______________ test_acceptance_matrix_retrieval_required_failure ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC644CC50>
+
+    def test_acceptance_matrix_retrieval_required_failure(monkeypatch) -> None:
+        monkeypatch.setattr(
+            "services.reporting_v2.post_pipeline.OpenAIAdapterConfig.from_settings",
+            lambda: SimpleNamespace(api_key=None),
+        )
+        payload = asyncio.run(
+            generate_post_report_payload_v2(
+                channel="@demo",
+                post_id=203,
+                published_at_iso="2026-04-15T10:00:00+00:00",
+                post_text=(
+                    "Government officials discussed sanctions and cross-border implications in a high-risk context. "
+                    "The update references previous external decisions without full explanation."
+                ),
+                comments=["comment 1", "comment 2", "comment 3", "comment 4", "comment 5", "comment 6"],
+                thread_comments=[],
+                views=100,
+            )
+        )
+    
+>       multi_agent = payload["meta"]["multi_agent"]
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'multi_agent'
+
+tests\test_reporting_v2_post.py:427: KeyError
+------------------------------ Captured log call ------------------------------
+ERROR    services.reporting_v2.post_pipeline:post_pipeline.py:2030 FATAL: generate_post_report_payload_v2 crashed for post_id=203
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\reporting_v2\post_pipeline.py", line 1145, in generate_post_report_payload_v2
+    logger.info(f"Routing enabled in config: {cfg.routing_enabled}")
+                                              ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'types.SimpleNamespace' object has no attribute 'routing_enabled'
+____________ test_acceptance_matrix_schema_valid_partial_fallback _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC61DC350>
+
+    def test_acceptance_matrix_schema_valid_partial_fallback(monkeypatch) -> None:
+        monkeypatch.setattr(
+            "services.reporting_v2.post_pipeline.OpenAIAdapterConfig.from_settings",
+            lambda: SimpleNamespace(api_key=None),
+        )
+        payload = asyncio.run(
+            generate_post_report_payload_v2(
+                channel="@demo",
+                post_id=204,
+                published_at_iso="2026-04-15T10:00:00+00:00",
+                post_text="Post with moderate signal.",
+                comments=["one", "two", "three", "four"],
+                thread_comments=[],
+                views=30,
+                rerun_stage="expert",
+            )
+        )
+    
+>       multi_agent = payload["meta"]["multi_agent"]
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'multi_agent'
+
+tests\test_reporting_v2_post.py:453: KeyError
+------------------------------ Captured log call ------------------------------
+ERROR    services.reporting_v2.post_pipeline:post_pipeline.py:2030 FATAL: generate_post_report_payload_v2 crashed for post_id=204
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\reporting_v2\post_pipeline.py", line 1145, in generate_post_report_payload_v2
+    logger.info(f"Routing enabled in config: {cfg.routing_enabled}")
+                                              ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'types.SimpleNamespace' object has no attribute 'routing_enabled'
+______________ test_acceptance_matrix_terminal_insufficient_data ______________
+
+    def test_acceptance_matrix_terminal_insufficient_data() -> None:
+        class _FailingAdapter:
+            async def create_chat_completion(self, **kwargs):
+                raise RuntimeError("boom")
+    
+        payload = asyncio.run(
+            generate_post_report_payload_v2(
+                channel="@demo",
+                post_id=205,
+                published_at_iso="2026-04-15T10:00:00+00:00",
+                post_text=(
+                    "This report describes a local community initiative with operational updates, "
+                    "timeline milestones, stakeholders, and execution notes. The post includes enough "
+                    "context to understand causes, immediate impact, and expected follow-up actions "
+                    "without requiring outside references or institutional background."
+                ),
+                comments=[f"comment {idx}" for idx in range(1, 8)],
+                thread_comments=[],
+                views=200,
+                llm_adapter=_FailingAdapter(),
+            )
+        )
+    
+        multi_agent = payload["meta"]["multi_agent"]
+        assert payload["status"] == "insufficient_data"
+>       assert multi_agent["review"]["iterations"] == 2
+E       assert 3 == 2
+
+tests\test_reporting_v2_post.py:486: AssertionError
+------------------------------ Captured log call ------------------------------
+WARNING  services.reporting_v2.post_pipeline:post_pipeline.py:1263 Routing failed for post_id=205, error=boom, falling back to default queries
+____________ test_public_opinion_is_structured_for_repeated_theses ____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC75215B0>
+
+    def test_public_opinion_is_structured_for_repeated_theses(monkeypatch) -> None:
+        monkeypatch.setattr(
+            "services.reporting_v2.post_pipeline.OpenAIAdapterConfig.from_settings",
+            lambda: SimpleNamespace(api_key=None),
+        )
+        payload = asyncio.run(
+            generate_post_report_payload_v2(
+                channel="@demo",
+                post_id=303,
+                published_at_iso="2026-04-15T10:00:00+00:00",
+                post_text="Detailed post text about transport policy and liability.",
+                comments=[
+                    "Drivers should slow down near crossings and respect right-of-way.",
+                    "Drivers should slow down near crossings and respect right-of-way.",
+                    "Scooter users should follow crossing rules and reduce speed.",
+                    "Scooter users should follow crossing rules and reduce speed.",
+                    "Enforcement must improve to reduce repeated conflicts.",
+                    "Enforcement must improve to reduce repeated conflicts.",
+                ],
+                thread_comments=[],
+                views=80,
+            )
+        )
+    
+>       po = payload["meta"]["multi_agent"]["steps"]["public_opinion"]
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'multi_agent'
+
+tests\test_reporting_v2_post.py:573: KeyError
+------------------------------ Captured log call ------------------------------
+ERROR    services.reporting_v2.post_pipeline:post_pipeline.py:2030 FATAL: generate_post_report_payload_v2 crashed for post_id=303
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\reporting_v2\post_pipeline.py", line 1145, in generate_post_report_payload_v2
+    logger.info(f"Routing enabled in config: {cfg.routing_enabled}")
+                                              ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'types.SimpleNamespace' object has no attribute 'routing_enabled'
+_ test_retrieval_required_without_provider_downgrades_confidence_in_public_mapping _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC645BE60>
+
+    def test_retrieval_required_without_provider_downgrades_confidence_in_public_mapping(monkeypatch) -> None:
+        monkeypatch.setattr(
+            "services.reporting_v2.post_pipeline.OpenAIAdapterConfig.from_settings",
+            lambda: SimpleNamespace(api_key=None),
+        )
+        payload = asyncio.run(
+            generate_post_report_payload_v2(
+                channel="@demo",
+                post_id=304,
+                published_at_iso="2026-04-15T10:00:00+00:00",
+                post_text=(
+                    "Government ministry statement references sanctions and cross-border negotiations "
+                    "without full external context."
+                ),
+                comments=["signal one", "signal two", "signal three", "signal four", "signal five", "signal six"],
+                thread_comments=[],
+                views=120,
+                effective_features={"retrieval_provider_enabled": False},
+            )
+        )
+    
+        mapped = reporting.map_internal_post_report_to_public_payload(payload)
+>       assert mapped["status"] == "limited"
+E       AssertionError: assert 'failed' == 'limited'
+E         
+E         - limited
+E         + failed
+
+tests\test_reporting_v2_post.py:603: AssertionError
+------------------------------ Captured log call ------------------------------
+ERROR    services.reporting_v2.post_pipeline:post_pipeline.py:2030 FATAL: generate_post_report_payload_v2 crashed for post_id=304
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\reporting_v2\post_pipeline.py", line 1145, in generate_post_report_payload_v2
+    logger.info(f"Routing enabled in config: {cfg.routing_enabled}")
+                                              ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'types.SimpleNamespace' object has no attribute 'routing_enabled'
+_ test_post_pipeline_keeps_synthesis_text_as_source_of_truth_without_downstream_overwrite _
+
+    def test_post_pipeline_keeps_synthesis_text_as_source_of_truth_without_downstream_overwrite() -> None:
+        class _SynthesisAdapter:
+            def __init__(self) -> None:
+                self.calls = 0
+    
+            async def create_chat_completion_with_trace(self, **kwargs):
+                from services.llm.openai_client import OpenAIChatCompletionTrace
+    
+                del kwargs
+                self.calls += 1
+                if self.calls == 5:
+                    content = (
+                        '{"report_text":"SYNTHESIS_CANONICAL_TEXT","components":{"event":true,"context":true,'
+                        '"reaction":true,"interpretation":true,"consequences":true},"sentence_count":1,'
+                        '"quality":"ok","confidence_reason":"llm"}'
+                    )
+                else:
+                    content = "{}"
+                return OpenAIChatCompletionTrace(
+                    content=content,
+                    provider="openrouter",
+                    model="qwen/qwen3-coder:free",
+                    latency_ms=11,
+                    fallback_used=False,
+                    fallback_reason=None,
+                    executed=True,
+                    success=True,
+                    attempt_index=0,
+                )
+    
+        payload = asyncio.run(
+            generate_post_report_payload_v2(
+                channel="@demo",
+                post_id=306,
+                published_at_iso="2026-04-15T10:00:00+00:00",
+                post_text="Detailed post body with context and clear event framing.",
+                comments=["c1", "c2", "c3", "c4"],
+                thread_comments=[],
+                views=55,
+                llm_adapter=_SynthesisAdapter(),
+            )
+        )
+    
+        multi_agent = payload["meta"]["multi_agent"]
+        synthesis_text = multi_agent["steps"]["synthesis"]["report_text"]
+>       assert synthesis_text == "SYNTHESIS_CANONICAL_TEXT"
+E       AssertionError: assert 'SYNTHESIS_CA...ной проверки.' == 'SYNTHESIS_CANONICAL_TEXT'
+E         
+E         - SYNTHESIS_CANONICAL_TEXT
+E         + SYNTHESIS_CANONICAL_TEXT. по имеющимся данным. реакция ограничена. требует дополнительной проверки.
+
+tests\test_reporting_v2_post.py:687: AssertionError
+______________ test_synthesis_mentions_limited_external_context _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC75E8500>
+
+    def test_synthesis_mentions_limited_external_context(monkeypatch) -> None:
+        monkeypatch.setattr(
+            "services.reporting_v2.post_pipeline.OpenAIAdapterConfig.from_settings",
+            lambda: SimpleNamespace(api_key=None),
+        )
+        payload = asyncio.run(
+            generate_post_report_payload_v2(
+                channel="@demo",
+                post_id=514,
+                published_at_iso="2026-04-15T10:00:00+00:00",
+                post_text="Policy-heavy post referencing external decisions without full detail.",
+                comments=["c1", "c2", "c3", "c4", "c5", "c6"],
+                thread_comments=[],
+                views=55,
+            )
+        )
+        summary = str(payload.get("summary") or "").lower()
+>       assert payload["meta"]["multi_agent"]["retrieval"]["status"] in {"failed", "insufficient"}
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'multi_agent'
+
+tests\test_reporting_v2_post.py:1097: KeyError
+------------------------------ Captured log call ------------------------------
+ERROR    services.reporting_v2.post_pipeline:post_pipeline.py:2030 FATAL: generate_post_report_payload_v2 crashed for post_id=514
+Traceback (most recent call last):
+  File "D:\Projects\tg_post_analyzer\services\reporting_v2\post_pipeline.py", line 1145, in generate_post_report_payload_v2
+    logger.info(f"Routing enabled in config: {cfg.routing_enabled}")
+                                              ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'types.SimpleNamespace' object has no attribute 'routing_enabled'
+_____________ test_weak_signal_public_opinion_makes_final_limited _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC75EA120>
+
+    def test_weak_signal_public_opinion_makes_final_limited(monkeypatch) -> None:
+        monkeypatch.setattr(
+            "services.reporting_v2.post_pipeline._build_public_opinion_trace",
+            lambda **kwargs: {
+                "discussion_state": "weak_signal",
+                "main_topics": [],
+                "dominant_reactions": [],
+                "data_status": "weak_signal",
+                "confidence": 0.25,
+                "signals": [{"name": "comments_count", "value": 2}],
+            },
+        )
+        payload = asyncio.run(
+            generate_post_report_payload_v2(
+                channel="@demo",
+                post_id=516,
+                published_at_iso="2026-04-15T10:00:00+00:00",
+                post_text="Detailed post body with enough detail for article sufficiency.",
+                comments=["c1", "c2", "c3", "c4", "c5", "c6", "c7"],
+                thread_comments=[],
+                views=55,
+                llm_adapter=_ExpertContractAdapter(
+                    {
+                        "background": [{"text": "Факт", "type": "fact", "confidence": 0.8, "source": "article"}],
+                        "interpretations": [{"text": "Интерпретация", "type": "interpretation", "confidence": 0.7, "source": "article"}],
+                        "consequences": [{"text": "Последствие", "type": "uncertain", "confidence": 0.7, "source": "article"}],
+                        "data_status": "sufficient",
+                        "confidence": 0.75,
+                    }
+                ),
+                retrieval_provider=MockRetrievalProvider(),
+                effective_features={"force_retrieval_for_all_reports": False},
+            )
+        )
+>       assert payload["meta"]["multi_agent"]["steps"]["public_opinion"]["data_status"] == "weak_signal"
+E       AssertionError: assert 'insufficient' == 'weak_signal'
+E         
+E         - weak_signal
+E         + insufficient
+
+tests\test_reporting_v2_post.py:1162: AssertionError
+__________________ test_insufficient_article_stops_pipeline ___________________
+
+    def test_insufficient_article_stops_pipeline() -> None:
+        payload = asyncio.run(
+            generate_post_report_payload_v2(
+                channel="@demo",
+                post_id=517,
+                published_at_iso="2026-04-15T10:00:00+00:00",
+                post_text="",
+                comments=["c1", "c2", "c3", "c4", "c5", "c6"],
+                thread_comments=[],
+                views=55,
+                llm_adapter=_ExpertContractAdapter({"background": [], "interpretations": [], "consequences": [], "confidence": 0.0}),
+                retrieval_provider=MockRetrievalProvider(),
+                effective_features={"force_retrieval_for_all_reports": False},
+            )
+        )
+>       assert payload["meta"]["multi_agent"]["steps"]["context"]["sufficiency_components"]["article"] == "insufficient"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'sufficiency_components'
+
+tests\test_reporting_v2_post.py:1181: KeyError
+________ test_build_post_report_uses_legacy_path_when_rollout_disabled ________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC7678B60>
+
+    def test_build_post_report_uses_legacy_path_when_rollout_disabled(monkeypatch) -> None:
+        channel = SimpleNamespace(id=7, username="test_channel")
+        post = SimpleNamespace(
+            id=11,
+            date=reporting.datetime(2026, 3, 11, 12, 0, tzinfo=reporting.timezone.utc),
+            text="post",
+            views=5,
+            comments_count=2,
+            reactions_json=None,
+        )
+        session = _FakeSession(
+            execute_results=[
+                type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
+                _FakeRowsResult([(1, None, None, 0, None, "hello", None), (2, 1, 1, 1, None, "world", None)]),
+            ]
+        )
+    
+        async def _fake_generate_v2(**kwargs):
+            assert kwargs["post_id"] == 11
+            return {
+                "type": "post_report_v2",
+                "status": "ready",
+                "post_id": 11,
+                "published_at": "2026-03-11T12:00:00+00:00",
+                "title": "ok",
+                "summary": "done",
+                "comment_count": 2,
+                "sentiment": {
+                    "dominant": "neutral",
+                    "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+                },
+                "topics": [],
+                "clusters": [],
+                "time_trends": [],
+                "risks": [],
+                "anomalies": [],
+                "representative_quotes": [],
+                "confidence": {"overall": "medium", "reason": "ok"},
+                "meta": {
+                    "multi_agent": {
+                        "version": "v1",
+                        "status": "ready",
+                        "steps": {name: {"status": "completed", "run_count": 1} for name in ["context", "routing", "expert", "public_opinion", "synthesis", "reviewer"]},
+                        "retrieval": {"required": False, "used": False, "status": "none", "sources": []},
+                        "review": {
+                            "iterations": 0,
+                            "history": [{"iteration": 1, "decision": "accept", "target": None, "reason": "ok", "confidence": 0.9}],
+                        },
+                    }
+                },
+            }
+    
+        async def _fake_upsert_report(_session, *, post_id, status, content, report_json=None):
+            assert post_id == 11
+            assert status == "ready"
+            assert report_json["meta"]["multi_agent"]["status"] == "ready"
+            return SimpleNamespace(id=95)
+    
+        async def _unexpected_orchestrator_helper(**kwargs):
+            raise AssertionError(f"orchestrator helper must stay unused when rollout is disabled: {kwargs}")
+    
+        monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _fake_generate_v2)
+        monkeypatch.setattr(reporting, "upsert_report", _fake_upsert_report)
+        monkeypatch.setattr(
+            reporting,
+            "_load_reporting_feature_flags",
+            lambda _session: asyncio.sleep(
+                0,
+                result={
+                    "multi_agent_mode_enabled": False,
+                    "multi_agent_rollout_percent": 100,
+                },
+            ),
+        )
+        monkeypatch.setattr(
+            reporting,
+            "_post_report_readiness",
+            lambda _session, *, post: asyncio.sleep(0, result={"ready": True, "refresh_attempt": None}),
+        )
+        monkeypatch.setattr(reporting, "build_post_report_v2_payload_from_orchestrator", _unexpected_orchestrator_helper)
+    
+        result = asyncio.run(
+>           reporting.build_post_report(
+                session,
+                post_id=11,
+                report_project=None,
+            )
+        )
+E       TypeError: build_post_report() got an unexpected keyword argument 'report_project'
+
+tests\test_reporting_v2_skeleton.py:738: TypeError
+_______ test_build_post_report_uses_v2_helper_when_rollout_gate_allows ________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC75E9490>
+
+    def test_build_post_report_uses_v2_helper_when_rollout_gate_allows(monkeypatch) -> None:
+        channel = SimpleNamespace(id=7, username="test_channel")
+        post = SimpleNamespace(
+            id=11,
+            date=reporting.datetime(2026, 3, 11, 12, 0, tzinfo=reporting.timezone.utc),
+            text="post",
+            views=5,
+            comments_count=2,
+            reactions_json=None,
+        )
+        session = _FakeSession(
+            execute_results=[
+                type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
+                _FakeRowsResult([(1, None, None, 0, None, "hello", None), (2, 1, 1, 1, None, "world", None)]),
+            ]
+        )
+    
+        async def _unexpected_generate_v2(**kwargs):
+            raise AssertionError(f"legacy generator must be bypassed when rollout allows v2: {kwargs}")
+    
+        async def _fake_orchestrator_helper(**kwargs):
+            assert kwargs["post_id"] == 11
+            return {
+                "type": "post_report_v2",
+                "status": "limited",
+                "post_id": 11,
+                "published_at": "2026-03-11T12:00:00+00:00",
+                "title": "v2 helper title",
+                "summary": "v2 helper summary",
+                "comment_count": 2,
+                "sentiment": {
+                    "dominant": "neutral",
+                    "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+                },
+                "topics": [],
+                "clusters": [],
+                "time_trends": [],
+                "risks": [],
+                "anomalies": [],
+                "representative_quotes": [],
+                "confidence": {"overall": "low", "reason": "v2 helper"},
+                "meta": {
+                    "multi_agent": {
+                        "version": "v1",
+                        "status": "limited",
+                        "public_opinion": {
+                            "discussion_state": "active",
+                            "signals": [
+                                {"name": "comments_count", "value": 2},
+                                {"name": "top_topics", "value": ["topic-alpha", "topic-beta"]},
+                            ],
+                        },
+                        "routing": {"reasoning": "deterministic_orchestrator_v1"},
+                        "reviewer": {"decision": "accept_with_limitations", "iterations": 1, "history": []},
+                        "synthesis": {
+                            "summary": "Deterministic synthesis summary based on input signals.",
+                            "confidence_reason": "deterministic_orchestrator_v1",
+                        },
+                    }
+                },
+            }
+    
+        async def _fake_upsert_report(_session, *, post_id, status, content, report_json=None):
+            assert post_id == 11
+            assert status == "limited"
+            assert report_json["summary"]
+            assert [topic["name"] for topic in report_json["topics"]] == ["topic-alpha", "topic-beta"]
+            assert report_json["meta"]["multi_agent"]["review"]["iterations"] == 1
+            assert "reviewer" not in report_json["meta"]["multi_agent"]
+            return SimpleNamespace(id=96)
+    
+        monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _unexpected_generate_v2)
+        monkeypatch.setattr(reporting, "build_post_report_v2_payload_from_orchestrator", _fake_orchestrator_helper)
+        monkeypatch.setattr(reporting, "upsert_report", _fake_upsert_report)
+        monkeypatch.setattr(
+            reporting,
+            "_load_reporting_feature_flags",
+            lambda _session: asyncio.sleep(
+                0,
+                result={
+                    "multi_agent_mode_enabled": True,
+                    "multi_agent_rollout_percent": 100,
+                },
+            ),
+        )
+        monkeypatch.setattr(
+            reporting,
+            "_post_report_readiness",
+            lambda _session, *, post: asyncio.sleep(0, result={"ready": True, "refresh_attempt": None}),
+        )
+    
+        result = asyncio.run(
+>           reporting.build_post_report(
+                session,
+                post_id=11,
+                report_project=None,
+            )
+        )
+E       TypeError: build_post_report() got an unexpected keyword argument 'report_project'
+
+tests\test_reporting_v2_skeleton.py:841: TypeError
+_ test_build_post_report_falls_back_to_legacy_when_v2_payload_is_skeleton_like _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC75E9460>
+
+    def test_build_post_report_falls_back_to_legacy_when_v2_payload_is_skeleton_like(monkeypatch) -> None:
+        channel = SimpleNamespace(id=7, username="test_channel")
+        post = SimpleNamespace(
+            id=11,
+            date=reporting.datetime(2026, 3, 11, 12, 0, tzinfo=reporting.timezone.utc),
+            text="post",
+            views=5,
+            comments_count=2,
+            reactions_json=None,
+        )
+        session = _FakeSession(
+            execute_results=[
+                type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
+                _FakeRowsResult([(1, None, None, 0, None, "hello", None), (2, 1, 1, 1, None, "world", None)]),
+            ]
+        )
+    
+        calls = {"legacy": 0, "v2": 0}
+    
+        async def _legacy_generator(**kwargs):
+            calls["legacy"] += 1
+            return {
+                "type": "post_report_v2",
+                "status": "ready",
+                "post_id": kwargs["post_id"],
+                "published_at": "2026-03-11T12:00:00+00:00",
+                "title": "legacy title",
+                "summary": "legacy summary",
+                "comment_count": 2,
+                "sentiment": {
+                    "dominant": "neutral",
+                    "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+                },
+                "topics": [],
+                "clusters": [],
+                "time_trends": [],
+                "risks": [],
+                "anomalies": [],
+                "representative_quotes": [],
+                "confidence": {"overall": "medium", "reason": "legacy"},
+                "meta": {"multi_agent": {"version": "v1", "status": "ready"}},
+            }
+    
+        async def _v2_helper_skeleton_like(**kwargs):
+            calls["v2"] += 1
+            return {
+                "type": "post_report_v2",
+                "status": "insufficient_data",
+                "post_id": kwargs["post_id"],
+                "published_at": "2026-03-11T12:00:00+00:00",
+                "title": "v2 title",
+                "summary": "v2 summary",
+                "comment_count": 2,
+                "sentiment": {
+                    "dominant": "neutral",
+                    "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+                },
+                "topics": [],
+                "clusters": [],
+                "time_trends": [],
+                "risks": [],
+                "anomalies": [],
+                "representative_quotes": [],
+                "confidence": {"overall": "low", "reason": "orchestrator"},
+                "meta": {
+                    "multi_agent": {
+                        "version": "v1",
+                        "status": "insufficient_data",
+                        "routing": {"reasoning": "orchestrator_skeleton"},
+                        "synthesis": {"summary": "", "confidence_reason": "orchestrator_skeleton"},
+                    }
+                },
+            }
+    
+        async def _fake_upsert(_session, *, post_id, status, content, report_json=None):
+            assert post_id == 11
+            assert status == "ready"
+            assert content
+            assert report_json is not None
+            assert report_json["meta"]["multi_agent"]["status"] == "ready"
+            return SimpleNamespace(id=201)
+    
+        monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _legacy_generator)
+        monkeypatch.setattr(reporting, "build_post_report_v2_payload_from_orchestrator", _v2_helper_skeleton_like)
+        monkeypatch.setattr(reporting, "upsert_report", _fake_upsert)
+        monkeypatch.setattr(
+            reporting,
+            "_load_reporting_feature_flags",
+            lambda _session: asyncio.sleep(
+                0,
+                result={
+                    "multi_agent_mode_enabled": True,
+                    "multi_agent_rollout_percent": 100,
+                },
+            ),
+        )
+        monkeypatch.setattr(
+            reporting,
+            "_post_report_readiness",
+            lambda _session, *, post: asyncio.sleep(0, result={"ready": True, "refresh_attempt": None}),
+        )
+    
+        result = asyncio.run(
+>           reporting.build_post_report(
+                session,
+                post_id=11,
+                report_project=None,
+            )
+        )
+E       TypeError: build_post_report() got an unexpected keyword argument 'report_project'
+
+tests\test_reporting_v2_skeleton.py:956: TypeError
+___ test_build_post_report_falls_back_to_legacy_when_v2_persist_path_errors ___
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC62202F0>
+
+    def test_build_post_report_falls_back_to_legacy_when_v2_persist_path_errors(monkeypatch) -> None:
+        channel = SimpleNamespace(id=7, username="test_channel")
+        post = SimpleNamespace(
+            id=11,
+            date=reporting.datetime(2026, 3, 11, 12, 0, tzinfo=reporting.timezone.utc),
+            text="post",
+            views=5,
+            comments_count=2,
+            reactions_json=None,
+        )
+        session = _FakeSession(
+            execute_results=[
+                type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
+                _FakeRowsResult([(1, None, None, 0, None, "hello", None), (2, 1, 1, 1, None, "world", None)]),
+            ]
+        )
+    
+        calls = {"legacy": 0, "v2": 0}
+    
+        async def _legacy_generator(**kwargs):
+            calls["legacy"] += 1
+            return {
+                "type": "post_report_v2",
+                "status": "ready",
+                "post_id": kwargs["post_id"],
+                "published_at": "2026-03-11T12:00:00+00:00",
+                "title": "legacy title",
+                "summary": "legacy summary",
+                "comment_count": 2,
+                "sentiment": {
+                    "dominant": "neutral",
+                    "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+                },
+                "topics": [],
+                "clusters": [],
+                "time_trends": [],
+                "risks": [],
+                "anomalies": [],
+                "representative_quotes": [],
+                "confidence": {"overall": "medium", "reason": "legacy"},
+                "meta": {"multi_agent": {"version": "v1", "status": "ready"}},
+            }
+    
+        async def _broken_v2_helper(**_kwargs):
+            calls["v2"] += 1
+            raise RuntimeError("v2 exploded")
+    
+        async def _fake_upsert(_session, *, post_id, status, content, report_json=None):
+            assert post_id == 11
+            assert status == "ready"
+            assert content
+            assert report_json is not None
+            assert report_json["meta"]["multi_agent"]["status"] == "ready"
+            return SimpleNamespace(id=199)
+    
+        monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _legacy_generator)
+        monkeypatch.setattr(reporting, "build_post_report_v2_payload_from_orchestrator", _broken_v2_helper)
+        monkeypatch.setattr(reporting, "upsert_report", _fake_upsert)
+        monkeypatch.setattr(
+            reporting,
+            "_load_reporting_feature_flags",
+            lambda _session: asyncio.sleep(
+                0,
+                result={
+                    "multi_agent_mode_enabled": True,
+                    "multi_agent_rollout_percent": 100,
+                },
+            ),
+        )
+        monkeypatch.setattr(
+            reporting,
+            "_post_report_readiness",
+            lambda _session, *, post: asyncio.sleep(0, result={"ready": True, "refresh_attempt": None}),
+        )
+    
+        result = asyncio.run(
+>           reporting.build_post_report(
+                session,
+                post_id=11,
+                report_project=None,
+            )
+        )
+E       TypeError: build_post_report() got an unexpected keyword argument 'report_project'
+
+tests\test_reporting_v2_skeleton.py:1045: TypeError
+_ test_build_post_report_uses_shared_downstream_flow_after_payload_selection[legacy-features0] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC645B8C0>
+path_name = 'legacy'
+features = {'multi_agent_mode_enabled': False, 'multi_agent_rollout_percent': 100}
+
+    @pytest.mark.parametrize(("path_name", "features"), [
+        ("legacy", {"multi_agent_mode_enabled": False, "multi_agent_rollout_percent": 100}),
+        ("v2", {"multi_agent_mode_enabled": True, "multi_agent_rollout_percent": 100}),
+    ])
+    def test_build_post_report_uses_shared_downstream_flow_after_payload_selection(monkeypatch, path_name: str, features: dict) -> None:
+        channel = SimpleNamespace(id=7, username="test_channel")
+        post = SimpleNamespace(
+            id=11,
+            date=reporting.datetime(2026, 3, 11, 12, 0, tzinfo=reporting.timezone.utc),
+            text="post",
+            views=5,
+            comments_count=2,
+            reactions_json=None,
+        )
+        session = _FakeSession(
+            execute_results=[
+                type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
+                _FakeRowsResult([(1, None, None, 0, None, "hello", None), (2, 1, 1, 1, None, "world", None)]),
+            ]
+        )
+    
+        call_counters = {"legacy": 0, "v2": 0, "map": 0, "enrich": 0, "render": 0}
+    
+        async def _legacy_generator(**kwargs):
+            call_counters["legacy"] += 1
+            return {
+                "type": "post_report_v2",
+                "status": "ready",
+                "post_id": kwargs["post_id"],
+                "title": "legacy title",
+                "summary": "legacy summary",
+            }
+    
+        async def _v2_helper(**kwargs):
+            call_counters["v2"] += 1
+            return {
+                "type": "post_report_v2",
+                "status": "ready",
+                "post_id": kwargs["post_id"],
+                "title": "v2 title",
+                "summary": "v2 summary",
+            }
+    
+        def _map_payload(payload):
+            call_counters["map"] += 1
+            mapped = dict(payload or {})
+            mapped["mapped_marker"] = True
+            mapped.setdefault("status", "ready")
+            mapped.setdefault("summary", "mapped")
+            mapped.setdefault("title", "mapped")
+            return mapped
+    
+        def _enrich_payload(*, payload, post, comment_rows):
+            call_counters["enrich"] += 1
+            enriched = dict(payload or {})
+            enriched["enriched_marker"] = True
+            assert post.id == 11
+            assert len(comment_rows) == 2
+            return enriched
+    
+        def _render_payload(payload):
+            call_counters["render"] += 1
+            assert payload["mapped_marker"] is True
+            assert payload["enriched_marker"] is True
+            return "rendered-content"
+    
+        async def _fake_upsert(_session, *, post_id, status, content, report_json=None):
+            assert post_id == 11
+            assert status == "ready"
+            assert content == "rendered-content"
+            assert report_json["mapped_marker"] is True
+            assert report_json["enriched_marker"] is True
+            assert report_json["meta"]["input_signature"]
+            assert report_json["meta"]["generated_at"]
+            return SimpleNamespace(id=197)
+    
+        monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _legacy_generator)
+        monkeypatch.setattr(reporting, "build_post_report_v2_payload_from_orchestrator", _v2_helper)
+        monkeypatch.setattr(reporting, "map_internal_post_report_to_public_payload", _map_payload)
+        monkeypatch.setattr(reporting, "_enrich_post_report_payload", _enrich_payload)
+        monkeypatch.setattr(reporting, "_render_post_report_text", _render_payload)
+        monkeypatch.setattr(reporting, "upsert_report", _fake_upsert)
+        monkeypatch.setattr(
+            reporting,
+            "_post_report_readiness",
+            lambda _session, *, post: asyncio.sleep(0, result={"ready": True, "refresh_attempt": None}),
+        )
+        monkeypatch.setattr(
+            reporting,
+            "_load_reporting_feature_flags",
+            lambda _session: asyncio.sleep(0, result=features),
+        )
+    
+        result = asyncio.run(
+>           reporting.build_post_report(
+                session,
+                post_id=11,
+                report_project=None,
+            )
+        )
+E       TypeError: build_post_report() got an unexpected keyword argument 'report_project'
+
+tests\test_reporting_v2_skeleton.py:1153: TypeError
+_ test_build_post_report_uses_shared_downstream_flow_after_payload_selection[v2-features1] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC61DF230>
+path_name = 'v2'
+features = {'multi_agent_mode_enabled': True, 'multi_agent_rollout_percent': 100}
+
+    @pytest.mark.parametrize(("path_name", "features"), [
+        ("legacy", {"multi_agent_mode_enabled": False, "multi_agent_rollout_percent": 100}),
+        ("v2", {"multi_agent_mode_enabled": True, "multi_agent_rollout_percent": 100}),
+    ])
+    def test_build_post_report_uses_shared_downstream_flow_after_payload_selection(monkeypatch, path_name: str, features: dict) -> None:
+        channel = SimpleNamespace(id=7, username="test_channel")
+        post = SimpleNamespace(
+            id=11,
+            date=reporting.datetime(2026, 3, 11, 12, 0, tzinfo=reporting.timezone.utc),
+            text="post",
+            views=5,
+            comments_count=2,
+            reactions_json=None,
+        )
+        session = _FakeSession(
+            execute_results=[
+                type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
+                _FakeRowsResult([(1, None, None, 0, None, "hello", None), (2, 1, 1, 1, None, "world", None)]),
+            ]
+        )
+    
+        call_counters = {"legacy": 0, "v2": 0, "map": 0, "enrich": 0, "render": 0}
+    
+        async def _legacy_generator(**kwargs):
+            call_counters["legacy"] += 1
+            return {
+                "type": "post_report_v2",
+                "status": "ready",
+                "post_id": kwargs["post_id"],
+                "title": "legacy title",
+                "summary": "legacy summary",
+            }
+    
+        async def _v2_helper(**kwargs):
+            call_counters["v2"] += 1
+            return {
+                "type": "post_report_v2",
+                "status": "ready",
+                "post_id": kwargs["post_id"],
+                "title": "v2 title",
+                "summary": "v2 summary",
+            }
+    
+        def _map_payload(payload):
+            call_counters["map"] += 1
+            mapped = dict(payload or {})
+            mapped["mapped_marker"] = True
+            mapped.setdefault("status", "ready")
+            mapped.setdefault("summary", "mapped")
+            mapped.setdefault("title", "mapped")
+            return mapped
+    
+        def _enrich_payload(*, payload, post, comment_rows):
+            call_counters["enrich"] += 1
+            enriched = dict(payload or {})
+            enriched["enriched_marker"] = True
+            assert post.id == 11
+            assert len(comment_rows) == 2
+            return enriched
+    
+        def _render_payload(payload):
+            call_counters["render"] += 1
+            assert payload["mapped_marker"] is True
+            assert payload["enriched_marker"] is True
+            return "rendered-content"
+    
+        async def _fake_upsert(_session, *, post_id, status, content, report_json=None):
+            assert post_id == 11
+            assert status == "ready"
+            assert content == "rendered-content"
+            assert report_json["mapped_marker"] is True
+            assert report_json["enriched_marker"] is True
+            assert report_json["meta"]["input_signature"]
+            assert report_json["meta"]["generated_at"]
+            return SimpleNamespace(id=197)
+    
+        monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _legacy_generator)
+        monkeypatch.setattr(reporting, "build_post_report_v2_payload_from_orchestrator", _v2_helper)
+        monkeypatch.setattr(reporting, "map_internal_post_report_to_public_payload", _map_payload)
+        monkeypatch.setattr(reporting, "_enrich_post_report_payload", _enrich_payload)
+        monkeypatch.setattr(reporting, "_render_post_report_text", _render_payload)
+        monkeypatch.setattr(reporting, "upsert_report", _fake_upsert)
+        monkeypatch.setattr(
+            reporting,
+            "_post_report_readiness",
+            lambda _session, *, post: asyncio.sleep(0, result={"ready": True, "refresh_attempt": None}),
+        )
+        monkeypatch.setattr(
+            reporting,
+            "_load_reporting_feature_flags",
+            lambda _session: asyncio.sleep(0, result=features),
+        )
+    
+        result = asyncio.run(
+>           reporting.build_post_report(
+                session,
+                post_id=11,
+                report_project=None,
+            )
+        )
+E       TypeError: build_post_report() got an unexpected keyword argument 'report_project'
+
+tests\test_reporting_v2_skeleton.py:1153: TypeError
+_ test_build_post_report_shadow_mode_keeps_legacy_persisted_and_emits_job_result_compare _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC644EE70>
+
+    def test_build_post_report_shadow_mode_keeps_legacy_persisted_and_emits_job_result_compare(monkeypatch) -> None:
+        channel = SimpleNamespace(id=7, username="test_channel")
+        post = SimpleNamespace(
+            id=11,
+            date=reporting.datetime(2026, 3, 11, 12, 0, tzinfo=reporting.timezone.utc),
+            text="post",
+            views=5,
+            comments_count=2,
+            reactions_json=None,
+        )
+        session = _FakeSession(
+            execute_results=[
+                type("_PostResult", (), {"first": lambda self_: (post, channel)})(),
+                _FakeRowsResult([(1, None, None, 0, None, "hello", None), (2, 1, 1, 1, None, "world", None)]),
+            ]
+        )
+    
+        async def _legacy_generator(**kwargs):
+            return {
+                "type": "post_report_v2",
+                "status": "ready",
+                "post_id": kwargs["post_id"],
+                "published_at": "2026-03-11T12:00:00+00:00",
+                "title": "legacy title",
+                "summary": "legacy summary",
+                "comment_count": 2,
+                "sentiment": {
+                    "dominant": "neutral",
+                    "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+                },
+                "topics": [],
+                "clusters": [],
+                "time_trends": [],
+                "risks": [],
+                "anomalies": [],
+                "representative_quotes": [],
+                "confidence": {"overall": "medium", "reason": "legacy"},
+                "meta": {"multi_agent": {"version": "v1", "status": "ready"}},
+            }
+    
+        async def _v2_helper(**kwargs):
+            return {
+                "type": "post_report_v2",
+                "status": "limited",
+                "post_id": kwargs["post_id"],
+                "published_at": "2026-03-11T12:00:00+00:00",
+                "title": "v2 title",
+                "summary": "v2 summary",
+                "comment_count": 2,
+                "sentiment": {
+                    "dominant": "neutral",
+                    "distribution": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+                },
+                "topics": [],
+                "clusters": [],
+                "time_trends": [],
+                "risks": [],
+                "anomalies": [],
+                "representative_quotes": [],
+                "confidence": {"overall": "low", "reason": "v2"},
+                "meta": {"multi_agent": {"version": "v1", "status": "limited"}},
+            }
+    
+        async def _fake_upsert(_session, *, post_id, status, content, report_json=None):
+            assert post_id == 11
+            # Legacy payload remains the persisted source of truth in shadow mode.
+            assert status == "ready"
+            assert report_json is not None
+            assert "shadow_compare" not in (report_json.get("meta") or {})
+            assert report_json.get("summary")
+            return SimpleNamespace(id=198)
+    
+        monkeypatch.setattr(reporting, "generate_post_report_payload_v2", _legacy_generator)
+        monkeypatch.setattr(reporting, "build_post_report_v2_payload_from_orchestrator", _v2_helper)
+        monkeypatch.setattr(reporting, "upsert_report", _fake_upsert)
+        monkeypatch.setattr(
+            reporting,
+            "_load_reporting_feature_flags",
+            lambda _session: asyncio.sleep(
+                0,
+                result={
+                    "multi_agent_mode_enabled": True,
+                    "multi_agent_rollout_percent": 100,
+                    "multi_agent_shadow_mode_enabled": True,
+                },
+            ),
+        )
+        monkeypatch.setattr(
+            reporting,
+            "_post_report_readiness",
+            lambda _session, *, post: asyncio.sleep(0, result={"ready": True, "refresh_attempt": None}),
+        )
+    
+        result = asyncio.run(
+>           reporting.build_post_report(
+                session,
+                post_id=11,
+                report_project=None,
+            )
+        )
+E       TypeError: build_post_report() got an unexpected keyword argument 'report_project'
+
+tests\test_reporting_v2_skeleton.py:1266: TypeError
+__________ test_main_async_starts_registers_and_shuts_down_scheduler __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC798BBC0>
+
+    @pytest.mark.asyncio
+    async def test_main_async_starts_registers_and_shuts_down_scheduler(monkeypatch):
+        scheduler = _FakeScheduler()
+        register_calls: list[dict] = []
+        heartbeat_calls: list[dict] = []
+    
+        async def _fake_get_all_settings(_session):
+            return {"scheduler": {"enabled": True, "retention_hour": 4}}
+    
+        def _fake_register_periodic_jobs(scheduler_obj, *, effective_settings):
+            register_calls.append({"scheduler": scheduler_obj, "effective_settings": effective_settings})
+    
+        async def _fake_persist_runtime_heartbeat(**kwargs):
+            heartbeat_calls.append(kwargs)
+    
+        monkeypatch.setattr(run_scheduler, "AsyncSessionLocal", lambda: _FakeSessionContext())
+        monkeypatch.setattr(run_scheduler, "get_all_settings", _fake_get_all_settings)
+        monkeypatch.setattr(run_scheduler, "build_scheduler", lambda: scheduler)
+        monkeypatch.setattr(run_scheduler, "register_periodic_jobs", _fake_register_periodic_jobs)
+        monkeypatch.setattr(run_scheduler, "persist_runtime_heartbeat", _fake_persist_runtime_heartbeat)
+        monkeypatch.setattr(run_scheduler.asyncio, "Event", _FakeStopEvent)
+    
+>       await run_scheduler.main_async()
+
+tests\test_run_scheduler.py:79: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    async def main_async() -> None:
+        async with AsyncSessionLocal() as session:
+            effective_settings = await get_all_settings(session)
+    
+        if not retention_scheduler_enabled(effective_settings):
+            logging.info("Scheduler process is disabled by settings.")
+            return
+    
+        scheduler = build_scheduler()
+>       logging.info(f"Using timezone: {scheduler.timezone}")
+                                        ^^^^^^^^^^^^^^^^^^
+E       AttributeError: '_FakeScheduler' object has no attribute 'timezone'
+
+scripts\run_scheduler.py:38: AttributeError
+_______ test_main_async_shuts_down_scheduler_if_initial_heartbeat_fails _______
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000018AC7BA9C70>
+
+    @pytest.mark.asyncio
+    async def test_main_async_shuts_down_scheduler_if_initial_heartbeat_fails(monkeypatch):
+        scheduler = _FakeScheduler()
+    
+        async def _fake_get_all_settings(_session):
+            return {"scheduler": {"enabled": True}}
+    
+        async def _failing_persist_runtime_heartbeat(**kwargs):
+            if kwargs["status"] == "running":
+                raise RuntimeError("heartbeat write failed")
+    
+        monkeypatch.setattr(run_scheduler, "AsyncSessionLocal", lambda: _FakeSessionContext())
+        monkeypatch.setattr(run_scheduler, "get_all_settings", _fake_get_all_settings)
+        monkeypatch.setattr(run_scheduler, "build_scheduler", lambda: scheduler)
+        monkeypatch.setattr(run_scheduler, "register_periodic_jobs", lambda scheduler_obj, *, effective_settings: None)
+        monkeypatch.setattr(run_scheduler, "persist_runtime_heartbeat", _failing_persist_runtime_heartbeat)
+    
+        with pytest.raises(RuntimeError, match="heartbeat write failed"):
+>           await run_scheduler.main_async()
+
+tests\test_run_scheduler.py:113: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    async def main_async() -> None:
+        async with AsyncSessionLocal() as session:
+            effective_settings = await get_all_settings(session)
+    
+        if not retention_scheduler_enabled(effective_settings):
+            logging.info("Scheduler process is disabled by settings.")
+            return
+    
+        scheduler = build_scheduler()
+>       logging.info(f"Using timezone: {scheduler.timezone}")
+                                        ^^^^^^^^^^^^^^^^^^
+E       AttributeError: '_FakeScheduler' object has no attribute 'timezone'
+
+scripts\run_scheduler.py:38: AttributeError
+__ test_retention_scheduler_enabled_requires_both_flag_and_scheduler_switch ___
+
+    def test_retention_scheduler_enabled_requires_both_flag_and_scheduler_switch():
+        assert retention_scheduler_enabled({"scheduler": {"enabled": True}}) is True
+        assert retention_scheduler_enabled({"scheduler": {"enabled": False}}) is False
+>       assert retention_scheduler_enabled({}) is False
+E       assert True is False
+E        +  where True = retention_scheduler_enabled({})
+
+tests\test_scheduler_runtime.py:55: AssertionError
+============================== warnings summary ===============================
+venv\Lib\site-packages\fastapi\testclient.py:1
+  D:\Projects\tg_post_analyzer\venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_comment_identity_schema.py::test_upsert_comment_keeps_old_callers_compatible_by_defaulting_tg_peer_id_to_channel_id
+tests/test_comment_identity_schema.py::test_upsert_comment_does_not_overwrite_same_tg_message_id_from_different_peers
+tests/test_comment_identity_schema.py::test_upsert_comment_does_not_overwrite_same_tg_message_id_from_different_peers
+  D:\Projects\tg_post_analyzer\services\ingest.py:130: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at=datetime.utcnow(),
+
+tests/test_reply_link_semantics.py::test_upsert_post_link_maps_reply_to_update
+  D:\Projects\tg_post_analyzer\services\linker.py:63: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at=datetime.utcnow(),
+
+tests/test_reply_link_semantics.py::test_upsert_post_link_maps_reply_to_update
+  D:\Projects\tg_post_analyzer\services\linker.py:64: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    updated_at=datetime.utcnow(),
+
+tests/test_reply_link_semantics.py::test_upsert_post_link_maps_reply_to_update
+  D:\Projects\tg_post_analyzer\services\linker.py:74: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "updated_at": datetime.utcnow(),
+
+tests/test_reply_link_semantics.py::test_no_llm_pipeline_reply_link_type_is_update
+  D:\Projects\tg_post_analyzer\services\linking\no_llm_pipeline.py:51: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    created_at=datetime.utcnow(),
+
+tests/test_reply_link_semantics.py::test_no_llm_pipeline_reply_link_type_is_update
+  D:\Projects\tg_post_analyzer\services\linking\no_llm_pipeline.py:52: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    updated_at=datetime.utcnow(),
+
+tests/test_reply_link_semantics.py::test_no_llm_pipeline_reply_link_type_is_update
+  D:\Projects\tg_post_analyzer\services\linking\no_llm_pipeline.py:67: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    "updated_at": datetime.utcnow(),
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_ai_runtime_mode.py::test_run_ai_jobs_processes_queued_build_post_report
+FAILED tests/test_ai_runtime_mode.py::test_run_ai_jobs_passes_internal_stage_rerun_without_creating_extra_jobs
+FAILED tests/test_ai_runtime_mode.py::test_run_ai_jobs_keeps_build_post_report_batch_passive
+FAILED tests/test_api_entrypoint.py::test_api_main_exposes_app_and_registers_routes
+FAILED tests/test_monitoring_scheduler.py::test_pipeline_snapshot_uses_recent_window_for_collect_comments_rates
+FAILED tests/test_openai_adapter.py::test_openai_adapter_initializes_sdk_client_with_expected_params
+FAILED tests/test_pipeline_error_paths.py::test_with_session_lock_retry_retries_locked_session
+FAILED tests/test_pipeline_error_paths.py::test_with_session_lock_retry_does_not_swallow_non_lock_errors
+FAILED tests/test_pipeline_error_paths.py::test_split_jobs_for_telegram_worker_separates_comment_jobs
+FAILED tests/test_posts_comments_api.py::test_get_comments_keeps_success_response_shape_for_existing_post_with_comments
+FAILED tests/test_prompt_loader.py::test_synthesis_prompts_define_five_component_order_contract
+FAILED tests/test_report_language.py::test_normalize_translates_english_summary
+FAILED tests/test_report_language.py::test_normalize_does_not_translate_quotes
+FAILED tests/test_report_language.py::test_normalize_does_not_translate_urls_or_enums
+FAILED tests/test_report_language.py::test_normalize_translates_multi_agent_synthesis_report_text
+FAILED tests/test_report_language.py::test_normalize_is_idempotent_for_russian_report
+FAILED tests/test_report_language.py::test_normalize_translates_mixed_language_synthesis_phrase
+FAILED tests/test_report_language.py::test_renderer_keeps_enum_values_unchanged
+FAILED tests/test_report_progress_ws_api.py::test_report_progress_ws_emits_started_event
+FAILED tests/test_report_progress_ws_api.py::test_report_progress_ws_emits_completed_event
+FAILED tests/test_report_progress_ws_api.py::test_report_progress_ws_treats_limited_report_result_as_completed
+FAILED tests/test_report_progress_ws_api.py::test_report_progress_ws_emits_failed_event
+FAILED tests/test_report_progress_ws_api.py::test_report_progress_ws_allows_undefined_request_id_when_entity_binding_is_valid
+FAILED tests/test_reporting_semantics.py::test_map_internal_post_report_to_public_payload_normalizes_public_semantics
+FAILED tests/test_reporting_semantics.py::test_render_post_report_uses_compact_spec_aligned_text
+FAILED tests/test_reporting_semantics.py::test_mark_report_payload_stale_preserves_context
+FAILED tests/test_reporting_semantics.py::test_build_post_report_sanitizes_internal_error
+FAILED tests/test_reporting_semantics.py::test_build_post_report_defers_until_refresh_work_unit_completed
+FAILED tests/test_reporting_semantics.py::test_build_post_report_persists_input_signature
+FAILED tests/test_reporting_semantics.py::test_build_post_report_marks_status_failed_for_valid_failed_payload
+FAILED tests/test_reporting_semantics.py::test_build_post_report_persists_non_ready_reviewer_downgrade_without_job_failure
+FAILED tests/test_reporting_semantics.py::test_event_report_readiness_requires_rebuild_for_stale_post_reports
+FAILED tests/test_reporting_semantics.py::test_process_event_loader_does_not_fallback_to_post_reports_when_latest_event_reports_are_stale
+FAILED tests/test_reporting_semantics.py::test_public_opinion_uses_llm_topics_over_keywords
+FAILED tests/test_reporting_semantics.py::test_public_opinion_maps_enum_topics_to_russian
+FAILED tests/test_reporting_semantics.py::test_public_opinion_filters_stopwords_from_keyword_fallback
+FAILED tests/test_reporting_v2_event.py::test_build_event_report_v2_normalizes_cross_post_topics
+FAILED tests/test_reporting_v2_no_litellm.py::test_reporting_v2_has_no_litellm_imports
+FAILED tests/test_reporting_v2_post.py::test_reporting_v2_post_pipeline_produces_full_multi_agent_trace
+FAILED tests/test_reporting_v2_post.py::test_reporting_v2_post_pipeline_supports_internal_rerun_trace
+FAILED tests/test_reporting_v2_post.py::test_reporting_v2_post_pipeline_marks_weak_signal_explicitly
+FAILED tests/test_reporting_v2_post.py::test_reporting_v2_post_pipeline_retrieval_required_without_provider_is_not_ready
+FAILED tests/test_reporting_v2_post.py::test_reporting_v2_post_pipeline_marks_provider_provenance_for_all_six_steps
+FAILED tests/test_reporting_v2_post.py::test_build_post_report_uses_reporting_v2_executor
+FAILED tests/test_reporting_v2_post.py::test_acceptance_matrix_full_sufficient
+FAILED tests/test_reporting_v2_post.py::test_acceptance_matrix_weak_signal_comments
+FAILED tests/test_reporting_v2_post.py::test_acceptance_matrix_retrieval_required_failure
+FAILED tests/test_reporting_v2_post.py::test_acceptance_matrix_schema_valid_partial_fallback
+FAILED tests/test_reporting_v2_post.py::test_acceptance_matrix_terminal_insufficient_data
+FAILED tests/test_reporting_v2_post.py::test_public_opinion_is_structured_for_repeated_theses
+FAILED tests/test_reporting_v2_post.py::test_retrieval_required_without_provider_downgrades_confidence_in_public_mapping
+FAILED tests/test_reporting_v2_post.py::test_post_pipeline_keeps_synthesis_text_as_source_of_truth_without_downstream_overwrite
+FAILED tests/test_reporting_v2_post.py::test_synthesis_mentions_limited_external_context
+FAILED tests/test_reporting_v2_post.py::test_weak_signal_public_opinion_makes_final_limited
+FAILED tests/test_reporting_v2_post.py::test_insufficient_article_stops_pipeline
+FAILED tests/test_reporting_v2_skeleton.py::test_build_post_report_uses_legacy_path_when_rollout_disabled
+FAILED tests/test_reporting_v2_skeleton.py::test_build_post_report_uses_v2_helper_when_rollout_gate_allows
+FAILED tests/test_reporting_v2_skeleton.py::test_build_post_report_falls_back_to_legacy_when_v2_payload_is_skeleton_like
+FAILED tests/test_reporting_v2_skeleton.py::test_build_post_report_falls_back_to_legacy_when_v2_persist_path_errors
+FAILED tests/test_reporting_v2_skeleton.py::test_build_post_report_uses_shared_downstream_flow_after_payload_selection[legacy-features0]
+FAILED tests/test_reporting_v2_skeleton.py::test_build_post_report_uses_shared_downstream_flow_after_payload_selection[v2-features1]
+FAILED tests/test_reporting_v2_skeleton.py::test_build_post_report_shadow_mode_keeps_legacy_persisted_and_emits_job_result_compare
+FAILED tests/test_run_scheduler.py::test_main_async_starts_registers_and_shuts_down_scheduler
+FAILED tests/test_run_scheduler.py::test_main_async_shuts_down_scheduler_if_initial_heartbeat_fails
+FAILED tests/test_scheduler_runtime.py::test_retention_scheduler_enabled_requires_both_flag_and_scheduler_switch
+65 failed, 339 passed, 17 skipped, 10 warnings in 14.06s

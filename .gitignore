@@ -93,3 +93,6 @@ docs/*_test_results_*.txt
 docker-data/
 
 "services/llm/router_models.json" 
+
+pytest_run.txt
+pytest_collected.txt

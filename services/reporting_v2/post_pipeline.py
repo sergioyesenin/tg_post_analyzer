@@ -311,6 +311,48 @@ def _normalize_expert_output(
         "contract_invalid": contract_invalid,
     }
 
+def _normalize_public_opinion_output(candidate: dict[str, Any] | None) -> dict[str, Any]:
+    """Нормализует ответ LLM для public_opinion, проверяет обязательные поля."""
+    data = dict(candidate or {})
+    
+    allowed_states = {"supportive", "critical", "mixed", "conflicted", "weak_signal"}
+    discussion_state = str(data.get("discussion_state") or "").strip().lower()
+    if discussion_state not in allowed_states:
+        discussion_state = "weak_signal"
+        data_status = "insufficient"
+    else:
+        data_status = "sufficient" if discussion_state in {"mixed", "conflicted"} else "limited"
+    
+    dominant_reactions = data.get("dominant_reactions", [])
+    if not isinstance(dominant_reactions, list):
+        dominant_reactions = []
+    
+    main_topics = data.get("main_topics", [])
+    if not isinstance(main_topics, list):
+        main_topics = []
+    
+    social_effects = data.get("social_effects", [])
+    if not isinstance(social_effects, list):
+        social_effects = []
+    
+    try:
+        confidence = float(data.get("confidence", 0.0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    
+    # Если нет нормальных dominant_reactions, понижаем confidence
+    if not dominant_reactions and discussion_state != "weak_signal":
+        confidence = min(confidence, 0.4)
+    
+    return {
+        "discussion_state": discussion_state,
+        "dominant_reactions": dominant_reactions,
+        "main_topics": main_topics,
+        "social_effects": social_effects,
+        "data_status": data_status,
+        "confidence": max(0.0, min(1.0, confidence)),
+        "malformed_output": not data or discussion_state not in allowed_states,
+    }
 
 def _build_limited_expert_fallback(*, post_text: str, comments: list[str]) -> dict[str, Any]:
     article_hint = _safe_text(post_text, max_len=220) or "The article provides only partial context."
@@ -841,7 +883,7 @@ def _apply_step_provider_trace(
     )
     step["provenance"] = provenance
     if trace.success:
-        step["status"] = str(step.get("status") or "completed")
+        step["status"] = "completed"
     else:
         step["status"] = "failed"
     step_traces[step_name] = step
@@ -1047,6 +1089,8 @@ def create_router_from_file() -> ModelRouter | None:
     except Exception as e:
         logger.error(f"Failed to load router models from {path}: {e}")
         return None
+
+
 
 async def generate_post_report_payload_v2(
     *,
@@ -1403,10 +1447,15 @@ async def generate_post_report_payload_v2(
                 public_output = _safe_dict(public_output)
                 _apply_step_provider_trace(step_traces=step_traces, step_name="public_opinion", trace=public_trace)
                 if isinstance(public_output, dict):
+                    normalized_public = _normalize_public_opinion_output(public_output)
                     apply_step_trace_envelope(
                         step_traces,
                         step_name="public_opinion",
-                        mutator=lambda trace: trace.update({"llm_public_opinion": public_output}),
+                        mutator=lambda trace: trace.update({
+                            "llm_public_opinion": public_output,
+                            **normalized_public,
+                            "status": "completed" if normalized_public.get("data_status") != "insufficient" else "failed",
+                        }),
                     )
             except Exception as exc:
                 _apply_step_provider_trace(
@@ -1579,7 +1628,16 @@ async def generate_post_report_payload_v2(
                     public_output = _safe_dict(public_output)
                     _apply_step_provider_trace(step_traces=step_traces, step_name="public_opinion", trace=public_trace)
                     if isinstance(public_output, dict):
-                        apply_step_trace_envelope(step_traces, step_name="public_opinion", mutator=lambda trace: trace.update({"llm_public_opinion": public_output}))
+                        normalized_public = _normalize_public_opinion_output(public_output)
+                        apply_step_trace_envelope(
+                            step_traces,
+                            step_name="public_opinion",
+                            mutator=lambda trace: trace.update({
+                                "llm_public_opinion": public_output,
+                                **normalized_public,
+                                "status": "completed" if normalized_public.get("data_status") != "insufficient" else "failed",
+                            }),
+                        )
 
                 llm_output, synthesis_trace = await _try_llm_json_step(
                     adapter=llm_adapter,

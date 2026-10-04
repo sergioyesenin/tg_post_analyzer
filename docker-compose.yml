@@ -9,8 +9,11 @@ services:
     image: redis:alpine
     container_name: redis-searxng
     restart: unless-stopped
-    networks:
-      - searxng-net 
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       - redis-data:/data
   postgres:
@@ -23,6 +26,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env}
     ports:
       - "5432:5432"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -42,12 +50,15 @@ services:
     restart: "no"
     env_file:
       - .env
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       DB_URL: ${DOCKER_DB_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics}
       TEST_DATABASE_URL: ${DOCKER_TEST_DATABASE_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics_test}
-      REPORT_LLM_BASE_URL: ${DOCKER_REPORT_LLM_BASE_URL:-http://host.docker.internal:11434}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      REPORT_LLM_BASE_URL: http://ollama:11434
     depends_on:
       postgres:
         condition: service_healthy
@@ -62,15 +73,20 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     env_file:
       - .env
     environment:
-      DB_URL: ${DOCKER_DB_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics}
-      TEST_DATABASE_URL: ${DOCKER_TEST_DATABASE_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics_test}
-      REPORT_LLM_BASE_URL: ${DOCKER_REPORT_LLM_BASE_URL:-http://host.docker.internal:11434}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      DB_URL: ${DOCKER_DB_URL:-postgresql+asyncpg://tg_analytics:replace-with-url-encoded-password@postgres:5432/tg_analytics}
+      TEST_DATABASE_URL: ${DOCKER_TEST_DATABASE_URL:-postgresql+asyncpg://tg_analytics:replace-with-url-encoded-password@postgres:5432/tg_analytics_test}
+      REPORT_LLM_BASE_URL: http://ollama:11434
     depends_on:
+      ollama: 
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
     ports:
@@ -89,14 +105,17 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: on-failure
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     env_file:
       - .env
     environment:
       DB_URL: ${DOCKER_DB_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics}
       TEST_DATABASE_URL: ${DOCKER_TEST_DATABASE_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics_test}
-      REPORT_LLM_BASE_URL: ${DOCKER_REPORT_LLM_BASE_URL:-http://host.docker.internal:11434}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      REPORT_LLM_BASE_URL: http://ollama:11434
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -112,24 +131,31 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     env_file:
-      - .env
+     - .env
     environment:
       DB_URL: ${DOCKER_DB_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics}
       TEST_DATABASE_URL: ${DOCKER_TEST_DATABASE_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics_test}
-      REPORT_LLM_BASE_URL: ${DOCKER_REPORT_LLM_BASE_URL:-http://host.docker.internal:11434}
-      TG_SESSION_NAME: ${DOCKER_TG_SESSION_NAME:-/app/runtime/tg_analytics.session}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      REPORT_LLM_BASE_URL: http://ollama:11434
+      TG_SESSION_NAME: ${DOCKER_TG_SESSION_NAME:-/app/runtime/tg_analytics_new.session}
     depends_on:
       migrate:
         condition: service_completed_successfully
+      ollama: 
+        condition: service_healthy
     volumes:
       - tg_session:/app/runtime
     command:
       - python
       - scripts/run_telegram_pipeline.py
       - --daemon
+      - --session-suffix
+      - new
 
   ai_pipeline:
     <<: *app-image
@@ -137,17 +163,22 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     env_file:
       - .env
     environment:
       DB_URL: ${DOCKER_DB_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics}
       TEST_DATABASE_URL: ${DOCKER_TEST_DATABASE_URL:-postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics_test}
-      REPORT_LLM_BASE_URL: ${DOCKER_REPORT_LLM_BASE_URL:-http://host.docker.internal:11434}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      REPORT_LLM_BASE_URL: http://ollama:11434
     depends_on:
       migrate:
         condition: service_completed_successfully
+      ollama: 
+        condition: service_healthy
     command:
       - python
       - scripts/run_ai_pipeline.py
@@ -157,25 +188,48 @@ services:
   searxng:
     image: searxng/searxng:latest
     container_name: searxng
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     ports:
       - "8088:8080"              # хост:контейнер (8088 на хосте)
     environment:
       - BASE_URL=http://localhost:8088/
       - INSTANCE_NAME=reporting-retrieval
-      - SEARXNG_REDIS_URL=redis://redis:6379/0   # подключение к Redis
+      - SEARXNG_REDIS_URL=redis://redis:6379/0  
+      - SEARXNG_SECRET=${SEARXNG_SECRET} # подключение к Redis
     volumes:
       - ./searxng:/etc/searxng
     restart: unless-stopped
     depends_on:
       - redis
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - ollama_data:/root/.ollama
     networks:
-      - searxng-net
+      - default
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
 volumes:
   pgdata:
   redis-data:
   tg_session:
+  ollama_data:
 
-networks:
-  searxng-net:
-    driver: bridge

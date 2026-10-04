@@ -47,6 +47,7 @@ from services.reporting.mapping import (
     _trim_sentence,
     canonicalize_multi_agent_trace,
     report_status_from_payload,
+    _canonicalize_multi_agent_trace,
 )
 
 from services.reporting.constants import (
@@ -151,134 +152,6 @@ def _build_shadow_compare_payload(*, legacy_payload: dict, v2_payload: dict) -> 
         "same_status": legacy_status == v2_status,
         "same_summary": legacy_summary_preview == v2_summary_preview,
     }
-
-def _extract_step_payload(multi_agent: dict, step: str) -> dict[str, Any]:
-    steps = multi_agent.get("steps")
-    if isinstance(steps, dict) and isinstance(steps.get(step), dict):
-        return dict(steps.get(step) or {})
-    legacy_stages = multi_agent.get("stages")
-    if isinstance(legacy_stages, dict) and isinstance(legacy_stages.get(step), dict):
-        return dict(legacy_stages.get(step) or {})
-    legacy = multi_agent.get(step)
-    return dict(legacy or {}) if isinstance(legacy, dict) else {}
-
-
-def _default_step_provenance(*, step_payload: dict[str, Any]) -> dict[str, Any]:
-    status = str(step_payload.get("status") or "skipped")
-    normalized_status = status if status in {"completed", "failed", "skipped"} else "skipped"
-    run_count = int(step_payload.get("run_count") or 1)
-    existing = step_payload.get("provenance")
-    base = dict(existing or {})
-    base.setdefault("provider", None)
-    base.setdefault("model", None)
-    base.setdefault("executed", False)
-    base.setdefault("success", False)
-    base.setdefault("latency_ms", None)
-    base.setdefault("input_ref", None)
-    base.setdefault("input_hash", None)
-    base.setdefault("output_ref", None)
-    base.setdefault("output_hash", None)
-    base.setdefault("fallback_used", False)
-    base.setdefault("fallback_reason", None)
-    base.setdefault("attempt_index", max(0, run_count - 1) if normalized_status != "skipped" else 0)
-    base["status"] = normalized_status
-    return base
-
-
-def _canonicalize_multi_agent_trace(payload: dict) -> dict:
-    multi_agent = ((payload.get("meta") or {}).get("multi_agent") or {})
-    if not isinstance(multi_agent, dict) or not multi_agent:
-        return {}
-
-    context_step = _extract_step_payload(multi_agent, "context")
-    routing_step = _extract_step_payload(multi_agent, "routing")
-    expert_step = _extract_step_payload(multi_agent, "expert")
-    public_opinion_step = _extract_step_payload(multi_agent, "public_opinion")
-    legacy_public_opinion = multi_agent.get("public_opinion")
-    if isinstance(legacy_public_opinion, dict):
-        merged_public_opinion = dict(legacy_public_opinion)
-        if isinstance(public_opinion_step, dict):
-            merged_public_opinion.update(public_opinion_step)
-        public_opinion_step = merged_public_opinion
-    if isinstance(public_opinion_step, dict):
-        public_opinion_step = _normalize_public_opinion_semantics(public_opinion_step)
-    synthesis_step = _extract_step_payload(multi_agent, "synthesis")
-    reviewer_step = _extract_step_payload(multi_agent, "reviewer")
-    review = multi_agent.get("review")
-    if not isinstance(review, dict):
-        legacy_reviewer = dict(multi_agent.get("reviewer") or {})
-        review = {
-            "iterations": int(legacy_reviewer.get("iterations") or 0),
-            "history": list(legacy_reviewer.get("history") or []),
-        }
-    if not reviewer_step and isinstance(multi_agent.get("reviewer"), dict):
-        reviewer_step = dict(multi_agent.get("reviewer") or {})
-    reviewer_step = {
-        "status": str(reviewer_step.get("status") or "completed"),
-        "run_count": int(reviewer_step.get("run_count") or 1),
-        "decision": str(reviewer_step.get("decision") or review.get("decision") or ""),
-        "iterations": int(
-            reviewer_step.get("iterations")
-            or review.get("iterations")
-            or len([item for item in list(review.get("history") or []) if str((item or {}).get("decision")) == "rerun_branch"])
-        ),
-        "history": list(reviewer_step.get("history") or review.get("history") or []),
-        **reviewer_step,
-    }
-    if not reviewer_step["decision"]:
-        history = list(reviewer_step.get("history") or [])
-        if history:
-            reviewer_step["decision"] = str((history[-1] or {}).get("decision") or "insufficient_data")
-        else:
-            reviewer_step["decision"] = "insufficient_data"
-
-    canonical = {
-        "version": str(multi_agent.get("version") or "v1"),
-        "status": str(
-            multi_agent.get("status")
-            or multi_agent.get("final_status")
-            or payload.get("status")
-            or REPORT_STATUS_LIMITED
-        ),
-        "epistemic_claims": list(multi_agent.get("epistemic_claims") or expert_step.get("claims") or []),
-        "steps": {
-            "context": {"status": str(context_step.get("status") or "completed"), "run_count": int(context_step.get("run_count") or 1), **context_step},
-            "routing": {"status": str(routing_step.get("status") or "completed"), "run_count": int(routing_step.get("run_count") or 1), **routing_step},
-            "expert": {"status": str(expert_step.get("status") or "completed"), "run_count": int(expert_step.get("run_count") or 1), **expert_step},
-            "public_opinion": {"status": str(public_opinion_step.get("status") or "completed"), "run_count": int(public_opinion_step.get("run_count") or 1), **public_opinion_step},
-            "synthesis": {"status": str(synthesis_step.get("status") or "completed"), "run_count": int(synthesis_step.get("run_count") or 1), **synthesis_step},
-            "reviewer": reviewer_step,
-        },
-        "retrieval": {
-            "required": bool((multi_agent.get("retrieval") or {}).get("required", False)),
-            "used": bool((multi_agent.get("retrieval") or {}).get("used", False)),
-            "status": str((multi_agent.get("retrieval") or {}).get("status") or "none"),
-            "decision_inputs": dict((multi_agent.get("retrieval") or {}).get("decision_inputs") or {}),
-            "decision_source": str((multi_agent.get("retrieval") or {}).get("decision_source") or "policy"),
-            "sources": list((multi_agent.get("retrieval") or {}).get("sources") or []),
-        },
-        "review": {
-            "iterations": int(
-                review.get("iterations")
-                or len([item for item in list(review.get("history") or []) if str((item or {}).get("decision")) == "rerun_branch"])
-            ),
-            "history": list(review.get("history") or []),
-        },
-    }
-    for step_name, step_payload in list((canonical.get("steps") or {}).items()):
-        if isinstance(step_payload, dict):
-            if isinstance(step_payload.get("provenance"), dict):
-                step_payload["provenance_source"] = "observed"
-            else:
-                step_payload["provenance_source"] = "default_filled"
-            step_payload["provenance"] = _default_step_provenance(step_payload=step_payload)
-            canonical["steps"][step_name] = step_payload
-    return canonical
-
-
-def canonicalize_multi_agent_trace(payload: dict) -> dict:
-    return _canonicalize_multi_agent_trace(payload)
-
 
 async def _load_reporting_feature_flags(session: AsyncSession) -> dict[str, Any]:
     try:

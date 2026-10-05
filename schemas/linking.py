@@ -27,6 +27,7 @@ class PostLinksResponse(BaseModel):
 
 
 class LinkRunResponse(BaseModel):
+    status: str = "ok"
     post_id: int
     links_verified: int
     links_proposed: int

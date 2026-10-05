@@ -1,3 +1,4 @@
+```markdown
 # tg_post_analyzer
 
 ## Обзор
@@ -101,6 +102,62 @@ docs/                   Runbook-ы и сопутствующая инженер�
 - [docs/runtime_topology.md](/d:/Projects/tg_post_analyzer/docs/runtime_topology.md)
 - [docs/runtime_runbook.md](/d:/Projects/tg_post_analyzer/docs/runtime_runbook.md)
 - [docs/multi_agent_rollout_checklist.md](/d:/Projects/tg_post_analyzer/docs/multi_agent_rollout_checklist.md)
+
+## Авторизация Telegram Pipeline
+
+`telegram_pipeline` использует Telethon и требует валидную session-сессию для работы с Telegram API. Авторизация выполняется **один раз**, а полученный session-файл переиспользуется при последующих запусках.
+
+### Первичная авторизация (интерактивный вход)
+
+Session-файл создаётся отдельным запуском с флагом `--authorize`. Этот режим требует TTY (интерактивный терминал), потому что Telethon запрашивает номер телефона и код подтверждения из stdin.
+
+**В Docker:**
+
+```bash
+docker compose run --rm telegram_pipeline python scripts/run_telegram_pipeline.py --authorize
+```
+
+**Локально (без Docker):**
+
+```bash
+python scripts/run_telegram_pipeline.py --authorize
+```
+
+Флаг `--authorize` — это отдельная одноразовая операция. Его **не нужно** добавлять в `command` сервиса или в обычные запуски pipeline.
+
+После успешного входа скрипт сохраняет session-файл в named volume `tg_session` (внутри контейнера — `/app/runtime/tg_analytics.session`) и завершается. Контейнер с флагом `--rm` удаляется, но session остаётся в volume и переживает перезапуски.
+
+### Обычный запуск pipeline
+
+После создания session-файла pipeline запускается в обычном демон-режиме:
+
+```bash
+docker compose up telegram_pipeline
+```
+
+При старте pipeline:
+
+1. Подключается к Telegram без попытки интерактивного входа.
+2. Проверяет `is_user_authorized()`.
+3. Если сессия валидна — сразу запускает `run_telegram_cycle`.
+4. Если сессия невалидна — **не падает и не пытается запросить ввод**, а переходит в режим ожидания: раз в 30 секунд проверяет статус авторизации и пишет в лог инструкцию запустить `--authorize`. Как только сессия станет валидной, pipeline автоматически начнёт работу.
+
+Это делает поведение `telegram_pipeline` в Docker безопасным: отсутствие авторизации не приводит к `EOFError` и не роняет контейнер, а переводит его в детерминированный "ждущий" режим.
+
+### Частые проблемы
+
+- **`EOFError: EOF when reading a line`** при старте без `--authorize` — означает, что session-файл отсутствует или невалиден, а `client.start()` пытается запросить ввод в неинтерактивной среде. Решение: выполнить `--authorize`-запуск (см. выше).
+- **Хотите переавторизоваться** (например, сменился номер телефона или сессия протухла):
+
+  ```bash
+  docker compose run --rm telegram_pipeline \
+    sh -c "rm -f /app/runtime/tg_analytics.session* && \
+           python scripts/run_telegram_pipeline.py --authorize"
+  ```
+
+### Безопасность session-файла
+
+Session-файл Telethon содержит ключи авторизации от вашего Telegram-аккаунта. Он не должен попадать в git или в общий доступ. `*.session` уже исключён через `.gitignore` и `.dockerignore`. В Docker session хранится в named volume `tg_session`, который не публикуется наружу.
 
 ## Report language normalization
 
@@ -350,12 +407,16 @@ copy .env.example .env
 docker compose up --build
 ```
 
-Because `docker-compose.override.yml` is included, the local Docker run already overrides:
+Before the first run of `telegram_pipeline`, authorize the Telegram session once:
 
-- container DB host to `postgres`
-- URL-encoded database password for asyncpg DSN
-- `REPORT_LLM_BASE_URL` to `http://host.docker.internal:11434`
-- Telethon session path to `/app/runtime/tg_analytics.session`
+```bash
+docker compose run --rm telegram_pipeline \
+  python scripts/run_telegram_pipeline.py --authorize
+```
+
+See [Авторизация Telegram Pipeline](#авторизация-telegram-pipeline) for details.
+
+Because `docker-compose.override.yml` is included, the local Docker run overrides `REPORT_LLM_BASE_URL` to `http://ollama:11434` for all app services. All other container-specific values (DB host, Telethon session path) are already defined in the base `docker-compose.yml` via `DOCKER_*` variables.
 
 After startup:
 
@@ -365,8 +426,7 @@ After startup:
 Important Docker-specific notes:
 
 - Inside containers, `localhost` does not point to your host machine.
-- `telegram_pipeline` stores the Telethon session in the named volume `tg_session` using `/app/runtime/tg_analytics.session`.
-- `ai_pipeline` defaults `REPORT_LLM_BASE_URL` to `http://host.docker.internal:11434`; override it with `DOCKER_REPORT_LLM_BASE_URL` if your LLM endpoint lives elsewhere.
+- `telegram_pipeline` stores the Telethon session in the named volume `tg_session` using `/app/runtime/tg_analytics.session`. See [Авторизация Telegram Pipeline](#авторизация-telegram-pipeline).
 - If you want environment-specific overrides, keep them in `docker-compose.override.yml` or switch to `DOCKER_*` variables in `.env`.
 
 Example Docker overrides for `.env`:
@@ -374,8 +434,6 @@ Example Docker overrides for `.env`:
 ```env
 DOCKER_DB_URL=postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics
 DOCKER_TEST_DATABASE_URL=postgresql+asyncpg://tg_analytics_app:replace-with-url-encoded-password@postgres:5432/tg_analytics_test
-DOCKER_REPORT_LLM_BASE_URL=http://host.docker.internal:11434
-DOCKER_TG_SESSION_NAME=/app/runtime/tg_analytics.session
 ```
 
 Useful commands:
@@ -399,6 +457,8 @@ Note: the Docker migration service uses `alembic upgrade heads` because the curr
   - `scripts/run_scheduler.py`
   - `scripts/run_telegram_pipeline.py`
   - `scripts/run_ai_pipeline.py`
+- Одноразовые runtime-операции:
+  - `scripts/run_telegram_pipeline.py --authorize` — интерактивный вход в Telegram для создания session-файла (см. раздел [Авторизация Telegram Pipeline](#авторизация-telegram-pipeline))
 - Канонические test/support entrypoint-ы:
   - `scripts/test_bootstrap_backend.py` для подготовки integration DB
 - Manual ops-only / diagnostic scripts:
@@ -423,3 +483,4 @@ Compatibility / legacy surface, intentionally retained:
 
 - `main.py` — deprecated compatibility entrypoint; использовать вместо него `python scripts/run_telegram_pipeline.py`
 - `/api/links/*` в `api/routers/links.py` — deprecated compatibility bridge к canonical linking routes
+```

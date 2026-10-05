@@ -176,6 +176,7 @@ class NoLlmLinkingPipeline:
                 links_rejected += 1
 
         return LinkRunResponse(
+            status="ok",
             post_id=prepared_post.id,
             links_verified=links_verified,
             links_proposed=0,

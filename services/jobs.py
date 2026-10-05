@@ -9,20 +9,19 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Job, JobDeadLetter
-
-JOB_STATUS_PENDING = "pending"
-JOB_STATUS_RUNNING = "running"
-JOB_STATUS_DONE = "done"
-JOB_STATUS_FAILED = "failed"
-ACTIVE_JOB_STATUSES = (JOB_STATUS_PENDING, JOB_STATUS_RUNNING)
-JOB_RESULT_KEY = "_job_result"
-DEFAULT_REPORT_DEDUPE_WINDOW_SECONDS = 60 * 60
-
-REPORT_JOB_TYPES_BY_ENTITY = {
-    "post": "build_post_report",
-    "event": "build_event_report",
-    "process": "build_process_report",
-}
+from schemas.job_result import (
+    AddChannelJobResult,
+    BuildPostLinksJobResult,
+    CommentRefreshJobResult,
+    DeferredJobResult,
+    EventReportJobResult,
+    MaintenanceJobResult,
+    PostReportBatchJobResult,
+    PostReportJobResult,
+    ProcessReportJobResult,
+    RebuildEventsJobResult,
+    RebuildProcessesJobResult,
+)
 
 
 @dataclass(frozen=True)
@@ -39,6 +38,36 @@ class JobType:
     BUILD_PROCESS_REPORT: str = "build_process_report"
     ARCHIVE_RETENTION: str = "archive_retention"
     JOBS_RETENTION: str = "jobs_retention"
+
+_DEFERRED_STATUS_VALUE = "deferred_waiting_dependencies"
+JOB_STATUS_PENDING = "pending"
+JOB_STATUS_RUNNING = "running"
+JOB_STATUS_DONE = "done"
+JOB_STATUS_FAILED = "failed"
+ACTIVE_JOB_STATUSES = (JOB_STATUS_PENDING, JOB_STATUS_RUNNING)
+JOB_RESULT_KEY = "_job_result"
+DEFAULT_REPORT_DEDUPE_WINDOW_SECONDS = 60 * 60
+
+REPORT_JOB_TYPES_BY_ENTITY = {
+    "post": "build_post_report",
+    "event": "build_event_report",
+    "process": "build_process_report",
+}
+
+JOB_RESULT_SCHEMAS: dict[str, type] = {
+    JobType.ADD_CHANNEL: AddChannelJobResult,
+    JobType.BUILD_POST_LINKS: BuildPostLinksJobResult,
+    JobType.BUILD_POST_REPORT: PostReportJobResult,
+    JobType.BUILD_POST_REPORT_BATCH: PostReportBatchJobResult,
+    JobType.BUILD_EVENT_REPORT: EventReportJobResult,
+    JobType.BUILD_PROCESS_REPORT: ProcessReportJobResult,
+    JobType.COLLECT_COMMENTS: CommentRefreshJobResult,
+    JobType.REFRESH_COMMENTS: CommentRefreshJobResult,
+    JobType.REBUILD_EVENTS: RebuildEventsJobResult,
+    JobType.REBUILD_PROCESSES: RebuildProcessesJobResult,
+    JobType.ARCHIVE_RETENTION: MaintenanceJobResult,
+    JobType.JOBS_RETENTION: MaintenanceJobResult,
+}
 
 
 def utcnow() -> datetime:
@@ -162,6 +191,27 @@ async def enqueue_job(
 
 
 def set_job_result(job: Job, result: dict) -> None:
+    """Сохраняет результат job в payload_json, валидируя по схеме job.type.
+
+    Схема намеренно с extra="allow", чтобы новые диагностические поля
+    не требовали немедленного обновления контракта. Но обязательные
+    поля (status + известные id) теперь гарантированы.
+
+    Deferred-статус обрабатывается отдельной схемой DeferredJobResult,
+    потому что семантически это не результат, а запрос на повторный
+    запуск после разблокировки зависимостей.
+    """
+    
+    status = str(result.get("status") or "")
+    if status == _DEFERRED_STATUS_VALUE:
+        schema: type | None = DeferredJobResult
+    else:
+        schema = JOB_RESULT_SCHEMAS.get(str(job.type))
+
+    if schema is not None:
+        validated = schema.model_validate(result)
+        result = validated.model_dump()
+
     payload = dict(job.payload_json or {})
     payload[JOB_RESULT_KEY] = result
     job.payload_json = payload

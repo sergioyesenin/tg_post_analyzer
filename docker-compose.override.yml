@@ -15,7 +15,6 @@ services:
     environment:
       REPORT_LLM_BASE_URL: http://ollama:11434
       #TG_SESSION_NAME: /app/runtime/tg_analytics.session
-      TG_SESSION_NAME: /app/runtime/tg_analytics_new.session
 
   ai_pipeline:
     environment:

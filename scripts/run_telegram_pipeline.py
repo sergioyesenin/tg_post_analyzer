@@ -47,8 +47,83 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--retention-days", type=int, default=None)
     parser.add_argument("--archive-batch-size", type=int, default=None)
     parser.add_argument("--skip-rebuild-graphs", action="store_true")
+    parser.add_argument(
+        "--authorize",
+        action="store_true",
+        help="Run interactive Telegram authorization and exit. Use this once to create a session file.",
+    )
     return parser
 
+async def _heartbeat_loop(*, worker_id: str, jobs_provider) -> None:
+    while True:
+        await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
+        await persist_runtime_heartbeat(
+            runtime_name=TELEGRAM_PIPELINE_RUNTIME.runtime_name,
+            status="running",
+            details={"worker_id": worker_id, "job_types": jobs_provider(), "pid": os.getpid()},
+        )
+
+
+async def _run_interactive_authorization(client) -> None:
+    """
+    Выполняет интерактивную авторизацию Telethon.
+    Запрашивает номер телефона (или bot token) и код подтверждения из stdin.
+    После успеха сохраняет session-файл и возвращает управление.
+    """
+    logging.info("Starting interactive Telegram authorization...")
+    logging.info("You will be prompted for your phone number (or bot token) and the confirmation code.")
+
+    # client.start() сам разберётся: если сессия уже валидна — ничего не спросит.
+    # Если нет — запросит phone и code.
+    try:
+        await client.start()
+    except EOFError as exc:
+        logging.error(
+            "Interactive authorization failed: stdin is not available. "
+            "Run this command with an interactive terminal (e.g. `docker compose run --rm telegram_pipeline "
+            "python scripts/run_telegram_pipeline.py --authorize`)."
+        )
+        raise SystemExit(2) from exc
+
+    if not await client.is_user_authorized():
+        logging.error("Authorization did not complete: session is still not authorized.")
+        raise SystemExit(3)
+
+    me = await client.get_me()
+    logging.info(
+        "Interactive authorization successful: user_id=%s username=%s",
+        getattr(me, "id", None),
+        getattr(me, "username", None),
+    )
+
+
+async def _wait_for_telegram_authorization(client, *, worker_id: str) -> None:
+    """
+    Демон-режим: не авторизует сам, а ждёт, пока сессия станет валидной.
+    Периодически проверяет статус и пишет в лог.
+    """
+    if await client.is_user_authorized():
+        logging.info("Telegram session is already authorized.")
+        return
+
+    logging.warning(
+        "Telegram session is NOT authorized. "
+        "The pipeline will wait for authorization. "
+        "Run interactive authorization in a separate terminal, for example: "
+        "`docker compose run --rm telegram_pipeline python scripts/run_telegram_pipeline.py --authorize`"
+    )
+
+    while not await client.is_user_authorized():
+        try:
+            if not client.is_connected():
+                logging.warning("Telegram client disconnected. Reconnecting...")
+                await with_session_lock_retry(lambda: client.connect(), op_name="client.reconnect")
+            await asyncio.sleep(30)
+        except Exception as exc:
+            logging.error("Error while waiting for Telegram authorization: %r", exc, exc_info=True)
+            await asyncio.sleep(60)
+
+    logging.info("Telegram session has been authorized. Starting the main pipeline.")
 
 async def main_async(args: argparse.Namespace) -> None:
     client = build_tg_client(
@@ -56,7 +131,26 @@ async def main_async(args: argparse.Namespace) -> None:
         unique_session_per_run=args.unique_session_per_run,
     )
     worker_id = build_worker_id("tg-pipeline")
-    await with_session_lock_retry(lambda: client.start(), op_name="client.start")
+
+    # === ВЕТКА 1: интерактивная авторизация ===
+    if args.authorize:
+        try:
+            await with_session_lock_retry(lambda: client.connect(), op_name="client.connect")
+            await _run_interactive_authorization(client)
+        finally:
+            try:
+                await with_session_lock_retry(lambda: client.disconnect(), op_name="client.disconnect")
+            except sqlite3.OperationalError as exc:
+                if is_session_locked_error(exc):
+                    logging.warning("Telethon session is locked during disconnect, ignored: %r", exc)
+                else:
+                    raise
+        return
+
+    # === ВЕТКА 2: обычный запуск pipeline ===
+    await with_session_lock_retry(lambda: client.connect(), op_name="client.connect")
+    await _wait_for_telegram_authorization(client, worker_id=worker_id)
+
     heartbeat_task = asyncio.create_task(
         _heartbeat_loop(worker_id=worker_id, jobs_provider=lambda: sorted(TELEGRAM_JOB_TYPES))
     )
@@ -116,16 +210,6 @@ async def main_async(args: argparse.Namespace) -> None:
                 logging.warning("Telethon session is locked during disconnect, ignored: %r", exc)
             else:
                 raise
-
-
-async def _heartbeat_loop(*, worker_id: str, jobs_provider) -> None:
-    while True:
-        await asyncio.sleep(HEARTBEAT_INTERVAL_SECONDS)
-        await persist_runtime_heartbeat(
-            runtime_name=TELEGRAM_PIPELINE_RUNTIME.runtime_name,
-            status="running",
-            details={"worker_id": worker_id, "job_types": jobs_provider(), "pid": os.getpid()},
-        )
 
 
 def main() -> None:

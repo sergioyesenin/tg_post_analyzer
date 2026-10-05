@@ -38,9 +38,13 @@ from services.reporting import (
     build_event_report_draft,
     build_post_report,
     build_process_report_draft,
+)
+
+from services.pipeline_runtime import (
     _mark_related_event_reports_stale,
     _mark_related_process_reports_stale,
 )
+
 from services.settings_store import get_all_settings, report_config_from_settings
 
 logger = logging.getLogger(__name__)

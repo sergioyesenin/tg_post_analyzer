@@ -22,3 +22,4 @@ websockets
 tzdata
 psycopg2-binary>=2.9.0
 lxml_html_clean
+sqlalchemy[asyncio]

@@ -1,18 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Channel, Job
+from db.models import Channel
 from deps import get_session, require_roles
 from schemas.channel import ChannelIn, ChannelOut, ChannelUpdate
 from services.auth import AuthUser, write_audit_log
 from services.channel_management import normalize_channel_identifier
-from services.jobs import JOB_STATUS_PENDING, JOB_STATUS_RUNNING, JobType, enqueue_job
+from services.jobs import JobType, enqueue_job
+from services.queries import channels as channel_queries
 
 router = APIRouter()
 
 
-def _serialize_accepted_job(job: Job) -> dict:
+def _serialize_accepted_job(job) -> dict:
     return {
         "status": "queued",
         "job_id": job.id,
@@ -22,28 +22,12 @@ def _serialize_accepted_job(job: Job) -> dict:
     }
 
 
-async def _find_inflight_add_channel_job(session: AsyncSession, *, normalized_username: str) -> Job | None:
-    stmt = (
-        select(Job)
-        .where(Job.type == JobType.ADD_CHANNEL)
-        .where(Job.status.in_((JOB_STATUS_PENDING, JOB_STATUS_RUNNING)))
-        .order_by(Job.created_at.desc(), Job.id.desc())
-    )
-    jobs = (await session.execute(stmt)).scalars().all()
-    for job in jobs:
-        payload = job.payload_json or {}
-        if str(payload.get("username") or "").strip().lower() == normalized_username.lower():
-            return job
-    return None
-
-
 @router.get("/", response_model=list[ChannelOut])
 async def list_channels(
     _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
-    result = await session.execute(select(Channel))
-    return result.scalars().all()
+    return await channel_queries.list_all_channels(session)
 
 
 @router.post("/add", status_code=status.HTTP_202_ACCEPTED)
@@ -57,7 +41,10 @@ async def add_channel(
     if not normalized_username:
         raise HTTPException(status_code=400, detail="Channel username is required")
 
-    inflight_job = await _find_inflight_add_channel_job(session, normalized_username=normalized_username)
+    inflight_job = await channel_queries.find_inflight_add_channel_job(
+        session,
+        normalized_username=normalized_username,
+    )
     if inflight_job is not None:
         return _serialize_accepted_job(inflight_job)
 

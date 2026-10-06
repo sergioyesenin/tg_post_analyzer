@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import Job, JobDeadLetter
 from deps import get_session, require_roles
 from services.auth import AuthUser, write_audit_log
 from services.jobs import JobType, enqueue_job, get_job_result
+from services.queries import jobs as job_queries
 
 router = APIRouter()
 
@@ -36,13 +36,7 @@ async def jobs_summary(
     _: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    rows = (
-        await session.execute(
-            select(Job.status, func.count(Job.id))
-            .group_by(Job.status)
-            .order_by(Job.status.asc())
-        )
-    ).all()
+    rows = await job_queries.summarize_jobs_by_status(session)
     return {
         "total": int(sum(count for _, count in rows)),
         "by_status": {status: int(count) for status, count in rows},
@@ -55,13 +49,7 @@ async def jobs_pending(
     _: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    stmt = (
-        select(Job)
-        .where(Job.status.in_(("pending", "running", "failed")))
-        .order_by(Job.priority.asc(), Job.run_at.asc(), Job.id.asc())
-        .limit(limit)
-    )
-    jobs = (await session.execute(stmt)).scalars().all()
+    jobs = await job_queries.list_pending_jobs(session, limit=limit)
     return [
         {
             "id": job.id,
@@ -85,12 +73,7 @@ async def jobs_dead_letter(
     _: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    stmt = (
-        select(JobDeadLetter)
-        .order_by(JobDeadLetter.failed_at.desc(), JobDeadLetter.id.desc())
-        .limit(limit)
-    )
-    rows = (await session.execute(stmt)).scalars().all()
+    rows = await job_queries.list_dead_letters(session, limit=limit)
     return [
         {
             "id": row.id,
@@ -124,7 +107,7 @@ async def retry_dead_letter_job(
         max_attempts=int(dead_row.max_attempts or 5),
         dedupe_key=None,
     )
-    await session.execute(delete(JobDeadLetter).where(JobDeadLetter.id == dead_letter_id))
+    await job_queries.delete_dead_letter(session, dead_letter_id=dead_letter_id)
     await write_audit_log(
         session,
         action="jobs.dead_letter.retry",

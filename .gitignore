@@ -96,3 +96,5 @@ docker-data/
 
 pytest_run.txt
 pytest_collected.txt
+
+*.txt

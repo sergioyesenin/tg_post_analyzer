@@ -5,15 +5,14 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, WebSocket
 from starlette.websockets import WebSocketDisconnect, WebSocketState
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 from uvicorn.protocols.utils import ClientDisconnected
 
-from db.models import Job, User
+from db.models import User
 from deps import get_session
 from services.auth import decode_access_token
 from services.jobs import JOB_STATUS_DONE, JOB_STATUS_FAILED, JOB_STATUS_PENDING, JOB_STATUS_RUNNING, get_job_result
+from services.queries import jobs as job_queries
 
 router = APIRouter()
 
@@ -43,8 +42,7 @@ async def _resolve_current_user(session: AsyncSession, *, access_token: str | No
     return user
 
 
-def _extract_entity(job: Job) -> tuple[str | None, int | None]:
-    # Этот вызов безопасен, так как атрибуты подгружены через selectinload.
+def _extract_entity(job) -> tuple[str | None, int | None]:
     entity_type = REPORT_JOB_TYPES.get(str(job.type))
     payload = dict(job.payload_json or {})
     if entity_type == "post":
@@ -79,11 +77,9 @@ async def _resolve_report_job(
     expected_entity_type: str | None,
     expected_entity_id: int | None,
     current_user_id: int,
-) -> Job | None:
-    # Явно подгружаем ленивые атрибуты (type, payload_json, result)
+):
     if request_id is not None:
-        stmt = select(Job).where(Job.id == request_id)
-        return (await session.execute(stmt)).scalar_one_or_none()
+        return await job_queries.get_job_by_id(session, job_id=request_id)
 
     if expected_entity_type is None or expected_entity_id is None:
         return None
@@ -94,13 +90,11 @@ async def _resolve_report_job(
     if report_job_type is None:
         return None
 
-    stmt = (
-        select(Job)
-        .where(Job.type == report_job_type)
-        .order_by(Job.created_at.desc(), Job.id.desc())
-        .limit(100)
+    candidates = await job_queries.list_recent_report_jobs(
+        session,
+        job_type=report_job_type,
+        limit=100,
     )
-    candidates = (await session.execute(stmt)).scalars().all()
     for candidate in candidates:
         payload = dict(candidate.payload_json or {})
         if _safe_int(payload.get("requested_by_user_id")) != current_user_id:
@@ -111,7 +105,7 @@ async def _resolve_report_job(
     return None
 
 
-def _job_is_blocked(*, job: Job, result: dict) -> bool:
+def _job_is_blocked(*, job, result: dict) -> bool:
     markers = [
         str(result.get("status") or ""),
         str(result.get("reason") or ""),
@@ -121,15 +115,14 @@ def _job_is_blocked(*, job: Job, result: dict) -> bool:
     return any("blocked" in marker.lower() for marker in markers if marker)
 
 
-def _job_timestamp(job: Job) -> str:
+def _job_timestamp(job) -> str:
     value = job.updated_at or job.created_at or _utcnow()
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.isoformat()
 
 
-def _build_progress_event(job: Job) -> dict | None:
-    # Атрибуты type и payload_json уже загружены через selectinload
+def _build_progress_event(job) -> dict | None:
     entity_type, entity_id = _extract_entity(job)
     if entity_type is None or entity_id is None:
         return None
@@ -275,9 +268,7 @@ async def report_progress_websocket(
 
     try:
         while True:
-            # Всегда подгружаем ленивые атрибуты при каждом опросе
-            stmt = select(Job).where(Job.id == request_id)
-            job = (await session.execute(stmt)).scalar_one_or_none()
+            job = await job_queries.get_job_by_id(session, job_id=request_id)
             if job is None:
                 await _safe_close_websocket(websocket, code=4404, reason="Report request not found")
                 return

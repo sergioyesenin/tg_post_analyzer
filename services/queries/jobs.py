@@ -54,3 +54,17 @@ async def delete_dead_letter(
     dead_letter_id: int,
 ) -> None:
     await session.execute(delete(JobDeadLetter).where(JobDeadLetter.id == dead_letter_id))
+
+async def list_recent_report_jobs(
+    session: AsyncSession,
+    *,
+    job_type: str,
+    limit: int = 100,
+) -> list[Job]:
+    stmt = (
+        select(Job)
+        .where(Job.type == job_type)
+        .order_by(Job.created_at.desc(), Job.id.desc())
+        .limit(limit)
+    )
+    return list((await session.execute(stmt)).scalars().all())

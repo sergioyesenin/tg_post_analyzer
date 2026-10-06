@@ -8,19 +8,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import Select, and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from deps import get_session, require_roles
-from db.models import (
-    Channel,
-    Event,
-    EventReport,
-    Post,
-    Process,
-    ProcessReport,
-    Report,
-)
+from db.models import Event, Post, Process
 from api.public_report_boundary import to_public_report_out
 from schemas.query_params import CsvIntList, CsvStrList
 from schemas.report import ReportOut, ReportTraceOut
@@ -32,6 +23,7 @@ from services.orchestration import (
     enqueue_post_report_batch_job,
     enqueue_process_report_job,
 )
+from services.queries import reports as report_queries
 from services.reporting import canonicalize_multi_agent_trace, report_status_from_payload
 
 router = APIRouter()
@@ -102,31 +94,6 @@ def _batch_job_accepted_response(*, job_id: int, job_type: str, filters: dict) -
     }
     return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=jsonable_encoder(payload))
 
-def _build_post_reports_stmt(
-    *,
-    channel_ids: list[int],
-    categories: list[str],
-    date_from: datetime | None,
-    date_to: datetime | None,
-) -> Select:
-    stmt = (
-        select(Report, Post, Channel)
-        .join(Post, Post.id == Report.post_id)
-        .join(Channel, Channel.id == Post.channel_id)
-    )
-    conditions = []
-    if channel_ids:
-        conditions.append(Post.channel_id.in_(channel_ids))
-    if categories:
-        conditions.append(Channel.category.in_(categories))
-    if date_from is not None:
-        conditions.append(Post.date >= date_from)
-    if date_to is not None:
-        conditions.append(Post.date <= date_to)
-    if conditions:
-        stmt = stmt.where(and_(*conditions))
-    return stmt.order_by(Post.date.desc(), Report.id.desc())
-
 
 def _csv_response(*, filename: str, rows: list[dict], fieldnames: list[str]) -> StreamingResponse:
     buf = io.StringIO()
@@ -140,20 +107,16 @@ def _csv_response(*, filename: str, rows: list[dict], fieldnames: list[str]) -> 
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
+
 @router.get("/post/{post_id}", response_model=ReportOut)
 async def get_report(
     post_id: int,
     _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
-    result = await session.execute(
-        select(Report).where(Report.post_id == post_id)
-    )
-    report = result.scalar_one_or_none()
-
+    report = await report_queries.get_post_report_by_post_id(session, post_id=post_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
-
     return to_public_report_out(report)
 
 
@@ -163,10 +126,7 @@ async def get_post_report_trace(
     _: AuthUser = Depends(require_roles("admin", "analyst")),
     session: AsyncSession = Depends(get_session),
 ):
-    result = await session.execute(
-        select(Report).where(Report.post_id == post_id).order_by(Report.created_at.desc(), Report.id.desc())
-    )
-    report = result.scalar_one_or_none()
+    report = await report_queries.get_latest_post_report_for_trace(session, post_id=post_id)
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
 
@@ -191,12 +151,7 @@ async def get_event_report_trace(
     _: AuthUser = Depends(require_roles("admin", "analyst")),
     session: AsyncSession = Depends(get_session),
 ):
-    result = await session.execute(
-        select(EventReport)
-        .where(EventReport.event_id == event_id)
-        .order_by(EventReport.version.desc(), EventReport.id.desc())
-    )
-    report = result.scalar_one_or_none()
+    report = await report_queries.get_latest_event_report_for_trace(session, event_id=event_id)
     if not report:
         raise HTTPException(status_code=404, detail="Event report not found")
 
@@ -253,13 +208,15 @@ async def list_post_reports(
     _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
-    stmt = _build_post_reports_stmt(
+    rows = await report_queries.list_post_reports(
+        session,
         channel_ids=channel_ids,
         categories=categories,
         date_from=date_from,
         date_to=date_to,
-    ).limit(limit).offset(offset)
-    rows = (await session.execute(stmt)).all()
+        limit=limit,
+        offset=offset,
+    )
     return [
         {
             "report_id": report.id,
@@ -286,13 +243,14 @@ async def export_post_reports(
     _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
-    stmt = _build_post_reports_stmt(
+    rows = await report_queries.export_post_reports(
+        session,
         channel_ids=channel_ids,
         categories=categories,
         date_from=date_from,
         date_to=date_to,
-    ).limit(limit)
-    rows = (await session.execute(stmt)).all()
+        limit=limit,
+    )
 
     items = [
         {
@@ -338,18 +296,14 @@ async def list_event_reports(
     _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
-    stmt = (
-        select(EventReport, Event)
-        .join(Event, Event.id == EventReport.event_id)
-        .order_by(EventReport.created_at.desc(), EventReport.id.desc())
+    rows = await report_queries.list_event_reports(
+        session,
+        event_id=event_id,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+        offset=offset,
     )
-    if event_id is not None:
-        stmt = stmt.where(EventReport.event_id == event_id)
-    if date_from is not None:
-        stmt = stmt.where(EventReport.created_at >= date_from)
-    if date_to is not None:
-        stmt = stmt.where(EventReport.created_at <= date_to)
-    rows = (await session.execute(stmt.limit(limit).offset(offset))).all()
     return [
         {
             "report_id": report.id,
@@ -373,18 +327,13 @@ async def export_event_reports(
     _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
-    stmt = (
-        select(EventReport, Event)
-        .join(Event, Event.id == EventReport.event_id)
-        .order_by(EventReport.created_at.desc(), EventReport.id.desc())
+    rows = await report_queries.export_event_reports(
+        session,
+        event_id=event_id,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
     )
-    if event_id is not None:
-        stmt = stmt.where(EventReport.event_id == event_id)
-    if date_from is not None:
-        stmt = stmt.where(EventReport.created_at >= date_from)
-    if date_to is not None:
-        stmt = stmt.where(EventReport.created_at <= date_to)
-    rows = (await session.execute(stmt.limit(limit))).all()
     items = [
         {
             "report_id": report.id,
@@ -416,18 +365,14 @@ async def list_process_reports(
     _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
-    stmt = (
-        select(ProcessReport, Process)
-        .join(Process, Process.id == ProcessReport.process_id)
-        .order_by(ProcessReport.created_at.desc(), ProcessReport.id.desc())
+    rows = await report_queries.list_process_reports(
+        session,
+        process_id=process_id,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
+        offset=offset,
     )
-    if process_id is not None:
-        stmt = stmt.where(ProcessReport.process_id == process_id)
-    if date_from is not None:
-        stmt = stmt.where(ProcessReport.created_at >= date_from)
-    if date_to is not None:
-        stmt = stmt.where(ProcessReport.created_at <= date_to)
-    rows = (await session.execute(stmt.limit(limit).offset(offset))).all()
     return [
         {
             "report_id": report.id,
@@ -451,18 +396,13 @@ async def export_process_reports(
     _: AuthUser = Depends(require_roles("admin", "analyst", "viewer")),
     session: AsyncSession = Depends(get_session),
 ):
-    stmt = (
-        select(ProcessReport, Process)
-        .join(Process, Process.id == ProcessReport.process_id)
-        .order_by(ProcessReport.created_at.desc(), ProcessReport.id.desc())
+    rows = await report_queries.export_process_reports(
+        session,
+        process_id=process_id,
+        date_from=date_from,
+        date_to=date_to,
+        limit=limit,
     )
-    if process_id is not None:
-        stmt = stmt.where(ProcessReport.process_id == process_id)
-    if date_from is not None:
-        stmt = stmt.where(ProcessReport.created_at >= date_from)
-    if date_to is not None:
-        stmt = stmt.where(ProcessReport.created_at <= date_to)
-    rows = (await session.execute(stmt.limit(limit))).all()
     items = [
         {
             "report_id": report.id,

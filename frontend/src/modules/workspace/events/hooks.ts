@@ -6,8 +6,8 @@ import { serializeDashboardFilters } from '@shared/dashboard/filters';
 import { dashboardQueryKeys } from '@shared/dashboard/query-keys';
 import { useAsyncJobAction } from '@shared/jobs/hooks';
 import { keepPreviousData } from '@shared/query/placeholder-data';
-import { searchPostsByKeyword } from '@modules/keyword-graph/api';
-import type { KeywordSearchFilters } from '@modules/keyword-graph/contracts';
+import { searchPostsByKeyword } from '@shared/search/api';
+import type { KeywordSearchFilters } from '@shared/search/contracts';
 import { getEventGraph, getEventsDashboard, updateEventReport } from '@modules/workspace/events/api';
 
 function getEventsSnapshotFilters(filters: EventsDashboardFiltersDto): EventsDashboardFiltersDto {

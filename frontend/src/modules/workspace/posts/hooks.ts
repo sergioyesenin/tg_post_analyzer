@@ -4,8 +4,8 @@ import type { PostsDashboardFiltersDto } from '@shared/dashboard/contracts';
 import { serializeDashboardFilters } from '@shared/dashboard/filters';
 import { dashboardQueryKeys } from '@shared/dashboard/query-keys';
 import { keepPreviousData } from '@shared/query/placeholder-data';
-import { searchPostsByKeyword } from '@modules/keyword-graph/api';
-import type { KeywordSearchFilters } from '@modules/keyword-graph/contracts';
+import { searchPostsByKeyword } from '@shared/search/api';
+import type { KeywordSearchFilters } from '@shared/search/contracts';
 import { getPostsDashboard } from '@modules/workspace/posts/api';
 
 function getPostsSnapshotFilters(filters: PostsDashboardFiltersDto): PostsDashboardFiltersDto {

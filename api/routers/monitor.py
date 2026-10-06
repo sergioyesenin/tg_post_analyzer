@@ -1,11 +1,10 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import select, func, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta, timezone
 
 from deps import get_session, require_roles
 from services.settings_store import get_all_settings
-from db.models import Post, Comment
 from services.auth import AuthUser
 from services.monitoring import (
     activity_snapshot,
@@ -18,8 +17,10 @@ from services.monitoring import (
     scheduler_snapshot,
     system_snapshot,
 )
+from services.queries import monitoring as monitoring_queries
 
 router = APIRouter()
+
 
 @router.get("/summary")
 async def monitor_summary(
@@ -28,13 +29,8 @@ async def monitor_summary(
 ):
     since = datetime.now(timezone.utc) - timedelta(hours=24)
 
-    posts_count = await session.scalar(
-        select(func.count()).select_from(Post).where(Post.date >= since)
-    )
-
-    comments_count = await session.scalar(
-        select(func.count()).select_from(Comment).where(Comment.date >= since)
-    )
+    posts_count = await monitoring_queries.count_posts_since(session, since=since)
+    comments_count = await monitoring_queries.count_comments_since(session, since=since)
 
     return {
         "posts_last_24h": posts_count,

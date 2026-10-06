@@ -1,14 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import AppSetting
 from deps import get_session, require_roles
 from schemas.settings import AppSettingOut, AppSettingUpdateIn
 from services.auth import AuthUser, write_audit_log
 from services.settings_store import DEFAULT_SETTINGS, get_all_settings, is_internal_setting_key, upsert_setting
 from services.settings_validation import validate_setting_payload
+from services.queries import settings as settings_queries
 
 router = APIRouter()
 
@@ -18,7 +17,7 @@ async def list_settings(
     _: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    rows = (await session.execute(select(AppSetting).order_by(AppSetting.key.asc()))).scalars().all()
+    rows = await settings_queries.list_all_settings(session)
     return [
         AppSettingOut(
             key=row.key,

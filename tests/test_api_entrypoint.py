@@ -15,7 +15,7 @@ def _import_api_app(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("APP_TZ", "UTC")
     monkeypatch.setenv("AUTH_JWT_SECRET", STRONG_TEST_JWT_SECRET)
 
-    for module_name in ("config", "db.session", "api.main", "man"):
+    for module_name in ("config", "db.session", "api.main"):
         sys.modules.pop(module_name, None)
 
     return importlib.import_module("api.main")
@@ -57,9 +57,3 @@ def test_frontend_routes_serve_react_spa_and_do_not_shadow_api(monkeypatch: pyte
 
     api_response = client.get("/api/route-that-does-not-exist")
     assert api_response.status_code == 404
-
-
-def test_legacy_man_entrypoint_reuses_canonical_app(monkeypatch: pytest.MonkeyPatch):
-    api_main = _import_api_app(monkeypatch)
-    legacy_module = importlib.import_module("man")
-    assert legacy_module.app is api_main.app

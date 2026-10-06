@@ -1,7 +1,6 @@
 import hashlib
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +22,7 @@ from services.auth import (
     write_audit_log,
 )
 from services.auth_rate_limit import auth_rate_limiter
+from services.queries import auth as auth_queries
 
 router = APIRouter()
 
@@ -229,7 +229,7 @@ async def list_users(
     _: AuthUser = Depends(require_roles("admin")),
     session: AsyncSession = Depends(get_session),
 ):
-    users = (await session.execute(select(User).order_by(User.id.asc()))).scalars().all()
+    users = await auth_queries.list_all_users(session)
     roles_map = await get_user_roles_map(session, [user.id for user in users])
     return [_serialize_user_with_roles(user, roles_map) for user in users]
 
@@ -243,11 +243,11 @@ async def create_user(
     normalized_username = data.username.strip()
     normalized_email = data.email.strip() if data.email is not None else None
 
-    existing = (await session.execute(select(User).where(User.username == normalized_username))).scalar_one_or_none()
+    existing = await auth_queries.find_user_by_username(session, username=normalized_username)
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
     if normalized_email:
-        existing_email = (await session.execute(select(User).where(User.email == normalized_email))).scalar_one_or_none()
+        existing_email = await auth_queries.find_user_by_email(session, email=normalized_email)
         if existing_email is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
 

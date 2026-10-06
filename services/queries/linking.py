@@ -49,15 +49,6 @@ async def list_events_summary(
     return list((await session.execute(stmt)).scalars().all())
 
 
-async def get_post_or_none(
-    session: AsyncSession,
-    *,
-    post_id: int,
-) -> Post | None:
-    stmt = select(Post).where(Post.id == post_id)
-    return (await session.execute(stmt)).scalar_one_or_none()
-
-
 async def list_links_for_post(
     session: AsyncSession,
     *,

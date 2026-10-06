@@ -28,7 +28,7 @@ from services.ingest import (
     upsert_comment,
 )
 from services.involvement import compute_involvement, count_long_comments
-from services.queries import get_post_with_channel_by_post_id
+from services.queries.posts import get_post_with_channel_by_post_id
 from services.settings_defaults import get_default_setting
 from services.settings_store import get_all_settings
 from utils.serialization import to_jsonable

@@ -23,7 +23,7 @@ import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
 import { useSession } from '@app/providers/SessionProvider';
-import { useChannelsQuery } from '@modules/admin/hooks';
+import { useChannelsQuery } from '@shared/channels/hooks';
 import { EventDetailPanel } from '@modules/workspace/events/components/EventDetailPanel';
 import { EventGraphPanel } from '@modules/workspace/events/components/EventGraphPanel';
 import {

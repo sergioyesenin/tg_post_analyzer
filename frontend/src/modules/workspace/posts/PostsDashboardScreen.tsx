@@ -26,7 +26,7 @@ import { ErrorState } from '@shared/ui/states/ErrorState';
 import { ForbiddenState } from '@shared/ui/states/ForbiddenState';
 import { LoadingState } from '@shared/ui/states/LoadingState';
 import { useSession } from '@app/providers/SessionProvider';
-import { useChannelsQuery } from '@modules/admin/hooks';
+import { useChannelsQuery } from '@shared/channels/hooks';
 import { usePostsDashboardQuery, usePostsKeywordSearchQuery } from '@modules/workspace/posts/hooks';
 import {
   mapPostsDashboardToViewModel,

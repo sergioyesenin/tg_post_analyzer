@@ -4,7 +4,6 @@ import {
   addChannel,
   createUser,
   deleteChannel,
-  getChannels,
   getEffectiveSettings,
   getSettings,
   getUsers,
@@ -15,22 +14,16 @@ import {
   updateUserRoles,
 } from '@modules/admin/api';
 import type {
-  AddChannelDto,
   CreateUserDto,
   UpdateChannelDto,
   UpdateSettingDto,
   UpdateUserRolesDto,
 } from '@modules/admin/contracts';
+import type { AddChannelDto } from '@shared/channels/contracts';
 import { adminQueryKeys } from '@modules/admin/query-keys';
 import { useAsyncJobAction } from '@shared/jobs/hooks';
 
-export function useChannelsQuery() {
-  return useQuery({
-    queryKey: adminQueryKeys.channels(),
-    queryFn: getChannels,
-    retry: false,
-  });
-}
+export { useChannelsQuery } from '@shared/channels/hooks';
 
 export function useChannelMutations() {
   const queryClient = useQueryClient();

@@ -28,7 +28,7 @@ from services.ingest import (
     upsert_comment,
 )
 from services.involvement import compute_involvement, count_long_comments
-from services.queries.posts import get_post_with_channel_by_post_id
+from services.queries.posts import get_post_with_channel_by_id
 from services.settings_defaults import get_default_setting
 from services.settings_store import get_all_settings
 from utils.serialization import to_jsonable
@@ -804,7 +804,7 @@ async def update_post_comments(session: AsyncSession, post_id: int, tg_client=No
         ),
     )
 
-    row = await get_post_with_channel_by_post_id(session, post_id)
+    row = await get_post_with_channel_by_id(session, post_id=post_id)
     if row is None:
         return {"status": "not_found", "post_id": post_id, "comments_saved": 0, "commenters_count": 0}
 

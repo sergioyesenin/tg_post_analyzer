@@ -283,11 +283,11 @@ def _common_patches(monkeypatch: pytest.MonkeyPatch):
 
 
 def _patch_post_lookup(monkeypatch: pytest.MonkeyPatch, *, post, channel):
-    async def _fake_get_post_with_channel_by_post_id(_session, post_id: int):
+    async def _fake_get_post_with_channel_by_id(_session, *, post_id: int):
         assert post_id == post.id
         return post, channel
 
-    monkeypatch.setattr(tgqueries, "get_post_with_channel_by_post_id", _fake_get_post_with_channel_by_post_id)
+    monkeypatch.setattr(tgqueries, "get_post_with_channel_by_id", _fake_get_post_with_channel_by_id)
 
 
 @pytest.mark.asyncio

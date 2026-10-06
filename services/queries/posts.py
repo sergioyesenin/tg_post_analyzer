@@ -26,22 +26,6 @@ async def get_post_with_channel_by_id(
     row = (await session.execute(stmt)).first()
     return (row[0], row[1]) if row else None
 
-
-async def get_post_with_channel_by_post_id(
-    session: AsyncSession,
-    post_id: int,
-) -> tuple[Post, Channel] | None:
-    stmt = (
-        select(Post, Channel)
-        .join(Channel, Channel.id == Post.channel_id)
-        .where(Post.id == post_id)
-    )
-    result = await session.execute(stmt)
-    row = result.first()
-    if row is None:
-        return None
-    return row[0], row[1]
-
 async def list_top_posts(
     session: AsyncSession,
     *,
